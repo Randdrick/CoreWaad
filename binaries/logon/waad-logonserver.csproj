@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>logonserver</RootNamespace>
+    <RootNamespace>waad-logonserver</RootNamespace>
     <AssemblyName>waad-logonserver</AssemblyName>
   </PropertyGroup>
 
