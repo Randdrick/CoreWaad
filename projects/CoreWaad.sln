@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29411.108
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-shared", "..\binaries\shared\waad-shared.csproj", "{AD455D05-389F-4A9A-8B88-5FA0C0A495B1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-logonserver", "..\binaries\logon\waad-logonserver.csproj", "{33229C50-2528-4810-B5F1-6D8F0323566B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GitExtractor", "..\extras\GitExtractor\GitExtractor.csproj", "{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AD455D05-389F-4A9A-8B88-5FA0C0A495B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AD455D05-389F-4A9A-8B88-5FA0C0A495B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AD455D05-389F-4A9A-8B88-5FA0C0A495B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AD455D05-389F-4A9A-8B88-5FA0C0A495B1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{33229C50-2528-4810-B5F1-6D8F0323566B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{33229C50-2528-4810-B5F1-6D8F0323566B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{33229C50-2528-4810-B5F1-6D8F0323566B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{33229C50-2528-4810-B5F1-6D8F0323566B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {58283B03-8B9D-4B9A-A4A5-195E2F8768D9}
+	EndGlobalSection
+	GlobalSection(DPCodeReviewSolutionGUID) = preSolution
+		DPCodeReviewSolutionGUID = {00000000-0000-0000-0000-000000000000}
+	EndGlobalSection
+EndGlobal

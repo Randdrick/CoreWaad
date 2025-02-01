@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "dgSpecHash": "sw+At1Te1WA=",
+  "success": false,
+  "projectFilePath": "C:\\Users\\chris\\Documents\\CoreWaad\\extras\\GitExtractor\\GitExtractor.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'LibGit2Sharp.NativeBinaries (>= 2.0.323)' for 'net8.0'.",
+      "libraryId": "LibGit2Sharp.NativeBinaries",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'LibGit2Sharp (>= 0.30.0)' for 'net8.0'.",
+      "libraryId": "LibGit2Sharp",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
+}
