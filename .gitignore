@@ -1,10 +1,10 @@
-./binaries/world/bin/** */
-./binaries/world/obj/** */
-./binaries/shared/obj/** */
-./binaries/shared/bin/** */
-./binaries/logon/bin/** */
-./binaries/logon/obj/** */
-./binaries/realm/obj/** */
-./binaries/realm/bin/** */
-./extras/GitExtractor/obj/** */
-./extras/GitExtractor/bin/** */
+binaries/world/bin/**
+binaries/world/obj/**
+binaries/shared/obj/**
+binaries/shared/bin/**
+binaries/logon/bin/**
+binaries/logon/obj/**
+binaries/realm/obj/**
+binaries/realm/bin/**
+extras/GitExtractor/obj/**
+extras/GitExtractor/bin/**
