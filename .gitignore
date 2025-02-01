@@ -6,3 +6,5 @@
 ./binaries/logon/obj/** */
 ./binaries/realm/obj/** */
 ./binaries/realm/bin/** */
+./extras/GitExtractor/obj/** */
+./extras/GitExtractor/bin/** */
