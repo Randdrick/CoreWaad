@@ -1,0 +1,7 @@
+binaries\shared\obj
+binaries\shared\obj\*
+binaries\world\obj
+binaries\world\obj\*
+binaries\realm\obj
+binaries\realm\obj\*
+binaries\logon\obj
