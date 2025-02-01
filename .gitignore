@@ -1,15 +1,8 @@
-binaries\world\bin
-binaries\world\bin\*
-binaries\world\obj
-binaries\shared\obj\*
-binaries\shared\bin\*
-binaries\shared\obj
-binaries\shared\bin
-binaries\realm\obj
-binaries\realm\obj\*
-binaries\realm\bin
-binaries\realm\bin\*
-binaries\logon\obj
-binaries\logon\obj\*
-binaries\logon\bin
-binaries\logon\bin\*
+./binaries/world/bin/** */
+./binaries/world/obj/** */
+./binaries/shared/obj/** */
+./binaries/shared/bin/** */
+./binaries/logon/bin/** */
+./binaries/logon/obj/** */
+./binaries/realm/obj/** */
+./binaries/realm/bin/** */

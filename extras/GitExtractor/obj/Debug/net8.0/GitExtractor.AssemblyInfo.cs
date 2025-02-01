@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("GitExtractor")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4457b1d4bfc10fc04250f24c2fc3bda98ab73a41")]
 [assembly: System.Reflection.AssemblyProductAttribute("GitExtractor")]
 [assembly: System.Reflection.AssemblyTitleAttribute("GitExtractor")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

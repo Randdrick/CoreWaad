@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("waad-shared")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+62b2bc08850317d7110826dd7c15f35c45eea452")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4457b1d4bfc10fc04250f24c2fc3bda98ab73a41")]
 [assembly: System.Reflection.AssemblyProductAttribute("waad-shared")]
 [assembly: System.Reflection.AssemblyTitleAttribute("waad-shared")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
