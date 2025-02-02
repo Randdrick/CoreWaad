@@ -1,0 +1,7 @@
+Le package LibGit2Sharp est nécessaire pour le GitExtractor, servant à la récupération de la version du commit de la branche Main.
+Si le package NuGet n'est pas installé automatiquement, veuillez le générer grâce à la comande suivante : 
+
+nuget Pack artifacts/obj/LibGit2Sharp/Release/LibGit2Sharp.nuspec -Version 0.30.0 -NoPackageAnalysis
+
+Vous pourrez ensuite l'installer dans votre dossier contenant vos packages NuGet à l'aide de la commande suivante :
+nuget install LibGit2Sharp -Version 0.30.0 -OutputDirectory \chemin\versMonRépertoire\.nuget\
