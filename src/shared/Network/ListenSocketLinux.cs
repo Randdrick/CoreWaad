@@ -1,6 +1,8 @@
 /*
- * Ascent MMORPG Server
- * Copyright (C) 2005-2008 Ascent Team <http://www.ascentcommunity.com/>
+ * Wow Arbonne Ascent Development MMORPG Server
+ * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ *
+ * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -18,15 +20,18 @@
  */
 
 #define _LISTENSOCKET_H
+
 using System;
+using System.Net;
+using System.Net.Sockets;
 
-namespace waad_shared.Network
+namespace WaadShared.Network
 {
-#if CONFIG_USE_EPOLL
+#if LINUX
+#define CONFIG_USE_EPOLL
+#endif
 
-    using System;
-    using System.Net;
-    using System.Net.Sockets;
+#if CONFIG_USE_EPOLL
 
     public abstract class ListenSocketBase
     {

@@ -25,11 +25,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+namespace WaadShared.Database;
+
 public abstract class SQLCallbackBase
 {
-    ~SQLCallbackBase()
-    {
-    }
+    public abstract void Run(List<AsyncQueryResult> queries);
+    public abstract void Dispose();
 }
 
 public abstract class Database : CThread
@@ -43,9 +44,12 @@ public abstract class Database : CThread
     protected QueryThread qt;
     protected int mConnectionCount;
     protected bool ThreadRunning;
-    protected Queue<string> queries_queue = new Queue<string>();
-    protected Queue<QueryBuffer> query_buffer = new Queue<QueryBuffer>();
-    private readonly object _lock = new object();
+    protected Queue<string> queries_queue = new();
+    protected Queue<QueryBuffer> query_buffer = new();
+    private readonly DatabaseConnection con;
+    private readonly object _lock = new();
+    private readonly CThreadState ThreadState;
+    protected abstract void SetThreadName(string v);
 
     public Database() : base()
     {
@@ -62,7 +66,7 @@ public abstract class Database : CThread
         Dispose(false);
     }
 
-    protected void _Initialize()
+    protected void Initialize()
     {
         // Spawn Database thread
         ThreadPool.QueueUserWorkItem(state => Run());
@@ -81,9 +85,6 @@ public abstract class Database : CThread
             if (con.Busy.Wait(0))
                 return con;
         }
-
-        // shouldn't be reached
-        return null;
     }
 
     public QueryResult Query(string QueryString, params object[] args)
@@ -174,7 +175,7 @@ public abstract class Database : CThread
         return Result;
     }
 
-    public bool Run()
+    public new void ThreadProcQuery()
     {
         SetThreadName("Database Execute Thread");
         SetThreadState(CThreadState.THREADSTATE_BUSY);
@@ -183,7 +184,38 @@ public abstract class Database : CThread
         ProcessQueries();
 
         ThreadRunning = false;
-        return false;
+    }
+
+     private new void SetThreadState(CThreadState THREADSTATE_BUSY)
+    {
+        string query = queries_queue.Dequeue();
+        DatabaseConnection con = GetFreeConnection();
+
+        while (query != null)
+        {
+            SendQuery(con, query, false);
+            query = null;  // Release the query string
+
+            if (ThreadState == CThreadState.THREADSTATE_TERMINATE)
+                break;
+
+            query = queries_queue.Dequeue();
+        }
+
+        con.Busy.Release();
+
+        if (queries_queue.Count > 0)
+        {
+            // Execute all the remaining queries
+            while (queries_queue.TryDequeue(out query))
+            {
+                con = GetFreeConnection();
+                SendQuery(con, query, false);
+                con.Busy.Release();
+                // Release the query string if necessary
+                query = null;
+            }
+        }
     }
 
     private void ProcessQueries()
@@ -256,11 +288,6 @@ public abstract class Database : CThread
         }
     }
 
-    public void FreeQueryResult(QueryResult p)
-    {
-        p.Dispose();
-    }
-
     protected abstract void BeginTransaction(DatabaseConnection con);
     protected abstract void EndTransaction(DatabaseConnection con);
 
@@ -287,17 +314,13 @@ public abstract class Database : CThread
 
         // Dispose unmanaged resources
     }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
 }
 
 public class QueryBuffer : IDisposable
 {
-    public List<string> Queries { get; } = new List<string>();
+    internal static int Size;
+
+    public List<string> Queries { get; } = [];
 
     public void AddQuery(string format, params object[] args)
     {
@@ -318,23 +341,19 @@ public class QueryBuffer : IDisposable
     public void Dispose()
     {
         Queries.Clear();
+        GC.SuppressFinalize(this);
     }
 }
 
-public class AsyncQuery : IDisposable
+public class AsyncQuery(SQLCallbackBase f) : IDisposable
 {
     public Database Db { get; set; }
-    public List<AsyncQueryResult> Queries { get; } = new List<AsyncQueryResult>();
-    public SQLCallbackBase Func { get; set; }
-
-    public AsyncQuery(SQLCallbackBase f)
-    {
-        Func = f;
-    }
+    public List<AsyncQueryResult> Queries { get; } = [];
+    public SQLCallbackBase Func { get; set; } = f;
 
     public void AddQuery(string format, params object[] args)
     {
-        AsyncQueryResult res = new AsyncQueryResult();
+        AsyncQueryResult res = new();
         string query = string.Format(format, args);
         res.Query = query;
         res.Result = null;
@@ -357,14 +376,11 @@ public class AsyncQuery : IDisposable
 
     public void Dispose()
     {
-        Func.Dispose();
-        foreach (var query in Queries)
-        {
-            query.Result?.Dispose();
-        }
         Queries.Clear();
+        GC.SuppressFinalize(this);
     }
 }
+
 
 public class AsyncQueryResult
 {
@@ -372,65 +388,11 @@ public class AsyncQueryResult
     public QueryResult Result { get; set; }
 }
 
-public class QueryThread : CThread
+public class QueryThread(Database database) : CThread
 {
-    private Database db;
+    private new readonly Database db = database;
 
-    public QueryThread(Database database)
-    {
-        db = database;
-    }
-
-    public override void Run()
-    {
-        db.ThreadProcQuery();
-    }
-
-    ~QueryThread()
-    {
-        db.qt = null;
-    }
-}
-
-public abstract class CThread
-{
-    public virtual void Run()
-    {
-        // Implémentez la logique de thread ici
-    }
-}
-
-public class DatabaseConnection : IDisposable
-{
-    public SemaphoreSlim Busy { get; } = new SemaphoreSlim(1, 1);
-
-    public void Dispose()
-    {
-        Busy.Dispose();
-    }
-}
-
-public abstract class QueryResult : IDisposable
-{
-    protected uint mFieldCount;
-    protected uint mRowCount;
-    protected Field[] mCurrentRow;
-
-    public QueryResult(uint fields, uint rows)
-    {
-        mFieldCount = fields;
-        mRowCount = rows;
-        mCurrentRow = null;
-    }
-
-    public abstract bool NextRow();
-    public void Delete() { Dispose(); }
-
-    public Field[] Fetch() { return mCurrentRow; }
-    public uint GetFieldCount() { return mFieldCount; }
-    public uint GetRowCount() { return mRowCount; }
-
-    public abstract void Dispose();
+    public void Terminate() => db.SetThreadState(CThreadState.THREADSTATE_TERMINATE);
 }
 
 public static class ThreadPool
@@ -441,49 +403,35 @@ public static class ThreadPool
     }
 }
 
-public static class Log
+public static class Thread
 {
-    public static void Notice(string source, string message)
-    {
-        Console.WriteLine($"[{source}] {message}");
-    }
-
-    public static void Error(string source, string message)
-    {
-        Console.WriteLine($"[{source}] ERROR: {message}");
-    }
+    public static void Sleep(int millisecondsTimeout) => Task.Delay(millisecondsTimeout).Wait();
 }
-
-public enum CThreadState
-{
-    THREADSTATE_BUSY,
-    THREADSTATE_TERMINATE
-}
-
 public static class CThreadExtensions
 {
-    public static void SetThreadName(this CThread thread, string name)
+    public static CThreadState ThreadState { get; private set; }
+    public static void SetThreadName(this CThread thread, string name, bool qt)
     {
-        // Implémentez la logique pour définir le nom du thread ici
+        SetThreadState(CThreadState.THREADSTATE_TERMINATE);
+        Queue<QueryBuffer> queryBuffer = new();        
+        Queue<string> queriesQueue = new();
+        
+        bool ThreadRunning = false;
+        while (ThreadRunning || qt)
+        {
+            if (queryBuffer.Count == 0)
+                Monitor.PulseAll(queryBuffer);
+
+            if (queriesQueue.Count == 0)
+                Monitor.PulseAll(queriesQueue);
+
+            Thread.Sleep(100);
+            if (!ThreadRunning)
+                break;
+
+            Thread.Sleep(1000);
+        }
     }
 
-    public static void SetThreadState(this CThread thread, CThreadState state)
-    {
-        // Implémentez la logique pour définir l'état du thread ici
-    }
-}
-
-public class Field
-{
-    private object value;
-
-    public void SetValue(object val)
-    {
-        value = val;
-    }
-
-    public object GetValue()
-    {
-        return value;
-    }
+    private static void SetThreadState(CThreadState THREADSTATE_TERMINATE) => ThreadState = THREADSTATE_TERMINATE;
 }

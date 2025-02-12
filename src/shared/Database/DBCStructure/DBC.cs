@@ -23,6 +23,8 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
+namespace WaadShared.Database.DBCStructure;
+
 public class DBC : IDisposable
 {
     private uint[] tbl;
@@ -109,7 +111,7 @@ public class DBC : IDisposable
         }
 
         int fst = (int)tbl[row * cols + col];
-        string str = new string(db, fst, db.Length - fst);
+        string str = new(db, fst, db.Length - fst);
 
         if ((fst > 0 && fst < dblength && col > 0 && !onlyStr) || isStr)
         {
@@ -324,7 +326,9 @@ public class DBC : IDisposable
 
         try
         {
-            Marshal.Copy(tbl, row * (int)cols, ptr, size / sizeof(uint));
+            byte[] buffer = new byte[size];
+            Buffer.BlockCopy(tbl, row * (int)cols * sizeof(uint), buffer, 0, size);
+            Marshal.Copy(buffer, 0, ptr, size);
             result = Marshal.PtrToStructure<T>(ptr);
         }
         catch (Exception ex)
@@ -336,6 +340,7 @@ public class DBC : IDisposable
             Marshal.FreeHGlobal(ptr);
         }
     }
+
 
     public bool IsLoaded() => loaded;
 
@@ -349,7 +354,23 @@ public class DBC : IDisposable
 
         int size = Marshal.SizeOf(typeof(uint)) * (int)cols;
         IntPtr ptr = Marshal.AllocHGlobal(size);
-        Marshal.Copy(tbl, (int)(index * cols), ptr, (int)cols);
+
+        try
+        {
+            // Convert uint[] to byte[]
+            byte[] byteArray = new byte[tbl.Length * sizeof(uint)];
+            Buffer.BlockCopy(tbl, 0, byteArray, 0, byteArray.Length);
+
+            // Copy the relevant portion of the byte array to the unmanaged memory
+            Marshal.Copy(byteArray, (int)(index * cols * sizeof(uint)), ptr, size);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("DBC", $"Error copying row data: {ex.Message}");
+            Marshal.FreeHGlobal(ptr);
+            return IntPtr.Zero;
+        }
+
         return ptr;
     }
 

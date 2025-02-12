@@ -23,6 +23,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
+namespace WaadShared.Auth;
 public class MD5Hash : IDisposable
 {
     private MD5_CTX mC;
@@ -30,11 +31,11 @@ public class MD5Hash : IDisposable
     private bool _disposed = false;
 
     // Use conditional compilation to specify the correct library name for each platform
-    #if WINDOWS
+#if WINDOWS
     private const string LIBCRYPTO = "libcrypto.dll";
-    #else
+#else
     private const string LIBCRYPTO = "libcrypto.so";
-    #endif
+#endif
 
     [DllImport(LIBCRYPTO, CallingConvention = CallingConvention.Cdecl)]
     private static extern void MD5_Init(ref MD5_CTX c);

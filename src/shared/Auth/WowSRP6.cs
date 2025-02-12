@@ -19,11 +19,9 @@
  *
  */
 
-using System;
 using System.Security.Cryptography;
-using System.Text;
-using Org.BouncyCastle.Crypto.Digests;
 
+namespace WaadShared.Auth;
 public class WowSRP6
 {
     private readonly BigNumber N;
@@ -37,15 +35,12 @@ public class WowSRP6
         g.SetDword(7);
     }
 
-    public BigNumber ComputeSalt()
+    public static BigNumber ComputeSalt()
     {
         byte[] buffer = new byte[32];
-        using (var rng = new RNGCryptoServiceProvider())
-        {
-            rng.GetBytes(buffer);
-        }
+        RandomNumberGenerator.Fill(buffer);
 
-        BigNumber s = new BigNumber();
+        BigNumber s = new();
         s.SetBinary(buffer, 32);
 
         return s;
@@ -60,7 +55,7 @@ public class WowSRP6
         string strLogin = login.ToUpper();
         string strPassword = password.ToUpper();
 
-        Sha3Hash SrpHash = new(256);
+        Sha3Hash SrpHash = new();
         SrpHash.UpdateData($"{strLogin}:{strPassword}");
         SrpHash.FinalizeHash();
 
@@ -68,84 +63,7 @@ public class WowSRP6
         BigNumber x = new();
         x.SetBinary(digest, digest.Length);
 
-        BigNumber v = g.Exp(x).Mod(N);
+        BigNumber v = g.Exp(x).ModAssign(N);
         return v;
-    }
-}
-
-public class Sha3Hash : IDisposable
-{
-    private Sha3Digest sha3;
-    private readonly byte[] mDigest;
-    private readonly bool _disposed = false;
-
-    public Sha3Hash(int bitLength)
-    {
-        sha3 = new Sha3Digest(bitLength);
-        mDigest = new byte[bitLength / 8];
-    }
-
-    ~Sha3Hash()
-    {
-        Dispose(false);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed)
-        {
-            if (disposing)
-            {
-                // Cleanup managed resources if needed
-                sha3 = null;
-                mDigest = null;
-            }
-
-            // Cleanup unmanaged resources if needed
-
-            _disposed = true;
-        }
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    public void UpdateData(string str)
-    {
-        if (str == null)
-        {
-            throw new ArgumentNullException(nameof(str));
-        }
-
-        byte[] data = Encoding.UTF8.GetBytes(str);
-        UpdateData(data, data.Length);
-    }
-
-    public void UpdateData(byte[] data, int len)
-    {
-        if (data == null)
-        {
-            throw new ArgumentNullException(nameof(data));
-        }
-
-        if (len < 0 || len > data.Length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(len));
-        }
-
-        sha3.BlockUpdate(data, 0, len);
-    }
-
-    public void FinalizeHash()
-    {
-        sha3.DoFinal(mDigest, 0);
-    }
-
-    public byte[] GetDigest()
-    {
-        return (byte[])mDigest.Clone();
     }
 }

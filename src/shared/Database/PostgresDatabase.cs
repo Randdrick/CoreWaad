@@ -20,21 +20,21 @@
  */
 
 using System;
-using System.Collections.Generic;
 using System.Text;
-using System.Threading;
 using Npgsql;
+
+namespace WaadShared.Database;
 
 public class PostgresDatabase : Database
 {
-    private NpgsqlConnection[] Connections;
-    private int mConnectionCount;
-    private string mHostname;
-    private string mUsername;
-    private string mPassword;
-    private string mDatabaseName;
-    private uint mPort;
-    private string mConnectString;
+    private new  IDatabaseConnection[] Connections;
+    private new int mConnectionCount;
+    private readonly string mHostname;
+    private readonly string mUsername;
+    private readonly string mPassword;
+    private readonly string mDatabaseName;
+    private new readonly uint mPort;
+    private readonly string mConnectString;
 
     public PostgresDatabase() : base()
     {
@@ -63,10 +63,10 @@ public class PostgresDatabase : Database
         Connections = null;
     }
 
-    public override bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
+    public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
     {
         mConnectionCount = (int)ConnectionCount;
-        Connections = new NpgsqlConnection[mConnectionCount];
+        Connections = new IDatabaseConnection[mConnectionCount];
 
         for (int i = 0; i < mConnectionCount; ++i)
         {
@@ -83,11 +83,12 @@ public class PostgresDatabase : Database
             }.ToString();
 
             var conn = new NpgsqlConnection(connString);
+            var wrapper = new NpgsqlConnectionWrapper(conn);
 
             try
             {
-                conn.Open();
-                Connections[i] = conn;
+                wrapper.Open();
+                Connections[i] = (IDatabaseConnection)wrapper;
             }
             catch (NpgsqlException ex)
             {
@@ -97,11 +98,11 @@ public class PostgresDatabase : Database
             }
         }
 
-        _Initialize();
+        Initialize();
         return true;
     }
 
-    public override void Shutdown()
+    public void Shutdown()
     {
         for (int i = 0; i < mConnectionCount; ++i)
         {
@@ -124,48 +125,58 @@ public class PostgresDatabase : Database
 
     protected override bool SendQuery(DatabaseConnection con, string sql, bool self)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         if (string.IsNullOrEmpty(sql))
         {
             throw new ArgumentException("SQL query is null or empty", nameof(sql));
         }
 
-        try
+        if (con is NpgsqlConnectionWrapper wrapper)
         {
-            using var cmd = new NpgsqlCommand(sql, (NpgsqlConnection)con);
-            cmd.ExecuteNonQuery();
-            return true;
+            NpgsqlConnection npgsqlConnection = wrapper.GetConnection();
+            try
+            {
+                using var cmd = new NpgsqlCommand(sql, npgsqlConnection);
+                cmd.ExecuteNonQuery();
+                return true;
+            }
+            catch (NpgsqlException ex)
+            {
+                Log.Error("PostgresDatabase", $"Error executing query: {ex.Message}");
+                return false;
+            }
         }
-        catch (NpgsqlException ex)
+        else
         {
-            Log.Error("PostgresDatabase", $"Error executing query: {ex.Message}");
-            return false;
+            throw new ArgumentException("The provided connection is not a NpgsqlConnectionWrapper", nameof(con));
         }
     }
 
     protected override QueryResult StoreQueryResult(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
-        try
+        if (con is NpgsqlConnectionWrapper wrapper)
         {
-            using var cmd = new NpgsqlCommand("SELECT LASTVAL()", (NpgsqlConnection)con);
-            using var reader = cmd.ExecuteReader();
-            if (reader.Read())
+            NpgsqlConnection npgsqlConnection = wrapper.GetConnection();
+            try
             {
-                return new PostgresQueryResult(reader);
+                using var cmd = new NpgsqlCommand("SELECT LASTVAL()", npgsqlConnection);
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    return new PostgresQueryResult(reader);
+                }
+            }
+            catch (NpgsqlException ex)
+            {
+                Log.Error("PostgresDatabase", $"Error storing query result: {ex.Message}");
             }
         }
-        catch (NpgsqlException ex)
+        else
         {
-            Log.Error("PostgresDatabase", $"Error storing query result: {ex.Message}");
+            throw new ArgumentException("The provided connection is not a NpgsqlConnectionWrapper", nameof(con));
         }
 
         return null;
@@ -173,154 +184,76 @@ public class PostgresDatabase : Database
 
     protected override void BeginTransaction(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
-        try
+        if (con is NpgsqlConnectionWrapper wrapper)
         {
-            using var cmd = new NpgsqlCommand("BEGIN", (NpgsqlConnection)con);
-            cmd.ExecuteNonQuery();
+            NpgsqlConnection npgsqlConnection = wrapper.GetConnection();
+            try
+            {
+                using var cmd = new NpgsqlCommand("BEGIN", npgsqlConnection);
+                cmd.ExecuteNonQuery();
+            }
+            catch (NpgsqlException ex)
+            {
+                Log.Error("PostgresDatabase", $"Error starting transaction: {ex.Message}");
+            }
         }
-        catch (NpgsqlException ex)
+        else
         {
-            Log.Error("PostgresDatabase", $"Error starting transaction: {ex.Message}");
+            throw new ArgumentException("The provided connection is not a NpgsqlConnectionWrapper", nameof(con));
         }
     }
 
     protected override void EndTransaction(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
-        try
+        if (con is NpgsqlConnectionWrapper wrapper)
         {
-            using var cmd = new NpgsqlCommand("COMMIT", (NpgsqlConnection)con);
-            cmd.ExecuteNonQuery();
+            NpgsqlConnection npgsqlConnection = wrapper.GetConnection();
+            try
+            {
+                using var cmd = new NpgsqlCommand("COMMIT", npgsqlConnection);
+                cmd.ExecuteNonQuery();
+            }
+            catch (NpgsqlException ex)
+            {
+                Log.Error("PostgresDatabase", $"Error committing transaction: {ex.Message}");
+            }
         }
-        catch (NpgsqlException ex)
+        else
         {
-            Log.Error("PostgresDatabase", $"Error committing transaction: {ex.Message}");
+            throw new ArgumentException("The provided connection is not a NpgsqlConnectionWrapper", nameof(con));
         }
-    }
-
-    public override string EscapeString(string escape)
-    {
-        if (escape == null)
-        {
-            throw new ArgumentNullException(nameof(escape));
-        }
-
-        using var conn = GetFreeConnection();
-        return Npgsql.NpgsqlCommand.EscapeLiteral(escape);
-    }
-
-    public override void EscapeLongString(string str, uint len, StringBuilder outStr)
-    {
-        if (str == null)
-        {
-            throw new ArgumentNullException(nameof(str));
-        }
-
-        if (outStr == null)
-        {
-            throw new ArgumentNullException(nameof(outStr));
-        }
-
-        using var conn = GetFreeConnection();
-        string escapedStr = Npgsql.NpgsqlCommand.EscapeLiteral(str);
-        outStr.Append(escapedStr);
     }
 
     public override bool SupportsReplaceInto() { return false; }
     public override bool SupportsTableLocking() { return true; }
+
+    public override string EscapeString(string escape, DatabaseConnection con)
+    {
+        throw new NotImplementedException();
+    }
+    public override void EscapeLongString(string str, uint len, StringBuilder outStr)
+    {
+        throw new NotImplementedException();
+    }
+
+    protected override void SetThreadName(string v)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override string EscapeString(string escape)
+    {
+        throw new NotImplementedException();
+    }
 }
 
 public class PostgresQueryResult(NpgsqlDataReader reader) : QueryResult((uint)reader.FieldCount, (uint)reader.RecordsAffected)
 {
-    private NpgsqlDataReader reader = reader;
+    private readonly NpgsqlDataReader reader = reader;
 
-    public override bool NextRow()
-    {
-        return reader.Read();
-    }
-
-    public override void Dispose()
-    {
-        reader?.Dispose();
-    }
-}
-
-public abstract class QueryResult : IDisposable
-{
-    protected uint mFieldCount;
-    protected uint mRowCount;
-    protected Field[] mCurrentRow;
-
-    protected QueryResult(uint fieldCount, uint rowCount)
-    {
-        mFieldCount = fieldCount;
-        mRowCount = rowCount;
-    }
-
-    public abstract bool NextRow();
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            // Dispose managed resources
-        }
-
-        // Dispose unmanaged resources
-    }
-}
-
-public class PostgresDatabaseConnection : DatabaseConnection
-{
-    public NpgsqlConnection PgSql { get; set; }
-    public NpgsqlDataReader Result { get; set; }
-}
-
-public class DatabaseConnection
-{
-    public NpgsqlConnection PgSql { get; set; }
-    public SemaphoreSlim Busy { get; } = new SemaphoreSlim(1, 1);
-}
-
-public class Field
-{
-    private object value;
-
-    public void SetValue(object val)
-    {
-        value = val;
-    }
-
-    public object GetValue()
-    {
-        return value;
-    }
-}
-
-public static class Log
-{
-    public static void Notice(string source, string message)
-    {
-        Console.WriteLine($"[{source}] {message}");
-    }
-
-    public static void Error(string source, string message)
-    {
-        Console.WriteLine($"[{source}] ERROR: {message}");
-    }
+    public override bool NextRow() => reader.Read();
 }

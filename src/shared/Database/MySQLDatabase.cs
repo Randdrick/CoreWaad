@@ -24,47 +24,20 @@ using System.Text;
 using System.Threading;
 using MySql.Data.MySqlClient;
 
+namespace WaadShared.Database;
 public class MySQLDatabase : Database
 {
-    private MySqlConnection[] Connections;
-    private int mConnectionCount;
-    private string mHostname;
-    private string mUsername;
-    private string mPassword;
-    private string mDatabaseName;
-    private uint mPort;
+    private new MySqlConnection[] Connections;
+    private new int mConnectionCount;
+    private readonly uint fieldCount;
+    private readonly uint rowCount;
 
-    public MySQLDatabase() : base()
-    {
-        // Initialisation des connexions MySQL
-    }
-
-    ~MySQLDatabase()
-    {
-        Dispose(false);
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            // Cleanup managed resources if needed
-        }
-
-        // Cleanup unmanaged resources
-        for (int i = 0; i < mConnectionCount; ++i)
-        {
-            Connections[i]?.Close();
-            Connections[i]?.Dispose();
-        }
-
-        Connections = null;
-    }
-
-    public override bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
+    public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
     {
         mConnectionCount = (int)ConnectionCount;
         Connections = new MySqlConnection[mConnectionCount];
+
+        Log.Notice("MySQLDatabase", "Connecting to `%s`, database `%s`...", Hostname, DatabaseName);
 
         for (int i = 0; i < mConnectionCount; ++i)
         {
@@ -77,7 +50,7 @@ public class MySQLDatabase : Database
                 Database = DatabaseName,
                 Pooling = true,
                 MinimumPoolSize = 0,
-                MaximumPoolSize = (int)ConnectionCount
+                MaximumPoolSize = (uint)(int)ConnectionCount
             }.ToString();
 
             var conn = new MySqlConnection(connString);
@@ -95,11 +68,11 @@ public class MySQLDatabase : Database
             }
         }
 
-        _Initialize();
+        Initialize();
         return true;
     }
 
-    public override void Shutdown()
+    public void Shutdown()
     {
         for (int i = 0; i < mConnectionCount; ++i)
         {
@@ -122,38 +95,27 @@ public class MySQLDatabase : Database
 
     public override string EscapeString(string escape)
     {
-        if (escape == null)
-        {
-            throw new ArgumentNullException(nameof(escape));
-        }
-
-        using var conn = GetFreeConnection();
+        ArgumentNullException.ThrowIfNull(escape);
+        DatabaseConnection conn = GetFreeConnection();
+        _ = conn;
         return MySqlHelper.EscapeString(escape);
     }
 
     public override void EscapeLongString(string str, uint len, StringBuilder outStr)
     {
-        if (str == null)
-        {
-            throw new ArgumentNullException(nameof(str));
-        }
+        ArgumentNullException.ThrowIfNull(str);
 
-        if (outStr == null)
-        {
-            throw new ArgumentNullException(nameof(outStr));
-        }
+        ArgumentNullException.ThrowIfNull(outStr);
 
-        using var conn = GetFreeConnection();
+        DatabaseConnection conn = GetFreeConnection();
+        _ = conn;
         string escapedStr = MySqlHelper.EscapeString(str);
         outStr.Append(escapedStr);
     }
 
     protected override bool SendQuery(DatabaseConnection con, string sql, bool self)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         if (string.IsNullOrEmpty(sql))
         {
@@ -172,13 +134,9 @@ public class MySQLDatabase : Database
             return false;
         }
     }
-
     protected override QueryResult StoreQueryResult(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         try
         {
@@ -186,7 +144,7 @@ public class MySQLDatabase : Database
             using var reader = cmd.ExecuteReader();
             if (reader.Read())
             {
-                return new MySQLQueryResult(reader);
+                return new MySQLQueryResult(reader, fieldCount, rowCount);
             }
         }
         catch (MySqlException ex)
@@ -199,10 +157,7 @@ public class MySQLDatabase : Database
 
     protected override void BeginTransaction(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         try
         {
@@ -217,10 +172,7 @@ public class MySQLDatabase : Database
 
     protected override void EndTransaction(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         try
         {
@@ -242,73 +194,34 @@ public class MySQLDatabase : Database
     {
         return true;
     }
+
+    public override string EscapeString(string esc, DatabaseConnection con)
+    {
+        throw new NotImplementedException();
+    }
+
+    protected override void SetThreadName(string v)
+    {
+        throw new NotImplementedException();
+    }
 }
 
-public class MySQLQueryResult(MySqlDataReader reader) : QueryResult((uint)reader.FieldCount, (uint)reader.RecordsAffected)
+internal class MySQLQueryResult(MySqlDataReader reader, uint fieldCount, uint rowCount) : QueryResult(fieldCount, rowCount)
 {
-    private MySqlDataReader reader = reader;
+    private readonly MySqlDataReader reader = reader;
 
     public override bool NextRow()
     {
-        return reader.Read();
+        throw new NotImplementedException();
     }
-
-    public override void Dispose()
-    {
-        reader?.Dispose();
-    }
-}
-
-public class MySQLDatabaseConnection : DatabaseConnection
-{
-    public MySqlConnection MySql { get; set; }
 }
 
 public class DatabaseConnection
 {
-    public MySqlConnection MySql { get; set; }
+    // public MySqlConnection MySql { get; set; }
     public SemaphoreSlim Busy { get; } = new SemaphoreSlim(1, 1);
-}
 
-public abstract class QueryResult
-{
-    protected uint mFieldCount;
-    protected uint mRowCount;
-    protected Field[] mCurrentRow;
+    internal void Dispose() => throw new NotImplementedException();
 
-    protected QueryResult(uint fieldCount, uint rowCount)
-    {
-        mFieldCount = fieldCount;
-        mRowCount = rowCount;
-    }
-
-    public abstract bool NextRow();
-}
-
-public class Field
-{
-    private object value;
-
-    public void SetValue(object val)
-    {
-        value = val;
-    }
-
-    public object GetValue()
-    {
-        return value;
-    }
-}
-
-public static class Log
-{
-    public static void Notice(string source, string message)
-    {
-        Console.WriteLine($"[{source}] {message}");
-    }
-
-    public static void Error(string source, string message)
-    {
-        Console.WriteLine($"[{source}] ERROR: {message}");
-    }
+    public static explicit operator MySqlConnection(DatabaseConnection v) => throw new NotImplementedException();
 }

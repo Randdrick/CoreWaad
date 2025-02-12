@@ -28,29 +28,23 @@ using System.Runtime.InteropServices;
 
 namespace WaadShared.Network
 {
-#if CONFIG_USE_KQUEUE
+#if CONFIG_USE_POLL
 
-    public abstract class ListenSocketBase
+    public class ListenSocket<T> where T : new()
     {
-        public abstract void OnAccept();
-        public abstract int GetFd();
-    }
-
-    public class ListenSocket<T> : ListenSocketBase where T : new()
-    {
-        private Socket m_socket;
-        private Socket aSocket;
-        private IPEndPoint m_address;
-        private IPEndPoint m_tempAddress;
-        private bool m_opened;
-        private int len;
+        private readonly Socket m_socket;
+        private readonly Socket aSocket;
+        private readonly IPEndPoint m_address;
+        private readonly IPEndPoint m_tempAddress;
+        private readonly bool m_opened;
+        private readonly int len;
         private T dsocket;
 
         public ListenSocket(string ListenAddress, uint Port)
         {
             m_socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            m_socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            m_socket.Blocking = false;
+            SocketOps.ReuseAddr(m_socket);
+            SocketOps.Nonblocking(m_socket);
 
             m_address = new IPEndPoint(IPAddress.Any, (int)Port);
             m_opened = false;
@@ -62,6 +56,7 @@ namespace WaadShared.Network
                     m_address.Address = hostname.AddressList[0];
             }
 
+            // bind.. well attempt to.
             try
             {
                 m_socket.Bind(m_address);
@@ -81,19 +76,24 @@ namespace WaadShared.Network
                 Console.WriteLine($"Unable to listen on port {Port}.");
                 return;
             }
-
             len = Marshal.SizeOf(typeof(IPEndPoint));
             m_opened = true;
-            sSocketMgr.AddListenSocket(this);
         }
 
         ~ListenSocket()
         {
             if (m_opened)
-                Close();
+                SocketOps.CloseSocket(m_socket);
         }
 
-        public override void OnAccept()
+        public void Close()
+        {
+            if (m_opened)
+                SocketOps.CloseSocket(m_socket);
+            m_opened = false;
+        }
+
+        public void Update()
         {
             aSocket = m_socket.Accept();
             if (aSocket == null)
@@ -103,15 +103,26 @@ namespace WaadShared.Network
             ((dynamic)dsocket).Accept(m_tempAddress);
         }
 
-        public void Close()
+        public bool IsOpen() { return m_opened; }
+    }
+
+    public static class SocketOps
+    {
+        public static void ReuseAddr(Socket socket)
         {
-            if (m_opened)
-                m_socket.Close();
-            m_opened = false;
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         }
 
-        public bool IsOpen() => m_opened;
-        public override int GetFd() => (int)m_socket.Handle;
+        public static void Nonblocking(Socket socket)
+        {
+            socket.Blocking = false;
+        }
+
+        public static void CloseSocket(Socket socket)
+        {
+            socket.Close();
+        }
     }
+
 #endif
 }

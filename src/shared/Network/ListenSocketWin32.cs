@@ -19,7 +19,7 @@
  *
  */
 
-#define _LISTENSOCKET_H
+#define LISTEN_SOCKET_WIN32_H
 
 using System;
 using System.Net;
@@ -28,31 +28,28 @@ using System.Runtime.InteropServices;
 
 namespace WaadShared.Network
 {
-#if CONFIG_USE_KQUEUE
 
-    public abstract class ListenSocketBase
-    {
-        public abstract void OnAccept();
-        public abstract int GetFd();
-    }
+#if CONFIG_USE_IOCP
 
-    public class ListenSocket<T> : ListenSocketBase where T : new()
+    public class ListenSocket<T> where T : new()
     {
-        private Socket m_socket;
+        private readonly Socket m_socket;
         private Socket aSocket;
-        private IPEndPoint m_address;
-        private IPEndPoint m_tempAddress;
+        private readonly IPEndPoint m_address;
+        private readonly IPEndPoint m_tempAddress;
         private bool m_opened;
-        private int len;
-        private T dsocket;
+        private readonly int len;
+        private T socket;
+        private readonly IntPtr m_cp;
 
         public ListenSocket(string ListenAddress, uint Port)
         {
             m_socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            m_socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            m_socket.Blocking = false;
+            SocketOps.ReuseAddr(m_socket);
+            SocketOps.Blocking(m_socket);
 
             m_address = new IPEndPoint(IPAddress.Any, (int)Port);
+            m_tempAddress = new IPEndPoint(IPAddress.Any, (int)Port);
             m_opened = false;
 
             if (ListenAddress != "0.0.0.0")
@@ -62,6 +59,7 @@ namespace WaadShared.Network
                     m_address.Address = hostname.AddressList[0];
             }
 
+            // bind.. well attempt to.
             try
             {
                 m_socket.Bind(m_address);
@@ -82,36 +80,70 @@ namespace WaadShared.Network
                 return;
             }
 
-            len = Marshal.SizeOf(typeof(IPEndPoint));
             m_opened = true;
-            sSocketMgr.AddListenSocket(this);
+            len = Marshal.SizeOf(typeof(IPEndPoint));
+            m_cp = SSocketMgr.GetCompletionPort();
         }
 
         ~ListenSocket()
         {
-            if (m_opened)
-                Close();
+            Close();
         }
 
-        public override void OnAccept()
+        public bool Run()
         {
-            aSocket = m_socket.Accept();
-            if (aSocket == null)
-                return;
+            while (m_opened)
+            {
+                aSocket = m_socket.Accept();
+                if (aSocket == null)
+                    continue; // shouldn't happen, we are blocking.
 
-            dsocket = new T();
-            ((dynamic)dsocket).Accept(m_tempAddress);
+                socket = new T();
+                ((dynamic)socket).SetCompletionPort(m_cp);
+                ((dynamic)socket).Accept(m_tempAddress);
+            }
+            return false;
         }
 
         public void Close()
         {
+            // prevent a race condition here.
             if (m_opened)
-                m_socket.Close();
-            m_opened = false;
+            {
+                m_opened = false;
+                SocketOps.CloseSocket(m_socket);
+            }
         }
 
-        public bool IsOpen() => m_opened;
-        public override int GetFd() => (int)m_socket.Handle;
+        public bool IsOpen() { return m_opened; }
     }
+
+    public static class SocketOps
+    {
+        public static void ReuseAddr(Socket socket)
+        {
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        }
+
+        public static void Blocking(Socket socket)
+        {
+            socket.Blocking = true;
+        }
+
+        public static void CloseSocket(Socket socket)
+        {
+            socket.Close();
+        }
+    }
+
+    public static class SSocketMgr
+    {
+        public static IntPtr GetCompletionPort()
+        {
+            // Implementation for getting the completion port
+            return IntPtr.Zero;
+        }
+    }
+
 #endif
 }

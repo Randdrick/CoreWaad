@@ -24,17 +24,19 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 
+namespace WaadShared.Auth;
+
 public class BigNumber : IDisposable
 {
     private IntPtr _bn;
     private bool _disposed = false;
 
     // Use conditional compilation to specify the correct library name for each platform
-    #if WINDOWS
+#if WINDOWS
     private const string LIBCRYPTO = "libcrypto.dll";
-    #else
+#else
     private const string LIBCRYPTO = "libcrypto.so";
-    #endif
+#endif
 
     [DllImport(LIBCRYPTO, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr BN_new();

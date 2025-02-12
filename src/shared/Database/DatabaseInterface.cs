@@ -21,8 +21,13 @@
 
 using System;
 
-public abstract class Database
+namespace WaadShared.Database;
+public abstract class DatabaseInterface
 {
+    protected DatabaseInterface()
+    {
+    }
+
     public static void CleanupLibs()
     {
 #if ENABLE_DATABASE_MYSQL
@@ -55,10 +60,42 @@ public abstract class Database
     }
 }
 
+public abstract class QueryResult(uint fieldCount, uint rowCount)
+{
+    protected uint mFieldCount = fieldCount;
+    protected uint mRowCount = rowCount;
+    protected Field[] mCurrentRow;
+
+    public abstract bool NextRow();
+
+    internal void Dispose()
+    {
+        throw new NotImplementedException();
+    }
+}
+
 public static class Log
 {
-    public static void LargeErrorMessage(string message)
+    public static void Notice(string source, string message, string Hostname, string DatabaseName) => Console.WriteLine($"[{source}] {message}");
+    public static void Error(string source, string message) => Console.WriteLine($"[{source}] ERROR: {message}");
+    public static void LargeErrorMessage(string message) => Console.WriteLine(message);
+
+    internal static void Notice(string v1, string v2)
     {
-        Console.WriteLine(message);
+        throw new NotImplementedException();
+    }
+}
+public class Field
+{
+    private object value;
+
+    public void SetValue(object val)
+    {
+        value = val;
+    }
+
+    public object GetValue()
+    {
+        return value;
     }
 }

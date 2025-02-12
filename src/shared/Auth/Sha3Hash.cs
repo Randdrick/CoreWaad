@@ -20,21 +20,16 @@
  */
 
 using System;
-using System.Runtime.InteropServices;
 using System.Text;
-using System.Security.Cryptography;
+using Org.BouncyCastle.Crypto.Digests;
+
+namespace WaadShared.Auth;
 
 public class Sha3Hash : IDisposable
 {
-    private SHA3Managed sha3;
-    private readonly byte[] mDigest;
-    private readonly bool _disposed = false;
-
-    public Sha3Hash()
-    {
-        sha3 = new SHA3Managed(256); // SHA3-256
-        mDigest = new byte[32]; // 256 bits / 8 = 32 bytes
-    }
+    private readonly Sha3Digest sha3 = new(256);
+    private readonly byte[] mDigest = new byte[32];
+    private bool _disposed = false;
 
     ~Sha3Hash()
     {
@@ -47,7 +42,7 @@ public class Sha3Hash : IDisposable
         {
             if (disposing)
             {
-                sha3?.Dispose();
+                // No need to dispose of sha3 as it doesn't implement IDisposable
             }
 
             _disposed = true;
@@ -62,10 +57,7 @@ public class Sha3Hash : IDisposable
 
     public void UpdateData(string str)
     {
-        if (str == null)
-        {
-            throw new ArgumentNullException(nameof(str));
-        }
+        ArgumentNullException.ThrowIfNull(str);
 
         byte[] data = Encoding.UTF8.GetBytes(str);
         UpdateData(data, data.Length);
@@ -73,27 +65,28 @@ public class Sha3Hash : IDisposable
 
     public void UpdateData(byte[] data, int len)
     {
-        if (data == null)
-        {
-            throw new ArgumentNullException(nameof(data));
-        }
+        ArgumentNullException.ThrowIfNull(data);
 
         if (len < 0 || len > data.Length)
         {
             throw new ArgumentOutOfRangeException(nameof(len));
         }
 
-        sha3.TransformBlock(data, 0, len, data, 0);
+        sha3.BlockUpdate(data, 0, len);
     }
 
     public void FinalizeHash()
     {
-        sha3.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-        Array.Copy(sha3.Hash, mDigest, mDigest.Length);
+        sha3.DoFinal(mDigest, 0);
     }
 
     public byte[] GetDigest()
     {
         return (byte[])mDigest.Clone();
+    }
+
+    public static implicit operator Sha3Hash(Sha3Digest v)
+    {
+        throw new NotImplementedException();
     }
 }

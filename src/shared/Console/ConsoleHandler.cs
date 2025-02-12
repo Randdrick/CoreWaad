@@ -22,11 +22,13 @@
 using System;
 using System.Threading;
 
+namespace WaadShared.ConsoleHandler;
+
 public class ConsoleHandler
 {
     private bool _isRunning;
     private bool _threadRunning;
-    private LocalConsole _localConsole;
+    private readonly LocalConsole _localConsole;
 
     public ConsoleHandler()
     {
@@ -67,5 +69,13 @@ public class ConsoleHandler
     {
         _isRunning = false;
         _threadRunning = false;
+    }
+}
+
+internal class LocalConsole
+{
+    internal void Write(string v, string cmd)
+    {
+        throw new NotImplementedException();
     }
 }

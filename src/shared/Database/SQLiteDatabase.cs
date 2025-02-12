@@ -23,15 +23,16 @@ using System;
 using System.Text;
 using System.Data.SQLite;
 
+namespace WaadShared.Database;
+
 public class SQLiteDatabase : Database
 {
     private SQLiteConnection Connection;
     private string mHostname;
-    private int mConnectionCount;
     private string mUsername;
     private string mPassword;
     private string mDatabaseName;
-
+    
     public SQLiteDatabase() : base()
     {
         // Initialisation des connexions SQLite
@@ -54,7 +55,7 @@ public class SQLiteDatabase : Database
         Connection?.Close();
     }
 
-    public override bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
+    public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
     {
         mHostname = Hostname;
         mUsername = Username;
@@ -68,8 +69,7 @@ public class SQLiteDatabase : Database
             {
                 DataSource = DatabaseName,
                 Version = 3,
-                Pooling = true,
-                MaxPoolSize = (int)ConnectionCount
+                Pooling = true
             }.ToString();
 
             Connection = new SQLiteConnection(connString);
@@ -81,11 +81,11 @@ public class SQLiteDatabase : Database
             return false;
         }
 
-        _Initialize();
+        Initialize();
         return true;
     }
 
-    public override void Shutdown()
+    public void Shutdown()
     {
         try
         {
@@ -103,38 +103,9 @@ public class SQLiteDatabase : Database
         }
     }
 
-    public override string EscapeString(string escape)
-    {
-        if (escape == null)
-        {
-            throw new ArgumentNullException(nameof(escape));
-        }
-
-        return SQLiteConnection.EscapeString(escape);
-    }
-
-    public override void EscapeLongString(string str, uint len, StringBuilder outStr)
-    {
-        if (str == null)
-        {
-            throw new ArgumentNullException(nameof(str));
-        }
-
-        if (outStr == null)
-        {
-            throw new ArgumentNullException(nameof(outStr));
-        }
-
-        string escapedStr = SQLiteConnection.EscapeString(str);
-        outStr.Append(escapedStr);
-    }
-
     protected override bool SendQuery(DatabaseConnection con, string sql, bool self)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         if (string.IsNullOrEmpty(sql))
         {
@@ -198,10 +169,7 @@ public class SQLiteDatabase : Database
 
     protected override void EndTransaction(DatabaseConnection con)
     {
-        if (con == null)
-        {
-            throw new ArgumentNullException(nameof(con));
-        }
+        ArgumentNullException.ThrowIfNull(con);
 
         try
         {
@@ -223,83 +191,34 @@ public class SQLiteDatabase : Database
     {
         return true;
     }
+
+    protected override void SetThreadName(string v)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override string EscapeString(string escape)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override string EscapeString(string esc, DatabaseConnection con)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void EscapeLongString(string str, uint len, StringBuilder outStr)
+    {
+        throw new NotImplementedException();
+    }
 }
 
-public class SQLiteQueryResult : QueryResult
+public class SQLiteQueryResult(SQLiteDataReader reader) : QueryResult((uint)reader.FieldCount, (uint)reader.RecordsAffected)
 {
-    private SQLiteDataReader reader;
-
-    public SQLiteQueryResult(SQLiteDataReader reader) : base((uint)reader.FieldCount, (uint)reader.RecordsAffected)
-    {
-        this.reader = reader;
-    }
+    private readonly SQLiteDataReader reader = reader;
 
     public override bool NextRow()
     {
         return reader.Read();
-    }
-
-    public override void Dispose()
-    {
-        reader?.Dispose();
-    }
-}
-
-public abstract class QueryResult : IDisposable
-{
-    protected uint mFieldCount;
-    protected uint mRowCount;
-    protected Field[] mCurrentRow;
-
-    protected QueryResult(uint fieldCount, uint rowCount)
-    {
-        mFieldCount = fieldCount;
-        mRowCount = rowCount;
-    }
-
-    public abstract bool NextRow();
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            // Dispose managed resources
-        }
-
-        // Dispose unmanaged resources
-    }
-}
-
-public class Field
-{
-    private object value;
-
-    public void SetValue(object val)
-    {
-        value = val;
-    }
-
-    public object GetValue()
-    {
-        return value;
-    }
-}
-
-public static class Log
-{
-    public static void Notice(string source, string message)
-    {
-        Console.WriteLine($"[{source}] {message}");
-    }
-
-    public static void Error(string source, string message)
-    {
-        Console.WriteLine($"[{source}] ERROR: {message}");
     }
 }

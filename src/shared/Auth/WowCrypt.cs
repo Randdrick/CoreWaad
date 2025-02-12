@@ -23,6 +23,7 @@ using System;
 using Org.BouncyCastle.Crypto.Engines;
 using Org.BouncyCastle.Crypto.Parameters;
 
+namespace WaadShared.Auth;
 public class WowCrypt : IDisposable
 {
     private bool m_initialized;
@@ -39,10 +40,7 @@ public class WowCrypt : IDisposable
 
     public void Init(byte[] K)
     {
-        if (K == null)
-        {
-            throw new ArgumentNullException(nameof(K));
-        }
+        ArgumentNullException.ThrowIfNull(K);
 
         if (K.Length != 40)
         {
@@ -57,10 +55,7 @@ public class WowCrypt : IDisposable
 
     public void Decrypt(byte[] data)
     {
-        if (data == null)
-        {
-            throw new ArgumentNullException(nameof(data));
-        }
+        ArgumentNullException.ThrowIfNull(data);
 
         if (!m_initialized)
         {
@@ -74,10 +69,7 @@ public class WowCrypt : IDisposable
 
     public void Encrypt(byte[] data)
     {
-        if (data == null)
-        {
-            throw new ArgumentNullException(nameof(data));
-        }
+        ArgumentNullException.ThrowIfNull(data);
 
         if (!m_initialized)
         {

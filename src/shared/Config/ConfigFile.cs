@@ -20,14 +20,15 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.IO;
-using IniParser;
-using IniParser.Model;
+
+namespace WaadShared.Config;
 
 public class ConfigFile : IDisposable
 {
-    private FileIniDataParser _iniParser;
-    private IniData _iniData;
+    private readonly FileIniDataParser _iniParser;
+    private FileIniDataParser _iniData;
     private bool _disposed = false;
 
     public ConfigFile()
@@ -72,7 +73,9 @@ public class ConfigFile : IDisposable
             throw new ArgumentNullException(nameof(key));
         }
 
-        return _iniData[section][key];
+        var sectionData = _iniData[section] ?? throw new KeyNotFoundException($"Section '{section}' not found.");
+        var value = sectionData[key] ?? throw new KeyNotFoundException($"Key '{key}' not found in section '{section}'.");
+        return value;
     }
 
     public void SetValue(string section, string key, string value)
@@ -92,9 +95,11 @@ public class ConfigFile : IDisposable
             throw new ArgumentNullException(nameof(key));
         }
 
-        if (value == null)
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (_iniData[section] == null)
         {
-            throw new ArgumentNullException(nameof(value));
+            _iniData[section] = new Dictionary<string, string>();
         }
 
         _iniData[section][key] = value;
@@ -114,7 +119,7 @@ public class ConfigFile : IDisposable
 
         try
         {
-            _iniParser.WriteFile(file, _iniData);
+            FileIniDataParser.WriteFile(file, _iniData);
         }
         catch (Exception ex)
         {
@@ -129,7 +134,7 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        return _iniData[section][name] ?? def;
+        return _iniData[section]?[name] ?? def;
     }
 
     public bool GetBoolean(string section, string name, bool def = false)
@@ -139,7 +144,7 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        if (bool.TryParse(_iniData[section][name], out bool result))
+        if (bool.TryParse(_iniData[section]?[name], out bool result))
         {
             return result;
         }
@@ -153,7 +158,7 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        if (int.TryParse(_iniData[section][name], out int result))
+        if (int.TryParse(_iniData[section]?[name], out int result))
         {
             return result;
         }
@@ -167,7 +172,7 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        if (float.TryParse(_iniData[section][name], out float result))
+        if (float.TryParse(_iniData[section]?[name], out float result))
         {
             return result;
         }
@@ -181,7 +186,7 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        if (double.TryParse(_iniData[section][name], out double result))
+        if (double.TryParse(_iniData[section]?[name], out double result))
         {
             return result;
         }
