@@ -58,7 +58,16 @@
     <ProjectReference Include="..\..\binaries\shared\waad-shared.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+  <ItemGroup>
+    <Compile Include="**\*.cs" />
+    <Compile Include="..\..\..\CoreWaad\src\logon\**\*.cs" />
+</ItemGroup>
+
+<ItemGroup>
+  <Content Include="..\..\..\CoreWaad\src\logon\**\*" />
+</ItemGroup>
+
+  <!-- <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <AdditionalIncludeDirectories Include="..\..\lib\win\VC\;..\..\include;..\..\src\waad-shared;%(AdditionalIncludeDirectories)" />
   </ItemGroup>
 
@@ -66,9 +75,9 @@
     <AdditionalIncludeDirectories Include="../../lib/linux;../../include;../../src/waad-shared;%(AdditionalIncludeDirectories)" />
   </ItemGroup>
 
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(OS)' == 'Windows_NT'">
+<Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(OS)' == 'Windows_NT'">
     <Message Text="Extracting Git revision..." />
     <Exec Command="cd $(SolutionDir)..\..\..\src\waad-shared &amp;&amp; GitExtractor.exe" />
-  </Target>
+  </Target> -->
 
 </Project>

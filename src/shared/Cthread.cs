@@ -37,7 +37,8 @@ public enum CThreadState
     THREADSTATE_PAUSED,
     THREADSTATE_SLEEPING,
     THREADSTATE_BUSY,
-    THREADSTATE_AWAITING
+    THREADSTATE_AWAITING,
+    THREADSTATE_IDLE
 }
 
 public struct NameTableEntry { }
@@ -56,7 +57,6 @@ public abstract class ThreadBase
 public class CThread : ThreadBase
 {
     public CThread() { }
-    ~CThread() { }
 
     private CThreadState ThreadState { get; set; }
     private DateTime StartTime { get; set; }

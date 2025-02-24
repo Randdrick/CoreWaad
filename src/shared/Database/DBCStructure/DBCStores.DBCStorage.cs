@@ -21,17 +21,15 @@
 #undef USING_BIG_ENDIAN
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
 public static partial class DBCStores
 {
-    public class DBCStorage<T> where T : new()
+    public class DBCStorage<T> where T : new() 
     {
         private T[] m_heapBlock;
         private T m_firstEntry;
-
         private T[] m_entries;
         private uint m_max;
         private uint m_numrows;
@@ -334,69 +332,6 @@ public static partial class DBCStores
             }
 #endif
         }
-    } 
-public static readonly DBCStorage<AreaTriggerEntry> dbcAreaTrigger;
-public static readonly DBCStorage<GemPropertyEntry> dbcGemProperty;
-public static readonly DBCStorage<GlyphPropertyEntry> dbcGlyphProperty;
-public static readonly DBCStorage<ItemSetEntry> dbcItemSet;
-public static readonly DBCStorage<LockEntry> dbcLock;
-public static readonly DBCStorage<SpellEntry> dbcSpell;
-public static readonly DBCStorage<SpellDuration> dbcSpellDuration;
-public static readonly DBCStorage<SpellRange> dbcSpellRange;
-public static readonly DBCStorage<SpellShapeshiftForm> dbcSpellShapeshiftForm;
-public static readonly DBCStorage<EmoteTextEntry> dbcEmoteEntry;
-public static readonly DBCStorage<SpellRadius> dbcSpellRadius;
-public static readonly DBCStorage<SpellCastTime> dbcSpellCastTime;
-public static readonly DBCStorage<AreaGroup> dbcAreaGroup;
-public static readonly DBCStorage<AreaTable> dbcArea;
-public static readonly DBCStorage<FactionTemplateDBC> dbcFactionTemplate;
-public static readonly DBCStorage<FactionDBC> dbcFaction;
-public static readonly DBCStorage<EnchantEntry> dbcEnchant;
-public static readonly DBCStorage<RandomProps> dbcRandomProps;
-public static readonly DBCStorage<skilllinespell> dbcSkillLineSpell;
-public static readonly DBCStorage<skilllineentry> dbcSkillLine;
-public static readonly DBCStorage<DBCTaxiNode> dbcTaxiNode;
-public static readonly DBCStorage<DBCTaxiPath> dbcTaxiPath;
-public static readonly DBCStorage<DBCTaxiPathNode> dbcTaxiPathNode;
-public static readonly DBCStorage<AuctionHouseDBC> dbcAuctionHouse;
-public static readonly DBCStorage<TalentEntry> dbcTalent;
-public static readonly DBCStorage<TalentTabEntry> dbcTalentTab;
-public static readonly DBCStorage<CreatureDisplayInfo> dbcCreatureDisplayInfo;
-public static readonly DBCStorage<CreatureSpellDataEntry> dbcCreatureSpellData;
-public static readonly DBCStorage<CreatureFamilyEntry> dbcCreatureFamily;
-public static readonly DBCStorage<CharClassEntry> dbcCharClass;
-public static readonly DBCStorage<CharRaceEntry> dbcCharRace;
-public static readonly DBCStorage<MapEntry> dbcMap;
-public static readonly DBCStorage<ItemExtendedCostEntry> dbcItemExtendedCost;
-public static readonly DBCStorage<ItemRandomSuffixEntry> dbcItemRandomSuffix;
-public static readonly DBCStorage<CombatRatingDBC> dbcCombatRating;
-public static readonly DBCStorage<ChatChannelDBC> dbcChatChannels;
-public static readonly DBCStorage<DurabilityCostsEntry> dbcDurabilityCosts;
-public static readonly DBCStorage<DurabilityQualityEntry> dbcDurabilityQuality;
-public static readonly DBCStorage<BankSlotPrice> dbcBankSlotPrices;
-public static readonly DBCStorage<BankSlotPrice> dbcStableSlotPrices; // uses same structure as Bank
-public static readonly DBCStorage<BarberShopStyleEntry> dbcBarberShopStyle;
-public static readonly DBCStorage<gtFloat> dbcBarberShopPrices;
-public static readonly DBCStorage<gtFloat> dbcMeleeCrit;
-public static readonly DBCStorage<gtFloat> dbcMeleeCritBase;
-public static readonly DBCStorage<gtFloat> dbcSpellCrit;
-public static readonly DBCStorage<gtFloat> dbcSpellCritBase;
-public static readonly DBCStorage<gtFloat> dbcManaRegen;
-public static readonly DBCStorage<gtFloat> dbcManaRegenBase;
-public static readonly DBCStorage<gtFloat> dbcHPRegen;
-public static readonly DBCStorage<gtFloat> dbcHPRegenBase;
-public static readonly DBCStorage<SummonPropertiesEntry> dbcSummonProperties;
-public static readonly DBCStorage<RuneCostEntry> dbcSpellRuneCost;
-public static readonly DBCStorage<CurrencyTypesEntry> dbcCurrencyTypes;
-public static readonly DBCStorage<AchievementEntry> dbcAchievement;
-public static readonly DBCStorage<AchievementCriteriaEntry> dbcAchievementCriteria;
-public static readonly DBCStorage<VehicleEntry> dbcVehicle;
-public static readonly DBCStorage<VehicleSeatEntry> dbcVehicleSeat;
-public static readonly DBCStorage<WorldMapOverlayEntry> dbcWorldMapOverlay;
-public static readonly DBCStorage<DestructibleModelDataEntry> dbcDestructibleModelDataEntry;
-public static readonly DBCStorage<ScalingStatDistributionEntry> dbcScalingStatDistribution;
-public static readonly DBCStorage<ScalingStatValuesEntry> dbcScalingStatValues;
-public static readonly DBCStorage<LookingForGroup> dbcLookingForGroup;
-public static readonly Dictionary<uint, List<SpellEntry>> spellsByNameHash;    
+    }   
 };
 

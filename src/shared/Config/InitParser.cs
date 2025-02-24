@@ -30,7 +30,7 @@ internal class FileIniDataParser
 
     public FileIniDataParser()
     {
-        Sections = new Dictionary<string, Dictionary<string, string>>();
+        Sections = [];
     }
 
     public FileIniDataParser ReadFile(string filePath)
@@ -44,10 +44,10 @@ internal class FileIniDataParser
             var trimmedLine = line.Trim();
             if (trimmedLine.StartsWith('[') && trimmedLine.EndsWith(']'))
             {
-                currentSection = trimmedLine.Substring(1, trimmedLine.Length - 2);
+                currentSection = trimmedLine[1..^1];
                 if (!Sections.ContainsKey(currentSection))
                 {
-                    Sections[currentSection] = new Dictionary<string, string>();
+                    Sections[currentSection] = [];
                 }
             }
             else if (!string.IsNullOrEmpty(trimmedLine) && currentSection != null)
@@ -85,7 +85,7 @@ internal class FileIniDataParser
         {
             if (!Sections.TryGetValue(section, out Dictionary<string, string> value))
             {
-                value = new Dictionary<string, string>();
+                value = [];
                 Sections[section] = value;
             }
             return value;

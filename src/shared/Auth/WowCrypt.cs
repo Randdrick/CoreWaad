@@ -22,8 +22,11 @@
 using System;
 using Org.BouncyCastle.Crypto.Engines;
 using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Digests;
+using Org.BouncyCastle.Crypto.Macs;
 
 namespace WaadShared.Auth;
+
 public class WowCrypt : IDisposable
 {
     private bool m_initialized;
@@ -47,9 +50,34 @@ public class WowCrypt : IDisposable
             throw new ArgumentException("Key length must be 40 bytes", nameof(K));
         }
 
-        KeyParameter keyParameter = new KeyParameter(K);
-        m_clientDecrypt.Init(false, keyParameter);
-        m_serverEncrypt.Init(true, keyParameter);
+        byte[] s = [0xC2, 0xB3, 0x72, 0x3C, 0xC6, 0xAE, 0xD9, 0xB5, 0x34, 0x3C, 0x53, 0xEE, 0x2F, 0x43, 0x67, 0xCE];
+        byte[] r = [0xCC, 0x98, 0xAE, 0x04, 0xE8, 0x97, 0xEA, 0xCA, 0x12, 0xDD, 0xC0, 0x93, 0x42, 0x91, 0x53, 0x57];
+        byte[] encryptHash = new byte[32];
+        byte[] decryptHash = new byte[32];
+        byte[] pass = new byte[1024];
+
+        HMac hmacSha3 = new(new Sha3Digest(256));
+
+        // generate c->s key
+        hmacSha3.Init(new KeyParameter(s));
+        hmacSha3.BlockUpdate(K, 0, K.Length);
+        hmacSha3.DoFinal(decryptHash, 0);
+
+        // generate s->c key
+        hmacSha3.Init(new KeyParameter(r));
+        hmacSha3.BlockUpdate(K, 0, K.Length);
+        hmacSha3.DoFinal(encryptHash, 0);
+
+        // initialize rc4 structs
+        m_clientDecrypt.Init(false, new KeyParameter(decryptHash));
+        m_serverEncrypt.Init(true, new KeyParameter(encryptHash));
+
+        // initial encryption pass -- this is just to get key position,
+        // the data doesn't actually have to be initialized as discovered
+        // by client debugging.
+        m_serverEncrypt.ProcessBytes(pass, 0, pass.Length, pass, 0);
+        m_clientDecrypt.ProcessBytes(pass, 0, pass.Length, pass, 0);
+
         m_initialized = true;
     }
 

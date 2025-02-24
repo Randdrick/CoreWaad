@@ -30,7 +30,7 @@ public class ArrayAllocator<T>
     protected uint m_Growth;
     protected T[] m_Array;
 
-    public ArrayAllocator()
+    public ArrayAllocator(int capacity)
     {
         m_Size = 0;
         m_Capacity = 0;
@@ -44,6 +44,10 @@ public class ArrayAllocator<T>
         m_Capacity = 0;
         m_Growth = grow;
         m_Array = null;
+    }
+
+    public ArrayAllocator()
+    {
     }
 
     public virtual void Clear(bool destruct)

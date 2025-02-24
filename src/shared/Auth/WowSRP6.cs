@@ -22,6 +22,7 @@
 using System.Security.Cryptography;
 
 namespace WaadShared.Auth;
+
 public class WowSRP6
 {
     private readonly BigNumber N;
@@ -51,19 +52,15 @@ public class WowSRP6
         if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(password) || s.GetNumBytes() == 0)
             return new BigNumber(0);
 
-        // generation de I
+        // génération de I
         string strLogin = login.ToUpper();
         string strPassword = password.ToUpper();
+        byte[] hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{strLogin}:{strPassword}"));
 
-        Sha3Hash SrpHash = new();
-        SrpHash.UpdateData($"{strLogin}:{strPassword}");
-        SrpHash.FinalizeHash();
-
-        byte[] digest = SrpHash.GetDigest();
         BigNumber x = new();
-        x.SetBinary(digest, digest.Length);
+        x.SetBinary(hash, hash.Length);
 
-        BigNumber v = g.Exp(x).ModAssign(N);
+        BigNumber v = g.Exp(x).ModExp(N, N);
         return v;
     }
 }

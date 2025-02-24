@@ -21,6 +21,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,9 +36,6 @@ public abstract class SQLCallbackBase
 
 public abstract class Database : CThread
 {
-    protected const int MAXBUFFER = 10000;
-    protected const int MAXQUERY = 16384;
-
     protected int _counter;
     protected int mPort;
     protected DatabaseConnection[] Connections;
@@ -46,7 +44,7 @@ public abstract class Database : CThread
     protected bool ThreadRunning;
     protected Queue<string> queries_queue = new();
     protected Queue<QueryBuffer> query_buffer = new();
-    private readonly DatabaseConnection con;
+    private DatabaseConnection con;
     private readonly object _lock = new();
     private readonly CThreadState ThreadState;
     protected abstract void SetThreadName(string v);
@@ -59,6 +57,7 @@ public abstract class Database : CThread
         qt = null;
         mConnectionCount = -1;   // Not connected.
         ThreadRunning = true;
+        ThreadState = CThreadState.THREADSTATE_IDLE; // Initialize ThreadState
     }
 
     ~Database()
@@ -81,7 +80,7 @@ public abstract class Database : CThread
         uint i = 0;
         while (true)
         {
-            DatabaseConnection con = Connections[(i++) % mConnectionCount];
+            con = Connections[(i++) % mConnectionCount];
             if (con.Busy.Wait(0))
                 return con;
         }
@@ -93,7 +92,7 @@ public abstract class Database : CThread
 
         // Send the query
         QueryResult qResult = null;
-        DatabaseConnection con = GetFreeConnection();
+        con = GetFreeConnection();
 
         if (SendQuery(con, sql, false))
             qResult = StoreQueryResult(con);
@@ -106,7 +105,7 @@ public abstract class Database : CThread
     {
         // Send the query
         QueryResult qResult = null;
-        DatabaseConnection con = GetFreeConnection();
+        con = GetFreeConnection();
 
         if (SendQuery(con, QueryString, false))
             qResult = StoreQueryResult(con);
@@ -161,7 +160,7 @@ public abstract class Database : CThread
     {
         string sql = string.Format(QueryString, args);
 
-        DatabaseConnection con = GetFreeConnection();
+        con = GetFreeConnection();
         bool Result = SendQuery(con, sql, false);
         con.Busy.Release();
         return Result;
@@ -169,7 +168,7 @@ public abstract class Database : CThread
 
     public bool WaitExecuteNA(string QueryString)
     {
-        DatabaseConnection con = GetFreeConnection();
+        con = GetFreeConnection();
         bool Result = SendQuery(con, QueryString, false);
         con.Busy.Release();
         return Result;
@@ -189,7 +188,7 @@ public abstract class Database : CThread
      private new void SetThreadState(CThreadState THREADSTATE_BUSY)
     {
         string query = queries_queue.Dequeue();
-        DatabaseConnection con = GetFreeConnection();
+        con = GetFreeConnection();
 
         while (query != null)
         {
@@ -220,7 +219,7 @@ public abstract class Database : CThread
 
     private void ProcessQueries()
     {
-        DatabaseConnection con = GetFreeConnection();
+        con = GetFreeConnection();
 
         while (true)
         {
@@ -253,7 +252,7 @@ public abstract class Database : CThread
         if (b.Queries.Count == 0)
             return;
 
-        DatabaseConnection con = ccon ?? GetFreeConnection();
+        con = ccon ?? GetFreeConnection();
 
         BeginTransaction(con);
 
@@ -318,24 +317,39 @@ public abstract class Database : CThread
 
 public class QueryBuffer : IDisposable
 {
-    internal static int Size;
+    protected const int MAXQUERY = 16384;
 
     public List<string> Queries { get; } = [];
 
     public void AddQuery(string format, params object[] args)
     {
         string query = string.Format(format, args);
-        Queries.Add(query);
+
+        if (!string.IsNullOrEmpty(query))
+        {
+            if (query.Length >= MAXQUERY)
+            {
+                query = query[..(MAXQUERY - 1)];
+            }
+
+            Queries.Add(query);
+        }
     }
 
     public void AddQueryNA(string str)
     {
-        Queries.Add(str);
+        if (str != null)
+        {
+            Queries.Add(str);
+        }
     }
 
     public void AddQueryStr(string str)
     {
-        Queries.Add(str);
+        if (str != null)
+        {
+            Queries.Add(str);
+        }
     }
 
     public void Dispose()
@@ -347,6 +361,7 @@ public class QueryBuffer : IDisposable
 
 public class AsyncQuery(SQLCallbackBase f) : IDisposable
 {
+    private const int MAXBUFFER = 16384;
     public Database Db { get; set; }
     public List<AsyncQueryResult> Queries { get; } = [];
     public SQLCallbackBase Func { get; set; } = f;
@@ -354,9 +369,18 @@ public class AsyncQuery(SQLCallbackBase f) : IDisposable
     public void AddQuery(string format, params object[] args)
     {
         AsyncQueryResult res = new();
-        string query = string.Format(format, args);
-        res.Query = query;
+        string buffer = string.Format(format, args);
+
+        if (buffer.Length >= MAXBUFFER)
+        {
+            buffer = buffer[..(MAXBUFFER - 1)];
+        }
+
+        Debug.Assert(buffer.Length > 0, "Buffer length should be greater than 0");
+
+        res.Query = buffer;
         res.Result = null;
+
         Queries.Add(res);
     }
 

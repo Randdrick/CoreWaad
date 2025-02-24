@@ -20,81 +20,77 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 
 public static partial class DBCStores
 {
-    public static DBCStorage<AchievementEntry> dbcAchievement;
-    public static DBCStorage<AchievementCategoryEntry> dbcAchievementCategory;
-    public static DBCStorage<AchievementCriteriaEntry> dbcAchivementCriteria;
-    public static DBCStorage<AreaGroup> dbcAreaGroup;
-    public static DBCStorage<AreaTable> dbcArea;
-    public static DBCStorage<AreaTableEntry> dbcWMOAreaTable; // Arcemu
-    public static DBCStorage<AreaTriggerEntry> dbcAreaTrigger;
-    public static DBCStorage<AuctionHouseDBC> dbcAuctionHouse;
-    public static DBCStorage<BankSlotPrice> dbcBankSlotPrices;
-    public static DBCStorage<BarberShopStyleEntry> dbcBarberShopStyle;
-    public static DBCStorage<gtFloat> dbcBarberShopPrices;
-    public static DBCStorage<CharClassEntry> dbcCharClass;
-    public static DBCStorage<CharRaceEntry> dbcCharRace;
-    public static DBCStorage<CharTitlesEntry> dbcCharTitlesEntry;
-    public static DBCStorage<ChatChannelDBC> dbcChatChannels;
-    public static DBCStorage<CombatRatingDBC> dbcCombatRating;
-    public static DBCStorage<CreatureDisplayInfo> dbcCreatureDisplayInfo;
-    public static DBCStorage<CreatureFamilyEntry> dbcCreatureFamily;
-    public static DBCStorage<CreatureSpellDataEntry> dbcCreatureSpellData;
-    public static DBCStorage<CurrencyTypesEntry> dbcCurrencyTypes;
-    public static DBCStorage<DataStore> dbcDataStore;
-    public static DBCStorage<DestructibleModelDataEntry> dbcDestructibleModelDataEntry;
-    public static DBCStorage<DurabilityCostsEntry> dbcDurabilityCosts;
-    public static DBCStorage<DurabilityQualityEntry> dbcDurabilityQuality;
-    public static DBCStorage<EmoteTextEntry> dbcEmoteEntry;
-    public static DBCStorage<EnchantEntry> dbcEnchant;
-    public static DBCStorage<FactionDBC> dbcFaction;
-    public static DBCStorage<FactionTemplateDBC> dbcFactionTemplate;
-    public static DBCStorage<GemPropertyEntry> dbcGemProperty;
-    public static DBCStorage<GlyphPropertyEntry> dbcGlyphProperty;
-    public static DBCStorage<ItemExtendedCostEntry> dbcItemExtendedCost;
-    public static DBCStorage<ItemRandomSuffixEntry> dbcItemRandomSuffix;
-    public static DBCStorage<ItemSetEntry> dbcItemSet;
-    public static DBCStorage<LockEntry> dbcLock;
-    public static DBCStorage<LookingForGroup> dbcLookingForGroup;
-    public static DBCStorage<MapEntry> dbcMap;
-    public static DBCStorage<gtFloat> dbcManaRegen;
-    public static DBCStorage<gtFloat> dbcManaRegenBase;
-    public static DBCStorage<gtFloat> dbcMeleeCrit;
-    public static DBCStorage<gtFloat> dbcMeleeCritBase;
-    public static DBCStorage<QuestFactionRewardEntry> dbcQuestFactionReward;
-    public static DBCStorage<QuestXPLevel> dbcQuestXPLevel;
-    public static DBCStorage<RandomProps> dbcRandomProps;
-    public static DBCStorage<RuneCostEntry> dbcSpellRuneCost;
-    public static DBCStorage<ScalingStatDistributionEntry> dbcScalingStatDistribution;
-    public static DBCStorage<ScalingStatValuesEntry> dbcScalingStatValues;
-    public static DBCStorage<SpellCastTime> dbcSpellCastTime;
-    public static DBCStorage<SpellDuration> dbcSpellDuration;
-    public static DBCStorage<SpellEntry> dbcSpell;
-    public static DBCStorage<SpellRadius> dbcSpellRadius;
-    public static DBCStorage<SpellRange> dbcSpellRange;
-    public static DBCStorage<SpellShapeshiftForm> dbcSpellShapeshiftForm;
-    public static DBCStorage<gtFloat> dbcSpellCrit;
-    public static DBCStorage<gtFloat> dbcSpellCritBase;
-    public static DBCStorage<gtFloat> dbcHPRegen;
-    public static DBCStorage<gtFloat> dbcHPRegenBase;
-    public static DBCStorage<SkillLineEntry> dbcSkillLine;
-    public static DBCStorage<SkillLineSpell> dbcSkillLineSpell;
-    public static DBCStorage<BankSlotPrice> dbcStableSlotPrices;
-    public static DBCStorage<SummonPropertiesEntry> dbcSummonProperties;
-    public static DBCStorage<TalentEntry> dbcTalent;
-    public static DBCStorage<TalentTabEntry> dbcTalentTab;
-    public static DBCStorage<DBCTaxiNode> dbcTaxiNode;
-    public static DBCStorage<DBCTaxiPath> dbcTaxiPath;
-    public static DBCStorage<DBCTaxiPathNode> dbcTaxiPathNode;
-    public static DBCStorage<VehicleEntry> dbcVehicle;
-    public static DBCStorage<VehicleSeatEntry> dbcVehicleSeat;
-    public static DBCStorage<WorldMapOverlayEntry> dbcWorldMapOverlay;
-    public static DBCStorage<WorldSafeLocsStoreEntry> dbcWorldSafeLocsStore;
-
-    public static Dictionary<uint, List<SpellEntry>> spellsByNameHash = new Dictionary<uint, List<SpellEntry>>();
+    private static DBCStorage<AchievementEntry> dbcAchievement;
+    private static DBCStorage<AchievementCategoryEntry> dbcAchievementCategory;
+    private static DBCStorage<AchievementCriteriaEntry> dbcAchivementCriteria;
+    private static DBCStorage<AreaTableEntry> dbcWMOAreaTable;
+    private static DBCStorage<AreaTriggerEntry> dbcAreaTrigger;
+    private static DBCStorage<GemPropertyEntry> dbcGemProperty;
+    private static DBCStorage<GlyphPropertyEntry> dbcGlyphProperty;
+    private static DBCStorage<ItemSetEntry> dbcItemSet;
+    private static DBCStorage<LockEntry> dbcLock;
+    private static DBCStorage<SpellEntry> dbcSpell;
+    private static DBCStorage<SpellDuration> dbcSpellDuration;
+    private static DBCStorage<SpellRange> dbcSpellRange;
+    private static DBCStorage<SpellShapeshiftForm> dbcSpellShapeshiftForm;
+    private static DBCStorage<EmoteTextEntry> dbcEmoteEntry;
+    private static DBCStorage<SpellRadius> dbcSpellRadius;
+    private static DBCStorage<SpellCastTime> dbcSpellCastTime;
+    private static DBCStorage<AreaGroup> dbcAreaGroup;
+    private static DBCStorage<AreaTable> dbcArea;
+    private static DBCStorage<FactionTemplateDBC> dbcFactionTemplate;
+    private static DBCStorage<FactionDBC> dbcFaction;
+    private static DBCStorage<EnchantEntry> dbcEnchant;
+    private static DBCStorage<RandomProps> dbcRandomProps;
+    private static DBCStorage<skilllinespell> dbcSkillLineSpell;
+    private static DBCStorage<skilllineentry> dbcSkillLine;
+    private static DBCStorage<DBCTaxiNode> dbcTaxiNode;
+    private static DBCStorage<DBCTaxiPath> dbcTaxiPath;
+    private static DBCStorage<DBCTaxiPathNode> dbcTaxiPathNode;
+    private static DBCStorage<AuctionHouseDBC> dbcAuctionHouse;
+    private static DBCStorage<TalentEntry> dbcTalent;
+    private static DBCStorage<TalentTabEntry> dbcTalentTab;
+    private static DBCStorage<CreatureDisplayInfo> dbcCreatureDisplayInfo;
+    private static DBCStorage<CreatureSpellDataEntry> dbcCreatureSpellData;
+    private static DBCStorage<CreatureFamilyEntry> dbcCreatureFamily;
+    private static DBCStorage<CharClassEntry> dbcCharClass;
+    private static DBCStorage<CharRaceEntry> dbcCharRace;
+    private static DBCStorage<CharTitlesEntry> dbcCharTitlesEntry;
+    private static DBCStorage<MapEntry> dbcMap;
+    private static DBCStorage<ItemExtendedCostEntry> dbcItemExtendedCost;
+    private static DBCStorage<ItemRandomSuffixEntry> dbcItemRandomSuffix;
+    private static DBCStorage<CombatRatingDBC> dbcCombatRating;
+    private static DBCStorage<ChatChannelDBC> dbcChatChannels;
+    private static DBCStorage<DurabilityCostsEntry> dbcDurabilityCosts;
+    private static DBCStorage<DurabilityQualityEntry> dbcDurabilityQuality;
+    private static DBCStorage<BankSlotPrice> dbcBankSlotPrices;
+    private static DBCStorage<BankSlotPrice> dbcStableSlotPrices; // uses same structure as Bank
+    private static DBCStorage<BarberShopStyleEntry> dbcBarberShopStyle;
+    private static DBCStorage<gtFloat> dbcBarberShopPrices;
+    private static DBCStorage<gtFloat> dbcMeleeCrit;
+    private static DBCStorage<gtFloat> dbcMeleeCritBase;
+    private static DBCStorage<gtFloat> dbcSpellCrit;
+    private static DBCStorage<gtFloat> dbcSpellCritBase;
+    private static DBCStorage<gtFloat> dbcManaRegen;
+    private static DBCStorage<gtFloat> dbcManaRegenBase;
+    private static DBCStorage<gtFloat> dbcHPRegen;
+    private static DBCStorage<gtFloat> dbcHPRegenBase;
+    private static DBCStorage<QuestXPLevel> dbcQuestXPLevel;
+    private static DBCStorage<SummonPropertiesEntry> dbcSummonProperties;
+    private static DBCStorage<RuneCostEntry> dbcSpellRuneCost;
+    private static DBCStorage<CurrencyTypesEntry> dbcCurrencyTypes;
+    private static DBCStorage<VehicleEntry> dbcVehicle;
+    private static DBCStorage<VehicleSeatEntry> dbcVehicleSeat;
+    private static DBCStorage<WorldMapOverlayEntry> dbcWorldMapOverlay;
+    private static DBCStorage<DestructibleModelDataEntry> dbcDestructibleModelDataEntry;
+    private static DBCStorage<ScalingStatDistributionEntry> dbcScalingStatDistribution;
+    private static DBCStorage<ScalingStatValuesEntry> dbcScalingStatValues;
+    private static DBCStorage<LookingForGroup> dbcLookingForGroup;
+    public static readonly Dictionary<uint, List<SpellEntry>> spellsByNameHash;
+    private static DBCStorage<WorldSafeLocsStoreEntry> dbcWorldSafeLocsStore;
 
     public const string AreaTriggerFormat = "uuffffffff";                           // 332.11403 - Idem 335.12340 Fr
     public const string AreaGroupFormat = "uuuuuuuu";                             // 332.11403 - Idem 335.12340 Fr
@@ -191,12 +187,13 @@ public static partial class DBCStores
     // Arcemu
     public const string WMOAreaFormat = "uiiixxxxxuuxxxxxxxxxxxxxxxxx";
 
-    public static string DBCPath = new string(new char[1024]);
-    public static string RSDBCPath = new string(new char[1024]);
-
+    private static readonly string DBCPath = new(new char[1024]);
+    private static readonly string RSDBCPath = new(new char[1024]);
     public const int INVOC_DURATION = 0;
     public const int INSTANT_DURATION = 1;
     public const int COOLDOWN_DURATION = 2;
+
+    public static ref DBCStorage<object> DbcQuestFactionReward => throw new NotImplementedException();
 
     public static float GetScale(CreatureDisplayInfo scale) => scale.Scale;
 
@@ -204,9 +201,9 @@ public static partial class DBCStores
 
     public static uint GetCastTime(SpellCastTime time) => time.CastTime;
 
-    public static float GetMaxRange(SpellRange range) => range.MaxRange;
+    public static float GetMaxRange(SpellRange range) => range.maxRange;
 
-    public static float GetMinRange(SpellRange range) => range.MinRange;
+    public static float GetMinRange(SpellRange range) => range.minRange;
 
     public static int GetDuration(SpellDuration dur, uint type)
     {
@@ -286,9 +283,10 @@ public static partial class DBCStores
             if ((flags & 0x00004000) != 0) // not used?
                 return ssvrow.dpsMod[5];
         }
+        return 0;
     }
 
-    private static bool LoaderStub<T>(string dbcPath, string filename, string format, bool ind, ref DBCStorage<T> storage, bool loadStrs)
+    public static bool LoaderStub<T>(string dbcPath, string filename, string format, bool ind, ref DBCStorage<T> storage, bool loadStrs) where T : new()
     {
         string dbcPathFile = Path.Combine(dbcPath, filename);
         Console.WriteLine($"Loading {dbcPathFile}.");
@@ -348,7 +346,7 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "LFGDungeons.dbc", LFGDungeonsFormat, true, ref dbcLookingForGroup, false)) return false;
         if (!LoaderStub(dbcPath, "Lock.dbc", LockFormat, true, ref dbcLock, false)) return false;
         if (!LoaderStub(dbcPath, "Map.dbc", MapEntryFormat, true, ref dbcMap, true)) return false;
-        if (!LoaderStub(dbcPath, "QuestFactionReward.dbc", QuestFactRewFormat, true, ref dbcQuestFactionReward, false)) return false;
+        if (!LoaderStub(dbcPath, "QuestFactionReward.dbc", QuestFactRewFormat, true, ref DbcQuestFactionReward, false)) return false;
         if (!LoaderStub(dbcPath, "QuestXP.dbc", XpQuestFormat, true, ref dbcQuestXPLevel, false)) return false;
         if (!LoaderStub(dbcPath, "ScalingStatDistribution.dbc", ScalingStatDistributionFormat, true, ref dbcScalingStatDistribution, false)) return false;
         if (!LoaderStub(dbcPath, "ScalingStatValues.dbc", ScalingStatValuesFormat, true, ref dbcScalingStatValues, false)) return false;
@@ -375,5 +373,5 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "WorldMapOverlay.dbc", WorldMapOverlayFmt, true, ref dbcWorldMapOverlay, true)) return false;
         if (!LoaderStub(dbcPath, "WorldSafeLocs.dbc", WorldSafeLocsStoreFormat, true, ref dbcWorldSafeLocsStore, true)) return false;
         return true;
-    }    
+    }
 }

@@ -99,7 +99,7 @@ public class ConfigFile : IDisposable
 
         if (_iniData[section] == null)
         {
-            _iniData[section] = new Dictionary<string, string>();
+            _iniData[section] = [];
         }
 
         _iniData[section][key] = value;

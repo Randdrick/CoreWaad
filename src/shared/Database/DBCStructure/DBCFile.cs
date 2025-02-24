@@ -21,15 +21,13 @@
 
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Runtime.InteropServices;
 
 namespace WaadShared.Database.DBCStructure;
 
 // DBCFile class is a simple database file reader. It reads the database file into memory and provides
-public class DBCFile
+public class DBCFile(int fieldCount, int stringSize, IntPtr stringTable)
 {
-    public DBCFile() { }
 
     // Open database. It must be opened before it can be used.
     public static bool Open(string filePath)
@@ -125,7 +123,7 @@ public class DBCFile
         }
     }
 
-    private readonly int fieldCount;
-    private readonly int stringSize;
-    private readonly IntPtr stringTable;
+    private readonly int fieldCount = fieldCount;
+    private readonly int stringSize = stringSize;
+    private readonly IntPtr stringTable = stringTable;
 }

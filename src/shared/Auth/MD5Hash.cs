@@ -20,114 +20,72 @@
  */
 
 using System;
-using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 
-namespace WaadShared.Auth;
-public class MD5Hash : IDisposable
+namespace WaadShared.Auth
 {
-    private MD5_CTX mC;
-    private byte[] mDigest;
-    private bool _disposed = false;
-
-    // Use conditional compilation to specify the correct library name for each platform
-#if WINDOWS
-    private const string LIBCRYPTO = "libcrypto.dll";
-#else
-    private const string LIBCRYPTO = "libcrypto.so";
-#endif
-
-    [DllImport(LIBCRYPTO, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void MD5_Init(ref MD5_CTX c);
-
-    [DllImport(LIBCRYPTO, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void MD5_Update(ref MD5_CTX c, byte[] data, int len);
-
-    [DllImport(LIBCRYPTO, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void MD5_Final(byte[] md, ref MD5_CTX c);
-
-    public MD5Hash()
+    public class MD5Hash : IDisposable
     {
-        mC = new MD5_CTX();
-        mDigest = new byte[MD5_DIGEST_LENGTH];
-        MD5_Init(ref mC);
-    }
+        private readonly MD5 _md5;
+        private bool _disposed = false;
 
-    ~MD5Hash()
-    {
-        Dispose(false);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed)
+        public MD5Hash()
         {
-            if (disposing)
+            _md5 = MD5.Create();
+        }
+
+        ~MD5Hash()
+        {
+            Dispose(false);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
             {
-                // Cleanup managed resources if needed
-                mDigest = null;
+                if (disposing)
+                {
+                    // Cleanup managed resources if needed
+                    _md5?.Dispose();
+                }
+
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        public void UpdateData(string str)
+        {
+            ArgumentNullException.ThrowIfNull(str);
+
+            byte[] data = Encoding.UTF8.GetBytes(str);
+            UpdateData(data);
+        }
+
+        public void UpdateData(ReadOnlySpan<byte> data)
+        {
+            if (data.IsEmpty)
+            {
+                throw new ArgumentNullException(nameof(data));
             }
 
-            // Cleanup unmanaged resources if needed
-
-            _disposed = true;
+            _md5.TransformBlock(data.ToArray(), 0, data.Length, null, 0);
         }
-    }
 
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    public void UpdateData(string str)
-    {
-        if (str == null)
+        public void FinalizeHash()
         {
-            throw new ArgumentNullException(nameof(str));
+            _md5.TransformFinalBlock([], 0, 0);
         }
 
-        byte[] data = Encoding.UTF8.GetBytes(str);
-        UpdateData(data, data.Length);
-    }
-
-    public void UpdateData(byte[] data, int len)
-    {
-        if (data == null)
+        public byte[] GetDigest()
         {
-            throw new ArgumentNullException(nameof(data));
+            return _md5.Hash;
         }
-
-        if (len < 0 || len > data.Length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(len));
-        }
-
-        MD5_Update(ref mC, data, len);
-    }
-
-    public void FinalizeHash()
-    {
-        MD5_Final(mDigest, ref mC);
-    }
-
-    public byte[] GetDigest()
-    {
-        return (byte[])mDigest.Clone();
-    }
-
-    private const int MD5_DIGEST_LENGTH = 16;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MD5_CTX
-    {
-        public uint count0;
-        public uint count1;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
-        public byte[] buffer;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
-        public uint[] state;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
-        public byte[] digest;
     }
 }

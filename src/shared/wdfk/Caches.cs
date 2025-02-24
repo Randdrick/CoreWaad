@@ -18,7 +18,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
- 
+
+using System; 
 using System.Collections.Generic;
 
 namespace WDFK;
@@ -38,6 +39,7 @@ public interface IComparable<T>
 {
     bool Eq<K>(K key1, K key2);
     bool Equals(T x, T y);
+    // bool Equals<T>(object value, T key);
     bool GtOrEq<K>(K key1, K key2);
     bool LessThan(T x, T y);
     bool Lt<K>(K key1, K key2);
@@ -157,7 +159,7 @@ public class SmartCache<K, V>
     private readonly IHashable<K> _hashable;
     private readonly IComparable<K> _comparable;
 
-    public SmartCache()
+    public SmartCache(IHashable<K> hashable, IComparable<K> comparable)
     {
         _size = 0;
         _split = 0;
@@ -165,11 +167,15 @@ public class SmartCache<K, V>
         _maxSize = DefaultCapacity;
         _uses = 0;
         _slots = [];
+        _hashable = hashable ?? throw new ArgumentNullException(nameof(hashable));
+        _comparable = comparable ?? throw new ArgumentNullException(nameof(comparable));
     }
 
-    public SmartCache(SmartCache<K, V> cache)
+    public SmartCache(SmartCache<K, V> cache, IHashable<K> hashable, IComparable<K> comparable)
     {
         Assign(cache);
+        _hashable = hashable ?? throw new ArgumentNullException(nameof(hashable));
+        _comparable = comparable ?? throw new ArgumentNullException(nameof(comparable));
     }
 
     public void Assign(SmartCache<K, V> cache)

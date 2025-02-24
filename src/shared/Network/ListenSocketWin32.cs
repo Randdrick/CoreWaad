@@ -138,6 +138,8 @@ namespace WaadShared.Network
 
     public static class SSocketMgr
     {
+        public static object Instance;
+
         public static IntPtr GetCompletionPort()
         {
             // Implementation for getting the completion port

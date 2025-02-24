@@ -29,8 +29,8 @@ public class MySQLDatabase : Database
 {
     private new MySqlConnection[] Connections;
     private new int mConnectionCount;
-    private readonly uint fieldCount;
-    private readonly uint rowCount;
+    private readonly uint fieldCount = 0;
+    private readonly uint rowCount = 0;
 
     public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
     {

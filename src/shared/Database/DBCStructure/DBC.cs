@@ -341,7 +341,6 @@ public class DBC : IDisposable
         }
     }
 
-
     public bool IsLoaded() => loaded;
 
     public IntPtr GetRow(uint index)
@@ -373,7 +372,6 @@ public class DBC : IDisposable
 
         return ptr;
     }
-
     public string LookupString(uint offset)
     {
         if (offset >= dblength)
