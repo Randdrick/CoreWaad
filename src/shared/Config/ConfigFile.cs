@@ -151,6 +151,12 @@ public class ConfigFile : IDisposable
         return def;
     }
 
+    public static bool GetBoolDefault(string key, bool defaultValue)
+    {
+        // Dummy implementation
+        return defaultValue;
+    }
+
     public int GetInt32(string section, string name, int def = 0)
     {
         if (_iniData == null || string.IsNullOrEmpty(section) || string.IsNullOrEmpty(name))

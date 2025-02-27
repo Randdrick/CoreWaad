@@ -46,7 +46,7 @@ public static class ErrorHandling
     {
         if (!assertion)
         {
-            Logger.OutError($"{errmsg}ERROR:\n  {assertion}");
+            Log.OutError($"{errmsg}ERROR:\n  {assertion}");
             Debug.Assert(false);
         }
     }
@@ -56,7 +56,7 @@ public static class ErrorHandling
     {
         if (!assertion)
         {
-            Logger.OutError($"{errmsg}WARNING:\n  {assertion}");
+            Log.OutError($"{errmsg}WARNING:\n  {assertion}");
         }
     }
 
@@ -65,7 +65,7 @@ public static class ErrorHandling
     {
         if (!assertion)
         {
-            Logger.OutError($"{errmsg}FATAL ERROR:\n  {assertion}");
+            Log.OutError($"{errmsg}FATAL ERROR:\n  {assertion}");
             Debug.Assert(false);
             Environment.FailFast(errmsg);
         }
@@ -80,19 +80,19 @@ public static class ErrorHandling
 }
 
 // Simulate a logger class
-public class Logger
-{
-    private static Logger instance;
+// public class Logger
+// {
+//     private static Logger instance;
 
-    private Logger() { }
+//     private Logger() { }
 
-    public static Logger GetInstance()
-    {
-        return instance ??= new Logger();
-    }
+//     public static Logger GetInstance()
+//     {
+//         return instance ??= new Logger();
+//     }
 
-    public static void OutError(string message)
-    {
-        Console.Error.WriteLine(message);
-    }
-}
+//     public static void OutError(string message)
+//     {
+//         Console.Error.WriteLine(message);
+//     }
+// }

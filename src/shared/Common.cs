@@ -18,7 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -30,6 +30,20 @@ namespace WaadShared;
 
 public static partial class Common
 {
+#if WINDOWS
+    public const string PLATFORM_TEXT = "Windows";
+#elif LINUX
+    public const string PLATFORM_TEXT = "Linux";
+#elif FREEBSD || DRAGONFLY
+    public const string PLATFORM_TEXT = "FreeBSD";
+#endif
+#if DEBUG
+    public const string CONFIG = "Debug";
+#elif RELEASE
+    public const string CONFIG = "Release";
+#endif
+    public static readonly string ARCH = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE");
+
     // Define these if you are creating a repack
     // public const string REPACK = "Moocow's Repack";
     // public const string REPACK_AUTHOR = "Trelorn";
@@ -145,34 +159,34 @@ public static partial class Common
         }
     }
 
-// #if WINDOWS
-//     [DllImport("kernel32.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
-//     private static extern void RaiseException(uint dwExceptionCode, uint dwExceptionFlags, uint nNumberOfArguments, ref THREADNAME_INFO lpArguments);
+    // #if WINDOWS
+    //     [DllImport("kernel32.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
+    //     private static extern void RaiseException(uint dwExceptionCode, uint dwExceptionFlags, uint nNumberOfArguments, ref THREADNAME_INFO lpArguments);
 
-//     public static void SetThreadName(string format, params object[] args)
-//     {
-//         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-//         {
-//             string threadName = string.Format(CultureInfo.InvariantCulture, format, args);
-//             THREADNAME_INFO info = new()
-//             {
-//                 dwType = 0x1000,
-//                 dwThreadID = (uint)Environment.CurrentManagedThreadId,
-//                 dwFlags = 0,
-//                 szName = threadName
-//             };
+    //     public static void SetThreadName(string format, params object[] args)
+    //     {
+    //         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+    //         {
+    //             string threadName = string.Format(CultureInfo.InvariantCulture, format, args);
+    //             THREADNAME_INFO info = new()
+    //             {
+    //                 dwType = 0x1000,
+    //                 dwThreadID = (uint)Environment.CurrentManagedThreadId,
+    //                 dwFlags = 0,
+    //                 szName = threadName
+    //             };
 
-//             try
-//             {
-//                 RaiseException(0x406D1388, 0, (uint)Marshal.SizeOf(info) / sizeof(uint), ref info);
-//             }
-//             catch (Exception)
-//             {
-//                 Console.WriteLine("Error Occurred");
-//             }
-//         }
-//     }
-// #endif
+    //             try
+    //             {
+    //                 RaiseException(0x406D1388, 0, (uint)Marshal.SizeOf(info) / sizeof(uint), ref info);
+    //             }
+    //             catch (Exception)
+    //             {
+    //                 Console.WriteLine("Error Occurred");
+    //             }
+    //         }
+    //     }
+    // #endif
 
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
     private struct THREADNAME_INFO

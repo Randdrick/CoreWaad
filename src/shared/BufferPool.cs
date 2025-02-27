@@ -41,6 +41,9 @@ public class WorldPacket(int bufferSize)
 {
     public int m_bufferPool;
     private readonly byte[] data = new byte[bufferSize];
+    public static int Size() { return 0; }
+    public static ushort GetOpcode() { return 0; }
+    public static byte[] Contents() { return []; }
 
     public void Clear()
     {

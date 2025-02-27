@@ -21,7 +21,7 @@
     <DebugType>portable</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
+    <DefineConstants>RELEASE;TRACE</DefineConstants>
     <TieredCompilation>true</TieredCompilation>
     <ReadyToRun>true</ReadyToRun>
     <PublishReadyToRun>true</PublishReadyToRun>
