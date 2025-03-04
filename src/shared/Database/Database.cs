@@ -313,6 +313,30 @@ public abstract class Database : CThread
 
         // Dispose unmanaged resources
     }
+
+    public bool Initialize(string dbstring)
+    {
+        throw new NotImplementedException();
+    }
+ 
+    public void EndThreads()
+    {
+        SetThreadState(CThreadState.THREADSTATE_TERMINATE);
+        while (ThreadRunning || qt != null)
+        {
+            if (query_buffer.Count == 0)
+                Monitor.PulseAll(query_buffer);
+
+            if (queries_queue.Count == 0)
+                Monitor.PulseAll(queries_queue);
+
+            Thread.Sleep(100);
+            if (!ThreadRunning)
+                break;
+
+            Thread.Sleep(1000);
+        }
+    }
 }
 
 public class QueryBuffer : IDisposable

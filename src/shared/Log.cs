@@ -44,6 +44,7 @@ public class Logger : Singleton<Logger>
     private StreamWriter m_file;
 
     public Logger() { }
+    public static bool IsOutProcess() { return false; }
 
     public void Init(int fileLogLevel, int screenLogLevel)
     {

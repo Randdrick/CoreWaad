@@ -20,330 +20,523 @@
  */
 
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace WaadShared.Network;
-
-public class Socket
+namespace WaadShared.Network
 {
-    private readonly System.Net.Sockets.Socket _socket;
-    private bool _isConnected;
-    private bool _isDeleted;
-    private readonly object _writeMutex = new();
-    private readonly object _readMutex = new();
-    private IPEndPoint _clientEndPoint;
-    private readonly byte[] _readBuffer;
-    private readonly byte[] _writeBuffer;
-    private IntPtr _completionPort; // Equivalent to HANDLE in C++
-    private int _writeLock;
-
-    public Socket(System.Net.Sockets.Socket socket, int sendBufferSize, int recvBufferSize)
+    public class Socket
     {
-        _socket = socket ?? throw new ArgumentNullException(nameof(socket));
-        _isConnected = false;
-        _isDeleted = false;
-        _writeLock = 0;
+        private readonly Socket _socket;
+        private bool _isConnected;
+        private bool _isDeleted;
+        private readonly object _writeMutex = new();
+        private readonly object _readMutex = new();
+        private IPEndPoint _clientEndPoint;
+        private readonly byte[] _readBuffer;
+        private readonly byte[] _writeBuffer;
+        private int _writeLock;
 
-        // Allocate Buffers
-        _readBuffer = new byte[recvBufferSize];
-        _writeBuffer = new byte[sendBufferSize];
+        public Socket(Socket socket, int sendBufferSize, int recvBufferSize)
+        {
+            _socket = socket ?? throw new ArgumentNullException(nameof(socket));
+            _isConnected = false;
+            _isDeleted = false;
+
+            // Allocate Buffers
+            _readBuffer = new byte[recvBufferSize];
+            _writeBuffer = new byte[sendBufferSize];
 
 #if CONFIG_USE_IOCP
-        // Simulate getting a completion port from a manager
-        _completionPort = SocketManager.GetCompletionPort();
+            _writeLock = 0;
+#else
+            _writeLock = 0;
 #endif
-    }
-
-    public Socket(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
-    {
-        _socket = new System.Net.Sockets.Socket(addressFamily, socketType, protocolType);
-    }
-
-    ~Socket()
-    {
-        Disconnect();
-    }
-
-    public bool Connect(string address, int port)
-    {
-        try
-        {
-            IPHostEntry hostEntry = Dns.GetHostEntry(address);
-            IPAddress[] addresses = hostEntry.AddressList;
-
-            if (addresses.Length == 0)
-                return false;
-
-            _clientEndPoint = new IPEndPoint(addresses[0], port);
-            _socket.Connect(_clientEndPoint);
-
-            OnConnect();
-            return true;
         }
-        catch (Exception ex)
+
+        public Socket(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
         {
-            Console.WriteLine($"Connection failed: {ex.Message}");
-            return false;
+            _socket = new Socket(addressFamily, socketType, protocolType);
         }
-    }
 
-    public void Accept(IPAddress any, IPEndPoint address)
-    {
-        _clientEndPoint = address;
-        OnConnect();
-    }
+        public Socket()
+        {
+        }
 
-    private void OnConnect()
-    {
-        _socket.Blocking = false;
-        _socket.NoDelay = true;
-        _isConnected = true;
+        ~Socket()
+        {
+            Disconnect();
+        }
 
-        // Call virtual onconnect
-        OnConnect();
-    }
-
-    public bool Send(byte[] bytes)
-    {
-        lock (_writeMutex)
+        public bool Connect(string address, int port)
         {
             try
             {
-                return _socket.Send(bytes) == bytes.Length;
+                IPHostEntry hostEntry = Dns.GetHostEntry(address);
+                IPAddress[] addresses = hostEntry.AddressList;
+
+                if (addresses.Length == 0)
+                    return false;
+
+                _clientEndPoint = new IPEndPoint(addresses[0], port);
+                _socket.Connect(_clientEndPoint);
+
+                OnConnect();
+                return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Send failed: {ex.Message}");
+                Console.WriteLine($"Connection failed: {ex.Message}");
                 return false;
             }
         }
-    }
 
-    public void BurstBegin()
-    {
-        Monitor.Enter(_writeMutex);
-    }
-
-    public bool BurstSend(byte[] bytes)
-    {
-        try
+        private void Connect(IPEndPoint clientEndPoint)
         {
-            Buffer.BlockCopy(bytes, 0, _writeBuffer, 0, bytes.Length);
-            return true;
+            throw new NotImplementedException();
         }
-        catch (Exception ex)
+
+        public void Accept(IPAddress any, IPEndPoint address)
         {
-            Console.WriteLine($"BurstSend failed: {ex.Message}");
-            return false;
+            _clientEndPoint = address;
+            OnConnect();
         }
-    }
 
-    public static void BurstPush()
-    {
-        // Implementation for pushing events to the queue
-    }
+        private void OnConnect()
+        {
+            _socket.Blocking = false;
+            _socket.NoDelay = true;
+            _isConnected = true;
 
-    public void BurstEnd()
-    {
-        Monitor.Exit(_writeMutex);
-    }
+            // Call virtual onconnect
+            OnConnect();
+        }
 
-    public string GetRemoteIP()
-    {
-        return _clientEndPoint?.Address.ToString() ?? "noip";
-    }
+        public bool Send(byte[] bytes)
+        {
+            lock (_writeMutex)
+            {
+                try
+                {
+                    bool bytesSent = _socket.Send(bytes);
+                    return bytesSent.CompareTo(bytes.Length) == bytes.Length;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Send failed: {ex.Message}");
+                    return false;
+                }
+            }
+        }
 
-    public int GetRemotePort()
-    {
-        return _clientEndPoint?.Port ?? 0;
-    }
+        public void BurstBegin()
+        {
+            Monitor.Enter(_writeMutex);
+        }
 
-    public System.Net.Sockets.Socket GetSocket()
-    {
-        return _socket;
-    }
+        public bool BurstSend(byte[] bytes)
+        {
+            try
+            {
+                Buffer.BlockCopy(bytes, 0, _writeBuffer, 0, bytes.Length);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"BurstSend failed: {ex.Message}");
+                return false;
+            }
+        }
 
-    public void Disconnect()
-    {
-        if (!_isConnected) return;
+        public void BurstEnd()
+        {
+            Monitor.Exit(_writeMutex);
+        }
 
-        _isConnected = false;
-        _socket.Close();
+        public string GetRemoteIP()
+        {
+            return _clientEndPoint?.Address.ToString() ?? "noip";
+        }
 
-        // Call virtual ondisconnect
-        OnDisconnect();
+        public int GetRemotePort()
+        {
+            return _clientEndPoint?.Port ?? 0;
+        }
 
-        if (!_isDeleted) Delete();
-    }
+        public Socket GetSocket()
+        {
+            return _socket;
+        }
 
-    public void Delete()
-    {
-        if (_isDeleted) return;
-        _isDeleted = true;
+        public void Disconnect()
+        {
+            if (!_isConnected) return;
 
-        if (_isConnected) Disconnect();
-        // Assuming there's a garbage collector mechanism in place
-    }
+            _isConnected = false;
+            _socket.Close();
 
-    public bool IsDeleted()
-    {
-        return _isDeleted;
-    }
+            // Call virtual ondisconnect
+            OnDisconnect();
 
-    public bool IsConnected()
-    {
-        return _isConnected;
-    }
+            if (!_isDeleted) Delete();
+        }
 
-    public IPEndPoint GetRemoteStruct()
-    {
-        return _clientEndPoint;
-    }
+        public void Delete()
+        {
+            if (_isDeleted) return;
+            _isDeleted = true;
 
-    public byte[] GetReadBuffer()
-    {
-        return _readBuffer;
-    }
+            if (_isConnected) Disconnect();
+            // Queue the socket for garbage collection
+            SocketGarbageCollector.Instance.QueueSocket(this);
+        }
 
-    public byte[] GetWriteBuffer()
-    {
-        return _writeBuffer;
-    }
+        public bool IsDeleted()
+        {
+            return _isDeleted;
+        }
 
-    public IPAddress GetRemoteAddress()
-    {
-        return _clientEndPoint?.Address;
-    }
+        public bool IsConnected()
+        {
+            return _isConnected;
+        }
 
-    protected virtual void OnRead()
-    {
-        // Implementation for derived classes
-    }
+        public IPEndPoint GetRemoteStruct()
+        {
+            return _clientEndPoint;
+        }
 
-    protected virtual void OnDisconnect()
-    {
-        // Implementation for derived classes
-    }
+        public byte[] GetReadBuffer()
+        {
+            return _readBuffer;
+        }
 
-    // Platform-specific methods ( placeholders )
-    public static void SetupReadEvent()
-    {
-        // Implementation for setting up read events
-    }
+        public byte[] GetWriteBuffer()
+        {
+            return _writeBuffer;
+        }
 
-    public static void ReadCallback(uint len)
-    {
-        // Implementation for read callback
-    }
+        public IPAddress GetRemoteAddress()
+        {
+            return _clientEndPoint?.Address;
+        }
 
-    public static void WriteCallback()
-    {
-        // Implementation for write callback
-    }
+        protected virtual void OnRead()
+        {
+            // Implementation for derived classes
+        }
+
+        protected virtual void OnDisconnect()
+        {
+            // Implementation for derived classes
+        }
+
+        // Platform-specific methods ( placeholders )
+        public static void SetupReadEvent()
+        {
+            // Implementation for setting up read events
+        }
 
 #if CONFIG_USE_IOCP
-    // Simulated SocketManager class
-    public static class SocketManager
-    {
-        public static IntPtr GetCompletionPort()
+        // Simulated SocketManager class
+        public static class SocketManager
         {
-            // Simulate obtaining a completion port handle
-            return new IntPtr(1); // Placeholder value
+            public static IntPtr GetCompletionPort()
+            {
+                // Simulate obtaining a completion port handle
+                return new IntPtr(1); // Placeholder value
+            }
         }
-    }
 
-    public void SetCompletionPort(IntPtr cp)
-    {
-        _completionPort = cp;
-    }
-
-    public void IncSendLock()
-    {
-        Interlocked.Increment(ref _writeLock);
-    }
-
-    public void DecSendLock()
-    {
-        Interlocked.Decrement(ref _writeLock);
-    }
-
-    public bool AcquireSendLock()
-    {
-        if (_writeLock > 0)
-            return false;
-        else
+        public static void SetCompletionPort(IntPtr cp)
         {
-            IncSendLock();
-            return true;
+            // Removed _completionPort field
         }
-    }
 
-    public void ReleaseSendLock()
-    {
-        DecSendLock();
-    }
+        public void IncSendLock()
+        {
+            Interlocked.Increment(ref _writeLock);
+        }
 
-    internal void Bind(IPEndPoint address)
-    {
-        _socket.Bind(address);
-    }
+        public void DecSendLock()
+        {
+            Interlocked.Decrement(ref _writeLock);
+        }
 
-    internal void Close()
-    {
-        _socket.Close();
-    }
+        public bool AcquireSendLock()
+        {
+            if (_writeLock > 0)
+                return false;
+            else
+            {
+                IncSendLock();
+                return true;
+            }
+        }
 
-    internal Socket Accept(int minPort)
-    {
-        _socket.Listen(1);
-        var acceptedSocket = _socket.Accept();
-        return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
-    }
+        public void ReleaseSendLock()
+        {
+            DecSendLock();
+        }
 
-    internal Socket Accept(IPAddress any, ref int len, int minPort, int maxPort)
-    {
-        _socket.Listen(1);
-        var acceptedSocket = _socket.Accept();
-        return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
-    }
+        internal void Bind(IPEndPoint address)
+        {
+            _socket.Bind(address);
+        }
 
-    internal void SetSocketOption(SocketOptionLevel socket, SocketOptionName reuseAddress, bool v)
-    {
-        _socket.SetSocketOption(socket, reuseAddress, v);
-    }
+        internal void Close()
+        {
+            _socket.Close();
+        }
 
-    internal void Listen(int v)
-    {
-        _socket.Listen(v);
-    }
+        internal Socket Accept(int minPort)
+        {
+            _socket.Listen(1);
+            var acceptedSocket = _socket.Accept();
+            return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
+        }
 
-    internal Socket Accept()
-    {
-        var acceptedSocket = _socket.Accept();
-        return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
-    }
+        internal Socket Accept(IPAddress any, ref int len, int minPort, int maxPort)
+        {
+            _socket.Listen(1);
+            var acceptedSocket = _socket.Accept();
+            return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
+        }
 
-    internal Socket Accept(object m)
-    {
-        var acceptedSocket = _socket.Accept();
-        return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
-    }
+        internal void SetSocketOption(SocketOptionLevel socket, SocketOptionName reuseAddress, bool v)
+        {
+            _socket.SetSocketOption(socket, reuseAddress, v);
+        }
 
-    // Placeholder for overlapped structures
-    private class OverlappedStruct
-    {
-        // Implementation for overlapped structure
-    }
+        internal void Listen(int v)
+        {
+            _socket.Listen(v);
+        }
 
-    private OverlappedStruct _readEvent;
-    private OverlappedStruct _writeEvent;
+        internal Socket Accept()
+        {
+            var acceptedSocket = _socket.Accept();
+            return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
+        }
 
-    public AddressFamily AddressFamily { get; }
-    public SocketType SocketType { get; }
-    public ProtocolType ProtocolType { get; }
-    public bool Blocking { get; internal set; }
+        internal Socket Accept(object m)
+        {
+            var acceptedSocket = _socket.Accept();
+            return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
+        }
+
+        public AddressFamily AddressFamily { get; }
+        public SocketType SocketType { get; }
+        public ProtocolType ProtocolType { get; }
+        public bool Blocking { get; internal set; }
+        public bool NoDelay { get; private set; }
+        public int Handle { get; internal set; }
+        public int Available { get; internal set; }
 #endif
-}
 
+#if CONFIG_USE_EPOLL
+        // Posts a epoll event with the specified arguments.
+        public void PostEvent(uint events)
+        {
+            // Implementation for posting epoll event
+        }
+
+        // Atomic wrapper functions for increasing read/write locks
+        public void IncSendLock()
+        {
+            Interlocked.Increment(ref _writeLock);
+        }
+
+        public void DecSendLock()
+        {
+            Interlocked.Decrement(ref _writeLock);
+        }
+
+        public bool HasSendLock()
+        {
+            return _writeLock != 0;
+        }
+
+        public bool AcquireSendLock()
+        {
+            if (_writeLock > 0)
+                return false;
+            else
+            {
+                IncSendLock();
+                return true;
+            }
+        }
+
+        private volatile int _writeLock;
+#endif
+
+#if CONFIG_USE_KQUEUE
+        // Posts a kqueue event with the specified arguments.
+        public void PostEvent(int events, bool oneshot)
+        {
+            // Implementation for posting kqueue event
+        }
+
+        // Atomic wrapper functions for increasing read/write locks
+        public void IncSendLock()
+        {
+            Interlocked.Increment(ref _writeLock);
+        }
+
+        public void DecSendLock()
+        {
+            Interlocked.Decrement(ref _writeLock);
+        }
+
+        public bool HasSendLock()
+        {
+            return _writeLock != 0;
+        }
+
+        public bool AcquireSendLock()
+        {
+            if (_writeLock > 0)
+                return false;
+            else
+            {
+                IncSendLock();
+                return true;
+            }
+        }
+
+        private volatile int _writeLock;
+#endif
+
+        /** Connect to a server.
+         * @param hostname Hostname or IP address to connect to
+         * @param port Port to connect to
+         * @return T if successful, otherwise null
+         */
+        public static T ConnectTCPSocket<T>(string hostname, ushort port) where T : Socket, new()
+        {
+            try
+            {
+                IPHostEntry hostEntry = Dns.GetHostEntry(hostname);
+                IPAddress[] addresses = hostEntry.AddressList;
+
+                if (addresses.Length == 0)
+                    return null;
+
+                IPEndPoint conn = new(addresses[0], port);
+
+                T socket = new();
+                if (!socket.Connect(hostname, port))
+                {
+                    socket.Delete();
+                    return null;
+                }
+                return socket;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Connection failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        internal int Receive(byte[] bytes, int space, SocketFlags none)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal int Send(byte[] bytes, int v, SocketFlags none)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal int EndReceive(IAsyncResult result)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal void BeginReceive(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket socket)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal static void Select(HashSet<Socket> m_readableSet, HashSet<Socket> writable, HashSet<Socket> m_exceptionSet, int v)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal bool Poll(int v, SelectMode selectWrite)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal object EndAccept(IAsyncResult result)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal void BeginAccept(AsyncCallback asyncCallback, Socket s)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal void BeginSend(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket s)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal static void Select(List<Socket> sockets, object value1, object value2, int v)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class SocketGarbageCollector
+    {
+        private const int SOCKET_GC_TIMEOUT = 15;
+        private readonly ConcurrentDictionary<Socket, long> deletionQueue = new();
+        private readonly object lockObj = new();
+
+        private static readonly Lazy<SocketGarbageCollector> instance = new(() => new SocketGarbageCollector());
+
+        public static SocketGarbageCollector Instance => instance.Value;
+
+        private SocketGarbageCollector() { }
+
+        ~SocketGarbageCollector()
+        {
+            foreach (var socket in deletionQueue.Keys)
+            {
+                socket.Delete();
+            }
+        }
+
+        public void Update()
+        {
+            long currentTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            lock (lockObj)
+            {
+                foreach (var socket in deletionQueue.Keys.ToList())
+                {
+                    if (deletionQueue[socket] <= currentTime)
+                    {
+                        socket.Delete();
+                        deletionQueue.TryRemove(socket, out _);
+                    }
+                }
+            }
+        }
+
+        public void QueueSocket(Socket socket)
+        {
+            lock (lockObj)
+            {
+                deletionQueue[socket] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + SOCKET_GC_TIMEOUT;
+            }
+        }
+    }
+}

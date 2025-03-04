@@ -463,6 +463,22 @@ public static partial class Common
     {
         return RTrim(LTrim(s, findStr), findStr);
     }
+    public class Field
+    {
+        public static bool GetBool() => false;
+        public static byte GetUInt8() => 0;
+        public static ushort GetUInt16() => 0;
+        public static uint GetUInt32() => 0;
+        public static int GetInt32() => 0;
+        public static float GetFloat() => 0;
+        public static string GetString() => "";
+
+        public static uint GetUInt32(Field field) => throw new NotImplementedException();
+
+        public static byte GetUInt8(Field field) => throw new NotImplementedException();
+
+        public static string GetString(Field field) => throw new NotImplementedException();
+    }
 }
 
 public struct WayPoint

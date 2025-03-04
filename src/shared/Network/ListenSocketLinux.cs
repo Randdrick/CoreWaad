@@ -19,7 +19,7 @@
  *
  */
 
-#define _LISTENSOCKET_H
+#if CONFIG_USE_EPOLL
 
 using System;
 using System.Net;
@@ -27,12 +27,6 @@ using System.Net.Sockets;
 
 namespace WaadShared.Network
 {
-#if LINUX
-#define CONFIG_USE_EPOLL
-#endif
-
-#if CONFIG_USE_EPOLL
-
     public abstract class ListenSocketBase
     {
         public abstract void OnAccept();
@@ -116,7 +110,5 @@ namespace WaadShared.Network
         public bool IsOpen() { return m_opened; }
         public override int GetFd() { return (int)m_socket.Handle; }
     }
-
-#endif
-
 }
+#endif

@@ -37,17 +37,74 @@ public enum BufferBucketSize
     BufferBucketCount
 }
 
-public class WorldPacket(int bufferSize)
+public class WorldPacket : ByteBuffer
 {
+    private ushort m_opcode;
     public int m_bufferPool;
-    private readonly byte[] data = new byte[bufferSize];
-    public static int Size() { return 0; }
-    public static ushort GetOpcode() { return 0; }
-    public static byte[] Contents() { return []; }
+    private readonly byte[] data;
 
-    public void Clear()
+    public WorldPacket(int bufferSize) : base(bufferSize)
     {
-        Array.Clear(data, 0, data.Length);
+        data = new byte[bufferSize];
+    }
+
+    public WorldPacket(ushort opcode, int bufferSize) : this(bufferSize)
+    {
+        m_opcode = opcode;
+        m_bufferPool = -1;
+    }
+
+    public WorldPacket(uint bufferSize) : base(bufferSize)
+    {
+        m_opcode = 0;
+        m_bufferPool = -1;
+    }
+
+    public WorldPacket(WorldPacket packet) : base(packet)
+    {
+        m_opcode = packet.m_opcode;
+        m_bufferPool = -1;
+    }
+
+    private int BufferSize()
+    {
+        return data.Length;
+    }
+
+    public void Initialize(ushort opcode)
+    {
+        Clear();
+        m_opcode = opcode;
+    }
+
+    public ushort GetOpcode()
+    {
+        return m_opcode;
+    }
+
+    public void SetOpcode(ushort opcode)
+    {
+        m_opcode = opcode;
+    }
+
+    public static WorldPacket Create()
+    {
+        return new WorldPacket(0);
+    }
+
+    public void PrintStorage()
+    {
+        var sLog = new Logger();
+        if (Logger.IsOutProcess())
+        {
+            sLog.OutDebug($"STORAGE_SIZE: {BufferSize()}\n");
+            sLog.OutDebug("START: ");
+            for (int i = 0; i < BufferSize(); ++i)
+            {
+                sLog.OutDebug($"{Read<byte>(i)} - ");
+            }
+            sLog.OutDebug("END\n");
+        }
     }
 }
 
@@ -55,7 +112,8 @@ public class BufferPool
 {
     public class BufferBucket
     {
-        public static readonly int[] BufferSizes = [
+        public static readonly int[] BufferSizes =
+        [
             20,      // 20 bytes
             50,      // 50 bytes
             100,     // 100 bytes
@@ -129,7 +187,7 @@ public class BufferPool
 
         public void Stats()
         {
-            int blocks = (int)((float)(m_packetBufferCount) / m_packetBuffer.Count * 50.0f / 2.0f);
+            int blocks = (int)((float)m_packetBufferCount / m_packetBuffer.Count * 50.0f / 2.0f);
             int mem = (m_packetBufferCount + m_used) * m_byteSize;
 
             Console.WriteLine($" Bucket[{m_size}]: {m_byteSize} bytes: sz = {m_packetBufferCount} resv = {m_packetBuffer.Count} alloc: {m_allocCounter} used: {m_used} mem: {mem / 1024.0f:F3} K");
@@ -163,7 +221,7 @@ public class BufferPool
         }
     }
 
-    private class BufferBucketNode(BufferPool.BufferBucket bck)
+    private class BufferBucketNode(BufferBucket bck)
     {
         public BufferBucket m_bucket = bck;
         private readonly object m_lock = new();

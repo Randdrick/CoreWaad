@@ -52,9 +52,9 @@
     <PackageReference Include="Crc32.NET" Version="1.2.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Ini" Version="9.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
+    <!-- <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
     <PackageReference Include="MSTest.TestAdapter" Version="2.2.10" />
-    <PackageReference Include="MSTest.TestFramework" Version="2.2.10" />
+    <PackageReference Include="MSTest.TestFramework" Version="2.2.10" /> -->
     <PackageReference Include="NuGet.Configuration" Version="6.12.1" />
     <PackageReference Include="NuGet.exe" Version="3.4.3" />
     <PackageReference Include="Portable.BouncyCastle" Version="1.9.0.0" />

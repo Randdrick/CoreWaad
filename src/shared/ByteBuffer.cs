@@ -33,10 +33,12 @@ public class ByteBufferException(bool add, uint pos, uint esize, uint size) : Ex
 
 public class ByteBuffer
 {
+    protected List<byte> buffer;
     private readonly List<byte> _storage;
     private int _rpos;
     private int _wpos;
     public string Opcodename { get; set; }
+    public int Size => _storage.Count;
 
     public const int DEFAULT_SIZE = 0x1000;
 
@@ -55,6 +57,15 @@ public class ByteBuffer
         _rpos = buf._rpos;
         _wpos = buf._wpos;
         _storage = [.. buf._storage];
+    }
+
+    public ByteBuffer(uint res)
+    {
+        buffer = new List<byte>((int)res);
+    }
+    public ByteBuffer(WorldPacket packet)
+    {
+        buffer = [.. packet.buffer];
     }
 
     public void Clear()
@@ -322,7 +333,7 @@ public class ByteBuffer
 
     public byte[] Contents => [.. _storage];
 
-    public int Size => _storage.Count;
+
 
     public void Resize(int newsize)
     {

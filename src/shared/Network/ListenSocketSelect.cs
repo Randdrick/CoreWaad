@@ -20,108 +20,106 @@
  */
 
 
-#define _LISTENSOCKET_H
+#if CONFIG_USE_SELECT
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 
-namespace WaadShared.Network
+namespace WaadShared.Network;
+
+public class ListenSocket<T> where T : new()
 {
-#if CONFIG_USE_SELECT
+    private readonly Socket m_socket;
+    private Socket aSocket;
+    private readonly IPEndPoint m_address;
+    private readonly IPEndPoint m_tempAddress;
+    private bool m_opened;
+    private readonly int len;
+    private T dsocket;
 
-    public class ListenSocket<T> where T : new()
+    public ListenSocket(string ListenAddress, uint Port)
     {
-        private readonly Socket m_socket;
-        private readonly Socket aSocket;
-        private readonly IPEndPoint m_address;
-        private readonly IPEndPoint m_tempAddress;
-        private readonly bool m_opened;
-        private readonly int len;
-        private T dsocket;
+        m_socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        SocketOps.ReuseAddr(m_socket);
+        SocketOps.Nonblocking(m_socket);
 
-        public ListenSocket(string ListenAddress, uint Port)
+        m_address = new IPEndPoint(IPAddress.Any, (int)Port);
+        m_opened = false;
+
+        if (ListenAddress != "0.0.0.0")
         {
-            m_socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            SocketOps.ReuseAddr(m_socket);
-            SocketOps.Nonblocking(m_socket);
-
-            m_address = new IPEndPoint(IPAddress.Any, (int)Port);
-            m_opened = false;
-
-            if (ListenAddress != "0.0.0.0")
-            {
-                IPHostEntry hostname = Dns.GetHostEntry(ListenAddress);
-                if (hostname != null)
-                    m_address.Address = hostname.AddressList[0];
-            }
-
-            // bind.. well attempt to.
-            try
-            {
-                m_socket.Bind(m_address);
-            }
-            catch (SocketException)
-            {
-                Console.WriteLine($"Bind unsuccessful on port {Port}.");
-                return;
-            }
-
-            try
-            {
-                m_socket.Listen(5);
-            }
-            catch (SocketException)
-            {
-                Console.WriteLine($"Unable to listen on port {Port}.");
-                return;
-            }
-            len = Marshal.SizeOf(typeof(IPEndPoint));
-            m_opened = true;
+            IPHostEntry hostname = Dns.GetHostEntry(ListenAddress);
+            if (hostname != null)
+                m_address.Address = hostname.AddressList[0];
         }
 
-        ~ListenSocket()
+        // bind.. well attempt to.
+        try
         {
-            if (m_opened)
-                SocketOps.CloseSocket(m_socket);
+            m_socket.Bind(m_address);
+        }
+        catch (SocketException)
+        {
+            Console.WriteLine($"Bind unsuccessful on port {Port}.");
+            return;
         }
 
-        public void Close()
+        try
         {
-            if (m_opened)
-                SocketOps.CloseSocket(m_socket);
-            m_opened = false;
+            m_socket.Listen(5);
         }
-
-        public void Update()
+        catch (SocketException)
         {
-            aSocket = m_socket.Accept();
-            if (aSocket == null)
-                return;
-
-            dsocket = new T();
-            ((dynamic)dsocket).Accept(m_tempAddress);
+            Console.WriteLine($"Unable to listen on port {Port}.");
+            return;
         }
-
-        public bool IsOpen() { return m_opened; }
+        len = Marshal.SizeOf(typeof(IPEndPoint));
+        m_opened = true;
     }
 
-    public static class SocketOps
+    ~ListenSocket()
     {
-        public static void ReuseAddr(Socket socket)
-        {
-            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        }
-
-        public static void Nonblocking(Socket socket)
-        {
-            socket.Blocking = false;
-        }
-
-        public static void CloseSocket(Socket socket)
-        {
-            socket.Close();
-        }
+        if (m_opened)
+            SocketOps.CloseSocket(m_socket);
     }
+
+    public void Close()
+    {
+        if (m_opened)
+            SocketOps.CloseSocket(m_socket);
+        m_opened = false;
+    }
+
+    public void Update()
+    {
+        aSocket = m_socket.Accept();
+        if (aSocket == null)
+            return;
+
+        dsocket = new T();
+        ((dynamic)dsocket).Accept(m_tempAddress);
+    }
+
+    public bool IsOpen() { return m_opened; }
+}
+
+public static class SocketOps
+{
+    public static void ReuseAddr(Socket socket)
+    {
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+    }
+
+    public static void Nonblocking(Socket socket)
+    {
+        socket.Blocking = false;
+    }
+
+    public static void CloseSocket(Socket socket)
+    {
+        socket.Close();
+    }
+}
 
 #endif
-}

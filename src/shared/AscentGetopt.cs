@@ -59,7 +59,7 @@ public static class AscentGetOpt
         if (!opt.StartsWith("--"))
             return 1;
         else
-            opt = opt.Substring(2);
+            opt = opt[2..];
 
         for (int i = 0; i < longOpts.Length; i++)
         {
