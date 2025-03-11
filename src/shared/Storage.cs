@@ -67,8 +67,6 @@ public abstract class StorageContainerIterator<T>
     public bool AtEnd() => Pointer == null;
 
     public abstract bool Inc();
-
-    public abstract void Destruct();
 }
 
 public class ArrayStorageContainer<T> where T : class, new()
@@ -111,7 +109,7 @@ public class ArrayStorageContainer<T> where T : class, new()
     public T AllocateEntry(int entry)
     {
         if (entry >= _max || _array[entry] != null)
-            return default(T);
+            return default;
 
         _array[entry] = _pool.Get();
         return _array[entry][0];
@@ -129,7 +127,7 @@ public class ArrayStorageContainer<T> where T : class, new()
     public T LookupEntry(int entry)
     {
         if (entry >= _max)
-            return default(T);
+            return default;
         return _array[entry][0];
     }
 
@@ -177,10 +175,10 @@ public class HashMapStorageContainer<T> where T : new()
     public T AllocateEntry(int entry)
     {
         if (_map.ContainsKey(entry))
-            return default(T);
+            return default;
 
         T[] nArray = _pool.Get();
-        T n = nArray != null ? nArray[0] : default(T);
+        T n = nArray != null ? nArray[0] : default;
         _map[entry] = n;
         return n;
     }
@@ -197,7 +195,7 @@ public class HashMapStorageContainer<T> where T : new()
     public T LookupEntry(int entry)
     {
         if (!_map.TryGetValue(entry, out T value))
-            return default(T);
+            return default;
         return value;
     }
 
@@ -244,29 +242,23 @@ public class ArrayStorageIterator<T> : StorageContainerIterator<T> where T : cla
         return Pointer != null;
     }
 
-    public override void Destruct()
-    {
-        // No need to free memory in C#
-    }
-
     private void GetNextElement()
     {
         while (_myIndex < _source._max)
         {
-            if (_source.Array[_myIndex] != null)
+            // Iterate over the inner array
+            for (int i = 0; i < _source.Array[_myIndex].Length; i++)
             {
-                Set(_source.Array[_myIndex]);
-                ++_myIndex;
-                return;
+                if (_source.Array[_myIndex][i] != null)
+                {
+                    Set(_source.Array[_myIndex][i]);
+                    ++_myIndex;
+                    return;
+                }
             }
             ++_myIndex;
         }
-        Set(default(T));
-    }
-
-    private void Set(T[] ts)
-    {
-        throw new NotImplementedException();
+        Set(default);
     }
 }
 
@@ -282,7 +274,7 @@ public class HashMapStorageIterator<T> : StorageContainerIterator<T> where T : n
         if (_itr.MoveNext())
             Set(_itr.Current.Value);
         else
-            Set(default(T));
+            Set(default);
     }
 
     public override bool Inc()
@@ -292,15 +284,12 @@ public class HashMapStorageIterator<T> : StorageContainerIterator<T> where T : n
             Set(_itr.Current.Value);
             return true;
         }
-        Set(default(T));
+        Set(default);
+        _itr.Dispose();
         return false;
     }
-
-    public override void Destruct()
-    {
-        _itr.Dispose();
-    }
 }
+
 // Définir l'interface avec la méthode MakeIterator
 public interface IStorageContainer<T>
 {
@@ -356,7 +345,6 @@ public abstract class Storage<T, StorageType> where StorageType : IStorageContai
             if (!itr.Inc())
                 break;
         }
-        itr.Destruct();
         _storage.Clear();
     }
 

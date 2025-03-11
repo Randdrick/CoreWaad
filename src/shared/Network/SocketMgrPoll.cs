@@ -288,9 +288,10 @@ public class SocketMgr
             // Implement buffer removal logic here
         }
 
-        internal static void BlockCopy(byte[] m_writeBuffer1, int bytes, byte[] m_writeBuffer2, int v, int m_writeByteCount)
+        internal static void BlockCopy(byte[] source, int sourceOffset, byte[] destination, int destinationOffset, int length)
         {
-            throw new NotImplementedException();
+            // Utilisation de Buffer.BlockCopy pour copier les données
+            System.Buffer.BlockCopy(source, sourceOffset, destination, destinationOffset, length);
         }
     }
 

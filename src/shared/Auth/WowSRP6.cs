@@ -50,7 +50,7 @@ public class WowSRP6
     public BigNumber ComputeVerifier(string login, string password, BigNumber s)
     {
         if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(password) || s.GetNumBytes() == 0)
-            return new BigNumber(0);
+            return new BigNumber();
 
         // génération de I
         string strLogin = login.ToUpper();

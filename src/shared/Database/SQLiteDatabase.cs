@@ -23,202 +23,211 @@ using System;
 using System.Text;
 using System.Data.SQLite;
 
-namespace WaadShared.Database;
+using static System.Threading.Thread;
 
-public class SQLiteDatabase : Database
+namespace WaadShared.Database
 {
-    private SQLiteConnection Connection;
-    private string mHostname;
-    private string mUsername;
-    private string mPassword;
-    private string mDatabaseName;
-    
-    public SQLiteDatabase() : base()
+    public class SQLiteDatabase : Database
     {
-        // Initialisation des connexions SQLite
-    }
+        private SQLiteConnection Connection;
+        private string mHostname;
+        private string mUsername;
+        private string mPassword;
+        private string mDatabaseName;
 
-    ~SQLiteDatabase()
-    {
-        Dispose(false);
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
+        public SQLiteDatabase() : base()
         {
-            // Cleanup managed resources if needed
-            Connection?.Dispose();
+            // Initialisation des connexions SQLite
         }
 
-        // Cleanup unmanaged resources
-        Connection?.Close();
-    }
-
-    public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
-    {
-        mHostname = Hostname;
-        mUsername = Username;
-        mPassword = Password;
-        mDatabaseName = DatabaseName;
-        mConnectionCount = (int)ConnectionCount;
-
-        try
+        ~SQLiteDatabase()
         {
-            var connString = new SQLiteConnectionStringBuilder
+            Dispose(false);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
             {
-                DataSource = DatabaseName,
-                Version = 3,
-                Pooling = true
-            }.ToString();
+                // Cleanup managed resources if needed
+                Connection?.Dispose();
+            }
 
-            Connection = new SQLiteConnection(connString);
-            Connection.Open();
-        }
-        catch (SQLiteException ex)
-        {
-            Log.Error("SQLiteDatabase", $"Connection failed due to: `{ex.Message}`");
-            return false;
-        }
-
-        Initialize();
-        return true;
-    }
-
-    public void Shutdown()
-    {
-        try
-        {
+            // Cleanup unmanaged resources
             Connection?.Close();
-            Connection?.Dispose();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("SQLiteDatabase", $"Error shutting down connection: {ex.Message}");
-        }
-        finally
-        {
-            Connection = null;
-            Log.Notice("SQLiteDatabase", "Connection has been shut down.");
-        }
-    }
-
-    protected override bool SendQuery(DatabaseConnection con, string sql, bool self)
-    {
-        ArgumentNullException.ThrowIfNull(con);
-
-        if (string.IsNullOrEmpty(sql))
-        {
-            throw new ArgumentException("SQL query is null or empty", nameof(sql));
         }
 
-        try
+        public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
         {
-            using var cmd = new SQLiteCommand(sql, Connection);
-            cmd.ExecuteNonQuery();
+            mHostname = Hostname;
+            mUsername = Username;
+            mPassword = Password;
+            mDatabaseName = DatabaseName;
+            mConnectionCount = (int)ConnectionCount;
+
+            try
+            {
+                var connString = new SQLiteConnectionStringBuilder
+                {
+                    DataSource = DatabaseName,
+                    Version = 3,
+                    Pooling = true
+                }.ToString();
+
+                Connection = new SQLiteConnection(connString);
+                Connection.Open();
+            }
+            catch (SQLiteException ex)
+            {
+                Log.Error("SQLiteDatabase", $"Connection failed due to: `{ex.Message}`");
+                return false;
+            }
+
+            Initialize();
             return true;
         }
-        catch (SQLiteException ex)
-        {
-            Log.Error("SQLiteDatabase", $"Error executing query: {ex.Message}");
-            return false;
-        }
-    }
 
-    protected override QueryResult StoreQueryResult(DatabaseConnection con)
-    {
-        if (con == null)
+        public void Shutdown()
         {
-            throw new ArgumentNullException(nameof(con));
-        }
-
-        try
-        {
-            using var cmd = new SQLiteCommand("SELECT last_insert_rowid()", Connection);
-            using var reader = cmd.ExecuteReader();
-            if (reader.Read())
+            try
             {
-                return new SQLiteQueryResult(reader);
+                Connection?.Close();
+                Connection?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("SQLiteDatabase", $"Error shutting down connection: {ex.Message}");
+            }
+            finally
+            {
+                Connection = null;
+                Log.Notice("SQLiteDatabase", "Connection has been shut down.");
             }
         }
-        catch (SQLiteException ex)
+
+        protected override bool SendQuery(DatabaseConnection con, string sql, bool self)
         {
-            Log.Error("SQLiteDatabase", $"Error storing query result: {ex.Message}");
+            ArgumentNullException.ThrowIfNull(con);
+
+            if (string.IsNullOrEmpty(sql))
+            {
+                throw new ArgumentException("SQL query is null or empty", nameof(sql));
+            }
+
+            try
+            {
+                using var cmd = new SQLiteCommand(sql, Connection);
+                cmd.ExecuteNonQuery();
+                return true;
+            }
+            catch (SQLiteException ex)
+            {
+                Log.Error("SQLiteDatabase", $"Error executing query: {ex.Message}");
+                return false;
+            }
         }
 
-        return null;
-    }
-
-    protected override void BeginTransaction(DatabaseConnection con)
-    {
-        if (con == null)
+        protected override QueryResult StoreQueryResult(DatabaseConnection con)
         {
-            throw new ArgumentNullException(nameof(con));
+            if (con == null)
+            {
+                throw new ArgumentNullException(nameof(con));
+            }
+
+            try
+            {
+                using var cmd = new SQLiteCommand("SELECT last_insert_rowid()", Connection);
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    return new SQLiteQueryResult(reader);
+                }
+            }
+            catch (SQLiteException ex)
+            {
+                Log.Error("SQLiteDatabase", $"Error storing query result: {ex.Message}");
+            }
+
+            return null;
         }
 
-        try
+        protected override void BeginTransaction(DatabaseConnection con)
         {
-            using var cmd = new SQLiteCommand("BEGIN TRANSACTION", Connection);
-            cmd.ExecuteNonQuery();
+            if (con == null)
+            {
+                throw new ArgumentNullException(nameof(con));
+            }
+
+            try
+            {
+                using var cmd = new SQLiteCommand("BEGIN TRANSACTION", Connection);
+                cmd.ExecuteNonQuery();
+            }
+            catch (SQLiteException ex)
+            {
+                Log.Error("SQLiteDatabase", $"Error starting transaction: {ex.Message}");
+            }
         }
-        catch (SQLiteException ex)
+
+        protected override void EndTransaction(DatabaseConnection con)
         {
-            Log.Error("SQLiteDatabase", $"Error starting transaction: {ex.Message}");
+            ArgumentNullException.ThrowIfNull(con);
+
+            try
+            {
+                using var cmd = new SQLiteCommand("COMMIT", Connection);
+                cmd.ExecuteNonQuery();
+            }
+            catch (SQLiteException ex)
+            {
+                Log.Error("SQLiteDatabase", $"Error committing transaction: {ex.Message}");
+            }
         }
-    }
 
-    protected override void EndTransaction(DatabaseConnection con)
-    {
-        ArgumentNullException.ThrowIfNull(con);
-
-        try
+        public override bool SupportsReplaceInto()
         {
-            using var cmd = new SQLiteCommand("COMMIT", Connection);
-            cmd.ExecuteNonQuery();
+            return false; // SQLite does not support REPLACE INTO
         }
-        catch (SQLiteException ex)
+
+        public override bool SupportsTableLocking()
         {
-            Log.Error("SQLiteDatabase", $"Error committing transaction: {ex.Message}");
+            return true;
+        }
+
+        protected override void SetThreadName(string v)
+        {
+            // Set the name of the current thread
+            CurrentThread.Name = v;
+        }
+
+        public override string EscapeString(string escape)
+        {
+            ArgumentNullException.ThrowIfNull(escape);
+            // Escape single quotes by doubling them
+            return escape.Replace("'", "''");
+        }
+
+        public override string EscapeString(string esc, DatabaseConnection con)
+        {
+            ArgumentNullException.ThrowIfNull(esc);
+            return EscapeString(esc);
+        }
+
+        public override void EscapeLongString(string str, uint len, StringBuilder outStr)
+        {
+            ArgumentNullException.ThrowIfNull(str);
+            ArgumentNullException.ThrowIfNull(outStr);
+
+            string escapedStr = EscapeString(str);
+            outStr.Append(escapedStr);
         }
     }
 
-    public override bool SupportsReplaceInto()
+    public class SQLiteQueryResult(SQLiteDataReader reader) : QueryResult((uint)reader.FieldCount, (uint)reader.RecordsAffected)
     {
-        return false; // SQLite does not support REPLACE INTO
-    }
+        private readonly SQLiteDataReader reader = reader;
 
-    public override bool SupportsTableLocking()
-    {
-        return true;
-    }
-
-    protected override void SetThreadName(string v)
-    {
-        throw new NotImplementedException();
-    }
-
-    public override string EscapeString(string escape)
-    {
-        throw new NotImplementedException();
-    }
-
-    public override string EscapeString(string esc, DatabaseConnection con)
-    {
-        throw new NotImplementedException();
-    }
-
-    public override void EscapeLongString(string str, uint len, StringBuilder outStr)
-    {
-        throw new NotImplementedException();
+        public override bool NextRow() => reader.Read();
     }
 }
 
-public class SQLiteQueryResult(SQLiteDataReader reader) : QueryResult((uint)reader.FieldCount, (uint)reader.RecordsAffected)
-{
-    private readonly SQLiteDataReader reader = reader;
-
-    public override bool NextRow()
-    {
-        return reader.Read();
-    }
-}

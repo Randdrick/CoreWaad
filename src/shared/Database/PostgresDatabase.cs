@@ -23,11 +23,13 @@ using System;
 using System.Text;
 using Npgsql;
 
+using static System.Threading.Thread;
+
 namespace WaadShared.Database;
 
 public class PostgresDatabase : Database
 {
-    private new  IDatabaseConnection[] Connections;
+    private new IDatabaseConnection[] Connections;
     private new int mConnectionCount;
     private readonly string mHostname;
     private readonly string mUsername;
@@ -228,26 +230,35 @@ public class PostgresDatabase : Database
         }
     }
 
-    public override bool SupportsReplaceInto() { return false; }
-    public override bool SupportsTableLocking() { return true; }
+    public override bool SupportsReplaceInto() => false;
+    public override bool SupportsTableLocking() => true;
 
     public override string EscapeString(string escape, DatabaseConnection con)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(escape);
+        return EscapeString(escape);
     }
+
     public override void EscapeLongString(string str, uint len, StringBuilder outStr)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(str);
+        ArgumentNullException.ThrowIfNull(outStr);
+
+        string escapedStr = EscapeString(str);
+        outStr.Append(escapedStr);
     }
 
     protected override void SetThreadName(string v)
     {
-        throw new NotImplementedException();
+        // Set the name of the current thread
+        CurrentThread.Name = v;
     }
 
     public override string EscapeString(string escape)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(escape);
+        // Escape single quotes by doubling them
+        return escape.Replace("'", "''");
     }
 }
 

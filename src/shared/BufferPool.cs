@@ -60,7 +60,7 @@ public class WorldPacket : ByteBuffer
         m_bufferPool = -1;
     }
 
-    public WorldPacket(WorldPacket packet) : base(packet)
+    public WorldPacket(WorldPacket packet, uint socket) : base(packet)
     {
         m_opcode = packet.m_opcode;
         m_bufferPool = -1;

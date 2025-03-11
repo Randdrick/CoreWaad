@@ -118,14 +118,14 @@ public class PacketLog
 
         using (StreamWriter writer = new("realm.log", true))
         {
-            ushort len = (ushort)(RealmPacket.Size() + 2);
+            ushort len = (ushort)(RealmPacket.Size + 2);
             byte opcode = RealmPacket.GetOpcode();
             if (direction)
                 writer.WriteLine($"SERVER:\nSOCKET: {socket}\nLENGTH: {len}\nOPCODE: {opcode:X2}\nDATA:");
             else
                 writer.WriteLine($"CLIENT:\nSOCKET: {socket}\nLENGTH: {len}\nOPCODE: {opcode:X2}\nDATA:");
         }
-        HexDump(RealmPacket.Contents(), RealmPacket.Size(), "realm.log");
+        HexDump(RealmPacket.Contents, RealmPacket.Size, "realm.log");
     }
 
     public static void WorldHexDump(WorldPacket data, uint socket, bool direction)
@@ -135,21 +135,22 @@ public class PacketLog
 
         using (StreamWriter writer = new("world.log", true))
         {
-            ushort len = (ushort)WorldPacket.Size();
-            ushort opcode = WorldPacket.GetOpcode();
+            ushort len = (ushort)data.Size;
+            ushort opcode = data.GetOpcode();
             if (direction)
                 writer.WriteLine($"SERVER:\nSOCKET: {socket}\nLENGTH: {len}\nOPCODE: {opcode:X4}\nDATA:");
             else
                 writer.WriteLine($"CLIENT:\nSOCKET: {socket}\nLENGTH: {len}\nOPCODE: {opcode:X4}\nDATA:");
         }
-        HexDump(WorldPacket.Contents(), WorldPacket.Size(), "world.log");
+        HexDump(data.Contents, data.Size, "world.log");
     }
 }
 
-// Dummy classes to simulate RealmPacket and WorldPacket
+// Dummy class to simulate RealmPacket
 public class RealmPacket
 {
-    public static int Size() { return 0; }
+    public static int Size { get; } = 0;
     public static byte GetOpcode() { return 0; }
-    public static byte[] Contents() { return []; }
+    public static byte[] Contents { get; } = [];
 }
+

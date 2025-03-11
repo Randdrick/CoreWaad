@@ -46,7 +46,7 @@ public static class AuthSocket
     public const string L_D_AUTHSOCK_C_2 = "Patch %u%s sélectionné pour le client.";
     public const string L_D_AUTHSOCK_C_3 = "[AuthChallenge] Nom du compte: \"%s\"";
     public const string L_D_AUTHSOCK_C_4 = "[AuthChallenge] Compte invalide.";
-    public const string L_D_AUTHSOCK_C_5 = "[AuthChallenge] Etat du compte : Banni = %u";
+    public const string L_D_AUTHSOCK_C_5 = "[AuthChallenge] Etat du compte : Banni définitivement = %u";
     public const string L_D_AUTHSOCK_C_6 = "[AuthChallenge] Le SALT n'est pas valide";
     public const string L_D_AUTHSOCK_C_7 = "[AuthChallenge] La vérification est incorrecte";
     public const string L_D_AUTHSOCK_C_8 = "[AuthChallenge] Trame Ok.";

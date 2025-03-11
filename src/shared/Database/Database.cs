@@ -174,18 +174,7 @@ public abstract class Database : CThread
         return Result;
     }
 
-    public new void ThreadProcQuery()
-    {
-        SetThreadName("Database Execute Thread");
-        SetThreadState(CThreadState.THREADSTATE_BUSY);
-        ThreadRunning = true;
-
-        ProcessQueries();
-
-        ThreadRunning = false;
-    }
-
-     private new void SetThreadState(CThreadState THREADSTATE_BUSY)
+    public void SetThreadState(CThreadState threadState)
     {
         string query = queries_queue.Dequeue();
         con = GetFreeConnection();
@@ -195,7 +184,7 @@ public abstract class Database : CThread
             SendQuery(con, query, false);
             query = null;  // Release the query string
 
-            if (ThreadState == CThreadState.THREADSTATE_TERMINATE)
+            if (threadState == CThreadState.THREADSTATE_TERMINATE)
                 break;
 
             query = queries_queue.Dequeue();
@@ -217,7 +206,7 @@ public abstract class Database : CThread
         }
     }
 
-    private void ProcessQueries()
+    public void ProcessQueries()
     {
         con = GetFreeConnection();
 
@@ -314,9 +303,9 @@ public abstract class Database : CThread
         // Dispose unmanaged resources
     }
 
-    public bool Initialize(string dbstring)
-    {
-        throw new NotImplementedException();
+    public static bool Initialize(string dbstring)
+    {        
+        return Initialize(dbstring);
     }
  
     public void EndThreads()
@@ -337,6 +326,8 @@ public abstract class Database : CThread
             Thread.Sleep(1000);
         }
     }
+
+    // public abstract bool Initialize(string lhostname, uint lport, string lusername, string lpassword, string ldatabase, int v1, int v2);
 }
 
 public class QueryBuffer : IDisposable
@@ -428,7 +419,6 @@ public class AsyncQuery(SQLCallbackBase f) : IDisposable
         GC.SuppressFinalize(this);
     }
 }
-
 
 public class AsyncQueryResult
 {

@@ -472,12 +472,9 @@ public static partial class Common
         public static int GetInt32() => 0;
         public static float GetFloat() => 0;
         public static string GetString() => "";
-
-        public static uint GetUInt32(Field field) => throw new NotImplementedException();
-
-        public static byte GetUInt8(Field field) => throw new NotImplementedException();
-
-        public static string GetString(Field field) => throw new NotImplementedException();
+        public static uint GetUInt32(Field field) => 0;
+        public static byte GetUInt8(Field field) => 0;
+        public static string GetString(Field field) => "";
     }
 }
 

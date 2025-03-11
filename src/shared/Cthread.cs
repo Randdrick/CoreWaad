@@ -30,7 +30,6 @@ public class WorldSession { }
 public class Creature { }
 public class GameObject { }
 
-
 public enum CThreadState
 {
     THREADSTATE_TERMINATE,
@@ -41,16 +40,15 @@ public enum CThreadState
     THREADSTATE_IDLE
 }
 
-public struct NameTableEntry { }
-
 public abstract class ThreadBase
 {
     public abstract bool Run();
     public abstract void OnShutdown();
-
-    internal void ThreadProcQuery()
+    public static void SetThreadName(string format, params object[] args)
     {
-        throw new NotImplementedException();
+        string threadName = string.Format(format, args);
+        // Implement your logic here to set the thread name
+        Console.WriteLine(threadName); // Example implementation
     }
 }
 
@@ -58,11 +56,29 @@ public class CThread : ThreadBase
 {
     public CThread() { }
 
+    public void ThreadProcQuery()
+    {
+        SetThreadName("Database Execute Thread");
+        SetThreadState(CThreadState.THREADSTATE_BUSY);
+        ThreadRunning = true;
+
+        while (ThreadRunning)
+        {
+            ProcessQueries();
+
+            if (ThreadState == CThreadState.THREADSTATE_TERMINATE)
+            {
+                ThreadRunning = false;
+            }
+        }
+    }
+
     private CThreadState ThreadState { get; set; }
     private DateTime StartTime { get; set; }
     private int ThreadId { get; set; }
+    private bool ThreadRunning { get; set; }
 
-    public void SetThreadState(CThreadState threadState) => ThreadState = threadState;
+    private void SetThreadState(CThreadState threadState) => ThreadState = threadState;
 
     public CThreadState GetThreadState() => ThreadState;
 
@@ -76,7 +92,21 @@ public class CThread : ThreadBase
 
     public override bool Run()
     {
-        db.ThreadProcQuery();
+        ThreadProcQuery();
         return true;
+    }
+
+    private void ProcessQueries()
+    {
+        // This method should be implemented in the Database class
+        // Here we assume that the Database class has a reference to this CThread instance
+        if (db is Database.Database database)
+        {
+            database.ProcessQueries();
+        }
+        else
+        {
+            throw new InvalidOperationException("ProcessQueries can only be called on a Database instance.");
+        }
     }
 }

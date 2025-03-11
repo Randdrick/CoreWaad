@@ -67,23 +67,14 @@ public abstract class QueryResult(uint fieldCount, uint rowCount)
     protected Field[] mCurrentRow;
 
     public abstract bool NextRow();
-
-    internal void Dispose()
-    {
-        throw new NotImplementedException();
-    }
 }
 
 public static class Log
 {
-    public static void Notice(string source, string message, string Hostname, string DatabaseName) => Console.WriteLine($"[{source}] {message}");
+    public static void Notice(string source, string message, string Hostname, string DatabaseName) => Console.WriteLine($"[{source}] {message} {Hostname} {DatabaseName}");
     public static void Error(string source, string message) => Console.WriteLine($"[{source}] ERROR: {message}");
     public static void LargeErrorMessage(string message) => Console.WriteLine(message);
-
-    internal static void Notice(string v1, string v2)
-    {
-        throw new NotImplementedException();
-    }
+    internal static void Notice(string source, string message) => Console.WriteLine($"[{source}] Notice: {message}");
 }
 public class Field
 {

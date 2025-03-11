@@ -91,6 +91,7 @@ public static partial class DBCStores
     private static DBCStorage<LookingForGroup> dbcLookingForGroup;
     public static readonly Dictionary<uint, List<SpellEntry>> spellsByNameHash;
     private static DBCStorage<WorldSafeLocsStoreEntry> dbcWorldSafeLocsStore;
+    private static DBCStorage<object> dbcQuestFactionReward;
 
     public const string AreaTriggerFormat = "uuffffffff";                           // 332.11403 - Idem 335.12340 Fr
     public const string AreaGroupFormat = "uuuuuuuu";                             // 332.11403 - Idem 335.12340 Fr
@@ -193,7 +194,7 @@ public static partial class DBCStores
     public const int INSTANT_DURATION = 1;
     public const int COOLDOWN_DURATION = 2;
 
-    public static ref DBCStorage<object> DbcQuestFactionReward => throw new NotImplementedException();
+    public static ref DBCStorage<object> DbcQuestFactionReward => ref dbcQuestFactionReward;
 
     public static float GetScale(CreatureDisplayInfo scale) => scale.Scale;
 
@@ -346,7 +347,7 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "LFGDungeons.dbc", LFGDungeonsFormat, true, ref dbcLookingForGroup, false)) return false;
         if (!LoaderStub(dbcPath, "Lock.dbc", LockFormat, true, ref dbcLock, false)) return false;
         if (!LoaderStub(dbcPath, "Map.dbc", MapEntryFormat, true, ref dbcMap, true)) return false;
-        if (!LoaderStub(dbcPath, "QuestFactionReward.dbc", QuestFactRewFormat, true, ref DbcQuestFactionReward, false)) return false;
+        if (!LoaderStub(dbcPath, "QuestFactionReward.dbc", QuestFactRewFormat, true, ref dbcQuestFactionReward, false)) return false;
         if (!LoaderStub(dbcPath, "QuestXP.dbc", XpQuestFormat, true, ref dbcQuestXPLevel, false)) return false;
         if (!LoaderStub(dbcPath, "ScalingStatDistribution.dbc", ScalingStatDistributionFormat, true, ref dbcScalingStatDistribution, false)) return false;
         if (!LoaderStub(dbcPath, "ScalingStatValues.dbc", ScalingStatValuesFormat, true, ref dbcScalingStatValues, false)) return false;

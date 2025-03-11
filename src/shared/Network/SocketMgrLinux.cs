@@ -175,9 +175,10 @@ namespace WaadShared.Network
             position -= bytes;
         }
 
-        internal static void BlockCopy(byte[] bytes, int v1, byte[] writeBuffer, int v2, int length)
+        internal static void BlockCopy(byte[] source, int sourceOffset, byte[] destination, int destinationOffset, int length)
         {
-            throw new NotImplementedException();
+            // Utilisation de Buffer.BlockCopy pour copier les données
+            System.Buffer.BlockCopy(source, sourceOffset, destination, destinationOffset, length);
         }
     }
 

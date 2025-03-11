@@ -35,7 +35,6 @@ public class SocketMgr : IDisposable
     private readonly ConcurrentBag<CustomSocket> _sockets = [];
     private readonly object _socketLock = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
-
     public SocketMgr()
     {
     }
@@ -183,9 +182,7 @@ public class CustomSocket(Socket socket)
         try
         {
             int bytesReceived = _socket.EndReceive(ar);
-            _readBuffer.IncrementWritten(bytesReceived);
-            OnRead();
-            SetupReadEvent();
+            OnRead(bytesReceived);
         }
         catch (SocketException ex)
         {
@@ -196,9 +193,26 @@ public class CustomSocket(Socket socket)
         }
     }
 
-    public static void OnRead()
+    public void OnRead(int len)
     {
-        // Handle read event
+        if (len == 0)
+        {
+            Disconnect();
+            return;
+        }
+
+        _readBuffer.IncrementWritten(len);
+        OnRecvData();
+
+        if (!_connected)
+            return;
+
+        SetupReadEvent();
+    }
+
+    public static void OnRecvData()
+    {
+        // Handle received data
     }
 
     public void BurstPush()
@@ -274,9 +288,10 @@ public class Buffer
         return _buffer.Length - _written;
     }
 
-    internal static void BlockCopy(byte[] bytes, int v1, byte[] writeBuffer, int v2, int length)
+    internal static void BlockCopy(byte[] source, int sourceOffset, byte[] destination, int destinationOffset, int length)
     {
-        throw new NotImplementedException();
+        // Utilisation de Buffer.BlockCopy pour copier les données
+        System.Buffer.BlockCopy(source, sourceOffset, destination, destinationOffset, length);
     }
 }
 

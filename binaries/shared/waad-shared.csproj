@@ -12,7 +12,7 @@
     <DebugType>portable</DebugType>
     <Optimize>false</Optimize>
     <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;ENABLE_DATABASE_MYSQL;ENABLE_DATABASE_POSTGRES;ENABLE_DATABASE_SQLITE</DefineConstants>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
 
@@ -21,7 +21,7 @@
     <DebugType>portable</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>RELEASE;TRACE</DefineConstants>
+    <DefineConstants>RELEASE;TRACE;ENABLE_DATABASE_MYSQL;ENABLE_DATABASE_POSTGRES;ENABLE_DATABASE_SQLITE</DefineConstants>
     <TieredCompilation>true</TieredCompilation>
     <ReadyToRun>true</ReadyToRun>
     <PublishReadyToRun>true</PublishReadyToRun>

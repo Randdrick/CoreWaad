@@ -23,6 +23,7 @@ using System;
 using System.Numerics;
 using System.Linq;
 using System.Collections.Generic;
+using System.Security.Cryptography;
 
 namespace WaadShared.Auth;
 
@@ -30,11 +31,13 @@ public class BigNumber
 {
     private BigInteger _bn;
     private byte[] _array;
+    private readonly byte[] data;
 
     public BigNumber()
     {
         _bn = new BigInteger(0);
         _array = null;
+        data = [];
     }
 
     public BigNumber(string v)
@@ -53,6 +56,10 @@ public class BigNumber
     {
         _bn = new BigInteger(val);
         _array = null;
+    }
+
+    public BigNumber(byte[] hash)
+    {
     }
 
     public void SetDword(uint val)
@@ -109,14 +116,40 @@ public class BigNumber
         return new BigNumber { _bn = a._bn % b._bn };
     }
 
+    public static implicit operator BigNumber(int v)
+    {
+        return v;
+    }
+
     public BigNumber Exp(BigNumber bn)
     {
         return new BigNumber { _bn = BigInteger.Pow(_bn, (int)bn._bn) };
     }
 
-    public BigNumber ModExp(BigNumber bn1, BigNumber bn2)
+    public static BigNumber ModExp(BigNumber bn1, BigNumber bn2, BigNumber bn)
     {
-        return new BigNumber { _bn = BigInteger.ModPow(_bn, bn1._bn, bn2._bn) };
+        return new BigNumber { _bn = BigInteger.ModPow(bn._bn, bn1._bn, bn2._bn) };
+    }
+
+    public static BigNumber GenerateRandom(int size)
+    {
+        byte[] data = new byte[size / 8];
+        using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(data);
+        }
+        return new BigNumber(data);
+    }
+
+    public byte[] ToByteArray()
+    {
+        return data;
+    }
+
+    public void SetByteArray(byte[] data)
+    {
+        data = [.. data.Reverse()];
+        _bn = new BigInteger(data);
     }
 
     public int GetNumBytes()
@@ -158,4 +191,15 @@ public class BigNumber
     {
         return _bn.ToString();
     }
+
+    public int ToInt()
+    {
+        return (int)_bn;
+    }
+
+    internal BigNumber ModExp(BigNumber exponent, BigNumber modulus)
+    {
+        return new BigNumber { _bn = BigInteger.ModPow(_bn, exponent._bn, modulus._bn) };
+    }
 }
+

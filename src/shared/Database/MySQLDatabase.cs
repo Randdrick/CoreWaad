@@ -18,13 +18,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 using System;
 using System.Text;
 using System.Threading;
 using MySql.Data.MySqlClient;
 
+using static System.Threading.Thread;
+
 namespace WaadShared.Database;
+
 public class MySQLDatabase : Database
 {
     private new MySqlConnection[] Connections;
@@ -104,9 +107,7 @@ public class MySQLDatabase : Database
     public override void EscapeLongString(string str, uint len, StringBuilder outStr)
     {
         ArgumentNullException.ThrowIfNull(str);
-
         ArgumentNullException.ThrowIfNull(outStr);
-
         DatabaseConnection conn = GetFreeConnection();
         _ = conn;
         string escapedStr = MySqlHelper.EscapeString(str);
@@ -134,6 +135,7 @@ public class MySQLDatabase : Database
             return false;
         }
     }
+
     protected override QueryResult StoreQueryResult(DatabaseConnection con)
     {
         ArgumentNullException.ThrowIfNull(con);
@@ -197,12 +199,14 @@ public class MySQLDatabase : Database
 
     public override string EscapeString(string esc, DatabaseConnection con)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(esc);
+        return EscapeString(esc);
     }
 
     protected override void SetThreadName(string v)
     {
-        throw new NotImplementedException();
+        // Set the name of the current thread
+        CurrentThread.Name = v;
     }
 }
 
@@ -212,16 +216,23 @@ internal class MySQLQueryResult(MySqlDataReader reader, uint fieldCount, uint ro
 
     public override bool NextRow()
     {
-        throw new NotImplementedException();
+        return reader.Read();
     }
 }
 
 public class DatabaseConnection
 {
-    // public MySqlConnection MySql { get; set; }
+    public MySqlConnection MySql { get; set; }
     public SemaphoreSlim Busy { get; } = new SemaphoreSlim(1, 1);
 
-    internal void Dispose() => throw new NotImplementedException();
+    internal void Dispose()
+    {
+        MySql?.Dispose();
+    }
 
-    public static explicit operator MySqlConnection(DatabaseConnection v) => throw new NotImplementedException();
+    public static explicit operator MySqlConnection(DatabaseConnection v)
+    {
+        return v.MySql;
+    }
 }
+

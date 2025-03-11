@@ -20,7 +20,6 @@
  */
 
 using System;
-using System.Threading;
 
 namespace WaadShared.ConsoleHandler;
 
@@ -28,13 +27,11 @@ public class ConsoleHandler
 {
     private bool _isRunning;
     private bool _threadRunning;
-    private readonly LocalConsole _localConsole;
 
     public ConsoleHandler()
     {
         _isRunning = true;
         _threadRunning = true;
-        _localConsole = new LocalConsole();
     }
 
     public bool Run()
@@ -59,10 +56,10 @@ public class ConsoleHandler
         return false;
     }
 
-    private void HandleConsoleInput(string cmd)
+    private static void HandleConsoleInput(string cmd)
     {
         // Implémentez la logique de traitement des commandes ici
-        _localConsole.Write("Command received: {0}\n", cmd);
+        LocalConsole.Write("Command received: {0}\n", cmd);
     }
 
     public void Stop()
@@ -74,8 +71,12 @@ public class ConsoleHandler
 
 internal class LocalConsole
 {
-    internal void Write(string v, string cmd)
+    internal static void Write(string v, string cmd)
     {
-        throw new NotImplementedException();
+        Console.WriteLine(cmd);
+    }
+    internal static void Write(string format, params object[] args)
+    {
+        Console.WriteLine(format, args);
     }
 }

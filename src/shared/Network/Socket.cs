@@ -97,7 +97,8 @@ namespace WaadShared.Network
 
         private void Connect(IPEndPoint clientEndPoint)
         {
-            throw new NotImplementedException();
+            _socket.Connect(clientEndPoint);
+            OnConnect();
         }
 
         public void Accept(IPAddress any, IPEndPoint address)
@@ -336,6 +337,7 @@ namespace WaadShared.Network
         public bool NoDelay { get; private set; }
         public int Handle { get; internal set; }
         public int Available { get; internal set; }
+        public string RemoteEndPoint { get; set; }
 #endif
 
 #if CONFIG_USE_EPOLL
@@ -446,52 +448,142 @@ namespace WaadShared.Network
 
         internal int Receive(byte[] bytes, int space, SocketFlags none)
         {
-            throw new NotImplementedException();
+            try
+            {
+                return _socket.Receive(bytes, space, none);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Receive failed: {ex.Message}");
+                return 0;
+            }
         }
 
-        internal int Send(byte[] bytes, int v, SocketFlags none)
+        internal int Send(byte[] bytes, int size, SocketFlags flags)
         {
-            throw new NotImplementedException();
+            lock (_writeMutex)
+            {
+                try
+                {
+                    int bytesSent = _socket.Send(bytes, size, flags);
+                    return bytesSent == bytes.Length ? bytesSent : 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Send failed: {ex.Message}");
+                    return 0;
+                }
+            }
         }
 
         internal int EndReceive(IAsyncResult result)
         {
-            throw new NotImplementedException();
+            try
+            {
+                return _socket.EndReceive(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"EndReceive failed: {ex.Message}");
+                return 0;
+            }
         }
 
         internal void BeginReceive(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket socket)
         {
-            throw new NotImplementedException();
+            try
+            {
+                _socket.BeginReceive(bytes, v1, v2, none, asyncCallback, socket);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"BeginReceive failed: {ex.Message}");
+            }
         }
 
         internal static void Select(HashSet<Socket> m_readableSet, HashSet<Socket> writable, HashSet<Socket> m_exceptionSet, int v)
         {
-            throw new NotImplementedException();
+            try
+            {
+                Socket.Select(m_readableSet, writable, m_exceptionSet, v);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Select failed: {ex.Message}");
+            }
         }
 
         internal bool Poll(int v, SelectMode selectWrite)
         {
-            throw new NotImplementedException();
+            try
+            {
+                return _socket.Poll(v, selectWrite);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Poll failed: {ex.Message}");
+                return false;
+            }
         }
 
         internal object EndAccept(IAsyncResult result)
         {
-            throw new NotImplementedException();
+            try
+            {
+                return _socket.EndAccept(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"EndAccept failed: {ex.Message}");
+                return null;
+            }
         }
 
         internal void BeginAccept(AsyncCallback asyncCallback, Socket s)
         {
-            throw new NotImplementedException();
+            try
+            {
+                _socket.BeginAccept(asyncCallback, s);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"BeginAccept failed: {ex.Message}");
+            }
         }
 
         internal void BeginSend(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket s)
         {
-            throw new NotImplementedException();
+            try
+            {
+                _socket.BeginSend(bytes, v1, v2, none, asyncCallback, s);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"BeginSend failed: {ex.Message}");
+            }
         }
 
         internal static void Select(List<Socket> sockets, object value1, object value2, int v)
         {
-            throw new NotImplementedException();
+            try
+            {
+                Socket.Select(sockets, value1, value2, v);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Select failed: {ex.Message}");
+            }
+        }
+
+        public static IEnumerable<object> GetSocketList()
+        {
+            // Implementation for getting the socket list
+            return [];
+        }
+
+        public static void RemoveSocket(Socket deadSocket)
+        {
+            // Implementation for removing a socket
         }
     }
 
