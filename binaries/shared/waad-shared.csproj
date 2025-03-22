@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>WaadShared</RootNamespace>
     <AssemblyName>WaadShared</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -50,11 +51,9 @@
   <ItemGroup>
     <!-- <PackageReference Include="ini-parser" Version="3.4.0" /> -->
     <PackageReference Include="Crc32.NET" Version="1.2.0" />
+    <PackageReference Include="LibGit2Sharp" Version="0.30.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Ini" Version="9.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
-    <!-- <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
-    <PackageReference Include="MSTest.TestAdapter" Version="2.2.10" />
-    <PackageReference Include="MSTest.TestFramework" Version="2.2.10" /> -->
     <PackageReference Include="NuGet.Configuration" Version="6.12.1" />
     <PackageReference Include="NuGet.exe" Version="3.4.3" />
     <PackageReference Include="Portable.BouncyCastle" Version="1.9.0.0" />
@@ -63,23 +62,16 @@
     <PackageReference Include="System.Data.SQLite" Version="1.0.116" />
     <PackageReference Include="System.Security.Cryptography.Algorithms" Version="4.3.1" />
   </ItemGroup>
-  
-  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-    <ProjectReference Include=".\..\..\extras\GitExtractor\GitExtractor.csproj" />
+
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="obj\**\*.cs" />
+    <Compile Include="..\..\..\CoreWaad\src\shared\**\*.cs" Exclude="obj\**\*.cs" />
   </ItemGroup>
 
-<ItemGroup>
-    <Compile Include="**\*.cs" />
-    <Compile Include="..\..\..\CoreWaad\src\shared\**\*.cs" />
-</ItemGroup>
-
-<ItemGroup>
-  <Content Include="..\..\..\CoreWaad\src\shared\**\*" />
-</ItemGroup>
-
-<!-- <PropertyGroup>
-  <CoreCompileDependsOn>BouncyCastleCryptography;$(PrepareResourcesDependsOn)</CoreCompileDependsOn>
-</PropertyGroup>    -->
+  <ItemGroup>
+    <Content Include="..\..\..\CoreWaad\src\shared\**\*" />
+  </ItemGroup>
 
 </Project>
+
 

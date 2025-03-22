@@ -28,7 +28,7 @@ using System.Runtime.InteropServices;
 
 namespace WaadShared;
 
-public class ListenSocket<T> where T : new()
+public class ListenSocket<T> : Threading.ThreadBase where T : new()
 {
     private readonly Socket m_socket;
     private Socket aSocket;
@@ -87,7 +87,7 @@ public class ListenSocket<T> where T : new()
         Close();
     }
 
-    public bool Run()
+    public override bool Run()
     {
         while (m_opened)
         {

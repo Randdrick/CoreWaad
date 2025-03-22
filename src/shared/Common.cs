@@ -463,8 +463,10 @@ public static partial class Common
     {
         return RTrim(LTrim(s, findStr), findStr);
     }
-    public class Field
+    public class Field(object v)
     {
+        private readonly object v = v;
+
         public static bool GetBool() => false;
         public static byte GetUInt8() => 0;
         public static ushort GetUInt16() => 0;

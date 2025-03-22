@@ -28,6 +28,8 @@ namespace WaadShared.Threading;
 // Définir ThreadBase dans un seul endroit
 public abstract class ThreadBase
 {
+    public readonly bool mrunning;
+
     public abstract bool Run();
     public virtual void OnShutdown() { }
 }

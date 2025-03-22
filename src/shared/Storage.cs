@@ -494,7 +494,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     Field[] fields = new Field[reader.FieldCount];
                     for (int i = 0; i < reader.FieldCount; i++)
                     {
-                        fields[i] = new Field { /* Initialize with data from reader */ };
+                        fields[i] = new Field (reader.GetValue(i));
                     }
                     LoadBlock(fields, allocated);
                 }
@@ -557,7 +557,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     Field[] fields = new Field[reader.FieldCount];
                     for (int i = 0; i < reader.FieldCount; i++)
                     {
-                        fields[i] = new Field { /* Initialize with data from reader */ };
+                        fields[i] = new Field(reader.GetValue(i));
                     }
                     LoadBlock(fields, allocated);
                 }
@@ -613,7 +613,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     Field[] fields = new Field[reader.FieldCount];
                     for (int i = 0; i < reader.FieldCount; i++)
                     {
-                        fields[i] = new Field { /* Initialize with data from reader */ };
+                        fields[i] = new Field(reader.GetValue(i));
                     }
                     LoadBlock(fields, allocated);
                 }

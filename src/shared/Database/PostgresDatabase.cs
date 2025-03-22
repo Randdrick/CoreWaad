@@ -31,12 +31,6 @@ public class PostgresDatabase : Database
 {
     private new IDatabaseConnection[] Connections;
     private new int mConnectionCount;
-    private readonly string mHostname;
-    private readonly string mUsername;
-    private readonly string mPassword;
-    private readonly string mDatabaseName;
-    private new readonly uint mPort;
-    private readonly string mConnectString;
 
     public PostgresDatabase() : base()
     {

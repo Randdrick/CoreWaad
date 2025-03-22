@@ -333,8 +333,6 @@ public class ByteBuffer
 
     public byte[] Contents => [.. _storage];
 
-
-
     public void Resize(int newsize)
     {
         if (newsize < 0)

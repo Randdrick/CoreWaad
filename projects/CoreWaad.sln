@@ -7,8 +7,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-shared", "..\binaries\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-logonserver", "..\binaries\logon\waad-logonserver.csproj", "{33229C50-2528-4810-B5F1-6D8F0323566B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GitExtractor", "..\extras\GitExtractor\GitExtractor.csproj", "{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,10 +21,6 @@ Global
 		{33229C50-2528-4810-B5F1-6D8F0323566B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{33229C50-2528-4810-B5F1-6D8F0323566B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{33229C50-2528-4810-B5F1-6D8F0323566B}.Release|Any CPU.Build.0 = Release|Any CPU
-		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{5683DCE4-C6AA-4DF4-8CF8-F3855AACCCAD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

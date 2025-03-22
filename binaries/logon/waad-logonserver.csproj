@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>waad-logonserver</RootNamespace>
     <AssemblyName>waad-logonserver</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -39,33 +40,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="**\*.cs" />
-    <EmbeddedResource Include="**\*.resx" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" /> -->
-    <!-- <PackageReference Include="MSTest.TestAdapter" Version="2.2.10" />
-    <PackageReference Include="MSTest.TestFramework" Version="2.2.10" /> -->
-    <!-- <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.0" /> -->
-    <!-- <PackageReference Include="IniParser" Version="1.0.1" />
-    <PackageReference Include="MySql.Data" Version="8.0.33" />
-    <PackageReference Include="Npgsql" Version="7.0.7" />
-    <PackageReference Include="System.Data.SQLite" Version="1.0.116" /> -->
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\binaries\shared\waad-shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="**\*.cs" />
-    <Compile Include="..\..\..\CoreWaad\src\logon\**\*.cs" />
-</ItemGroup>
-
-<ItemGroup>
-  <Content Include="..\..\..\CoreWaad\src\logon\**\*" />
-</ItemGroup>
+    <Compile Include="..\..\..\CoreWaad\src\logon\**\*.cs" Exclude="obj\**\*.cs" />
+    <Content Include="..\..\..\CoreWaad\src\logon\**\*" Exclude="obj\**\*.cs" />
+  </ItemGroup>
 
   <!-- <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <AdditionalIncludeDirectories Include="..\..\lib\win\VC\;..\..\include;..\..\src\waad-shared;%(AdditionalIncludeDirectories)" />
