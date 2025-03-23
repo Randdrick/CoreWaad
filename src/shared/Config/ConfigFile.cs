@@ -134,7 +134,12 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        return _iniData[section]?[name] ?? def;
+        if (!_iniData.Sections.ContainsKey(section) || !_iniData[section].TryGetValue(name, out string value))
+        {
+            return def; // Retourne la valeur par défaut si la section ou la clé n'existe pas
+        }
+
+        return value;
     }
 
     public bool GetBoolean(string section, string name, bool def = false)
@@ -164,11 +169,17 @@ public class ConfigFile : IDisposable
             return def;
         }
 
-        if (int.TryParse(_iniData[section]?[name], out int result))
+        if (!_iniData.Sections.ContainsKey(section) || !_iniData[section].TryGetValue(name, out string value))
+        {
+            return def; // Retourne la valeur par défaut si la section ou la clé n'existe pas
+        }
+
+        if (int.TryParse(value, out int result))
         {
             return result;
         }
-        return def;
+
+        return def; // Retourne la valeur par défaut si la conversion échoue
     }
 
     public float GetFloat(string section, string name, float def = 0)

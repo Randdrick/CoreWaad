@@ -25,8 +25,10 @@ using System.Threading;
 namespace WaadShared;
 public class CLog
 {
-    private static readonly object lockObject = new object();
-    private readonly int logLevel = 3;
+    private static readonly object lockObject = new();
+    // public int logLevel = 3;
+
+    public static int LogLevel { get; internal set; }
 
     public CLog()
     {
@@ -64,9 +66,9 @@ public class CLog
         }
     }
 
-    public void Warning(string source, string format, params object[] args)
+    public static void Warning(string source, string format, params object[] args)
     {
-        if (logLevel < 2) return;
+        if (LogLevel < 2) return;
 
         lock (lockObject)
         {
@@ -85,9 +87,9 @@ public class CLog
         }
     }
 
-    public void Success(string source, string format, params object[] args)
+    public static void Success(string source, string format, params object[] args)
     {
-        if (logLevel < 2) return;
+        if (LogLevel < 2) return;
 
         lock (lockObject)
         {
@@ -106,9 +108,9 @@ public class CLog
         }
     }
 
-    public void ZPvP(string source, string format, params object[] args)
+    public static void ZPvP(string source, string format, params object[] args)
     {
-        if (logLevel < 1) return;
+        if (LogLevel < 1) return;
 
         lock (lockObject)
         {
@@ -127,9 +129,9 @@ public class CLog
         }
     }
 
-    public void Error(string source, string format, params object[] args)
+    public static void Error(string source, string format, params object[] args)
     {
-        if (logLevel < 1) return;
+        if (LogLevel < 1) return;
 
         lock (lockObject)
         {
@@ -148,9 +150,9 @@ public class CLog
         }
     }
 
-    public void Debug(string source, string format, params object[] args)
+    public static void Debug(string source, string format, params object[] args)
     {
-        if (logLevel < 3) return;
+        if (LogLevel < 3) return;
 
         lock (lockObject)
         {

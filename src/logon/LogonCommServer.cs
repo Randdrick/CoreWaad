@@ -383,7 +383,7 @@ public class LogonCommServerSocket
 
     public static implicit operator LogonCommServerSocket(Socket v)
     {
-        throw new NotImplementedException();
+        return new LogonCommServerSocket(v);
     }
 
     // Initialize the handlers array
@@ -602,6 +602,5 @@ public class LogonCommServerSocket
         }
     }
 }
-
 
 public delegate void logonpacket_handler(WorldPacket packet);

@@ -20,6 +20,7 @@
  */
 
 using System;
+using System.Threading;
 using WaadShared;
 
 using static WaadShared.LogonConsole;
@@ -37,7 +38,7 @@ public class LogonConsoleThread : WaadShared.Threading.ThreadBase
         kill = false;
     }
 
-    public override bool Run()
+    public bool Run()
     {
         CThread.SetThreadName(L_N_LOGONCON_3);
         LogonConsole.Instance._thread = this;
@@ -59,4 +60,28 @@ public class LogonConsoleThread : WaadShared.Threading.ThreadBase
 
         return true;
     }
+
+    public override bool Run(CancellationToken token)
+    {
+        CThread.SetThreadName(L_N_LOGONCON_3);
+        LogonConsole.Instance._thread = this;
+
+        try
+        {
+            while (!kill && !token.IsCancellationRequested)
+            {
+                string? cmd = Console.ReadLine();
+                if (kill || cmd == null || token.IsCancellationRequested) break;
+
+                LogonConsole.Instance.ProcessCmd(cmd);
+            }
+        }
+        finally
+        {
+            LogonConsole.Instance._thread = null;
+        }
+
+        return true;
+    }
 }
+

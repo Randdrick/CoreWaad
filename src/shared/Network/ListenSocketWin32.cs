@@ -25,6 +25,7 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace WaadShared;
 
@@ -87,7 +88,7 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
         Close();
     }
 
-    public override bool Run()
+    public bool Run()
     {
         while (m_opened)
         {
@@ -113,6 +114,34 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
     }
 
     public bool IsOpen() { return m_opened; }
+
+    public override bool Run(CancellationToken token)
+    {
+        while (m_opened && !token.IsCancellationRequested)
+        {
+            try
+            {
+                aSocket = m_socket.Accept();
+                if (aSocket == null)
+                    continue; // shouldn't happen, we are blocking.
+
+                socket = new T();
+                ((dynamic)socket).SetCompletionPort(m_cp);
+                ((dynamic)socket).Accept(m_tempAddress);
+            }
+            catch (SocketException)
+            {
+                // Handle socket exceptions if necessary
+                Console.WriteLine("Socket exception occurred.");
+            }
+            catch (ObjectDisposedException)
+            {
+                // Handle object disposed exceptions if necessary
+                Console.WriteLine("Socket has been disposed.");
+            }
+        }
+        return false;
+    }
 }
 
 public static class SSocketMgr

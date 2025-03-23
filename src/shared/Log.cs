@@ -49,6 +49,7 @@ public class Logger : Singleton<Logger>
     public void Init(int fileLogLevel, int screenLogLevel)
     {
         m_screenLogLevel = screenLogLevel;
+        CLog.LogLevel = screenLogLevel;
         m_fileLogLevel = fileLogLevel;
         if (m_fileLogLevel >= 0)
         {

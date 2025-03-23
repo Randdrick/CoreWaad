@@ -44,7 +44,9 @@ public abstract class ThreadBase
 {
     protected bool mrunning = true;
     public abstract bool Run();
-    public void Kill() { mrunning = false; }
+
+    // Ajout de la méthode abstraite pour gérer le CancellationToken
+    public abstract bool Run(CancellationToken token);
 }
 
 public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase
@@ -84,9 +86,24 @@ public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase
         }
     }
 
-    public override bool Run()
+    public bool Run()
     {
         return false;
+    }
+
+    public override bool Run(CancellationToken token)
+    {
+        while (_running && mrunning && !token.IsCancellationRequested)
+        {
+            // Utilisation de WaitHandle.WaitAny pour gérer l'annulation
+            WaitHandle.WaitAny([_event, token.WaitHandle], (int)_interval);
+
+            if (!_running || token.IsCancellationRequested)
+                break;
+
+            _cb.Execute();
+        }
+        return true;
     }
 
     public void Kill()

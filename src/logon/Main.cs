@@ -50,14 +50,21 @@ public class LogonServer
     public static uint MinBuild { get; private set; } = 0;
     public static object[] BRANCH_NAME { get; private set; } = [GetBranchName() ?? "unknown"];
     public static int REVISION { get; private set; } = GetCommitCount();
-
     public static readonly byte[] sql_hash = new byte[20];
+    private static string configFile = Path.Combine(AppContext.BaseDirectory, "waad-logonserver.ini");
 
     const string BANNER = "WAAD {0} r{1}/{2}-{3} ({4}) :: Logon Server";
     private static bool StartDb()
     {
         var Config = new ConfigMgr();
         var sLog = new Logger();
+
+        if (!Config.MainConfig.SetSource(configFile))
+        {
+
+            sLog.OutString(L_N_MAIN_1);
+            return false;
+        }
 
         // Configure Main Database
         string lhostname = Config.MainConfig.GetString("Database.Logon", "Hostname");
@@ -106,9 +113,7 @@ public class LogonServer
 
     public static void Main(string[] args)
     {
-        DateTime g_localTime = DateTime.Now;
-        DateTime uNIXTIME = DateTime.UtcNow;
-        Run(args, g_localTime, uNIXTIME);
+        RunLS(args);
     }
 
     public static void Run(string[] args, DateTime g_localTime, DateTime uNIXTIME)
@@ -116,11 +121,17 @@ public class LogonServer
         var sLog = new Logger();
         var configMgr = new ConfigMgr();
         var ThreadPool = new WaadShared.Threading.ThreadPool();
-        string configFile = "./waad-logonserver.ini";
         int fileLogLevel = -1;
         int screenLogLevel = 3;
         bool doCheckConf = false;
         bool doVersion = false;
+
+        if (!configMgr.MainConfig.SetSource(configFile))
+        {
+
+            sLog.OutString(L_N_MAIN_1);
+            return;
+        }
 
         var options = new Dictionary<string, Action<string>>
         {
@@ -142,11 +153,13 @@ public class LogonServer
 
         if (!doVersion && !doCheckConf)
         {
+            screenLogLevel = configMgr.MainConfig.GetInt32("LogLevel", "Screen");
+            fileLogLevel = configMgr.MainConfig.GetInt32("LogLevel", "File");
             sLog.Init(fileLogLevel, screenLogLevel);
         }
         else
         {
-            sLog.Init(-1, 3);
+            sLog.Init(fileLogLevel, screenLogLevel);
         }
 
         sLog.OutString(BANNER, BRANCH_NAME[0], REVISION, CONFIG, PLATFORM_TEXT, ARCH);
@@ -160,7 +173,7 @@ public class LogonServer
 
         if (doCheckConf)
         {
-            CLog.Notice(L_N_MAIN_3, configFile);
+            CLog.Notice("[Config]", string.Format(L_N_MAIN_3, configFile));
 
             if (configMgr.MainConfig.SetSource(configFile))
                 sLog.OutString(L_N_MAIN_4);
@@ -184,7 +197,7 @@ public class LogonServer
             return;
 
         CLog.Notice("ThreadMgr", L_N_MAIN_9);
-        Startup();
+        Startup(5);
 
         if (!StartDb())
             return;
@@ -195,7 +208,7 @@ public class LogonServer
 
         CLog.Notice("AccountMgr", L_N_MAIN_10);
         AccountMgr.Instance.ReloadAccounts(true);
-        CLog.Notice("AccountMgr", L_N_MAIN_11, AccountMgr.Instance.GetCount());
+        CLog.Notice("AccountMgr", string.Format(L_N_MAIN_11, AccountMgr.Instance.GetCount()));
         CLog.Line();
 
         int atime = configMgr.MainConfig.GetInt32("Rates", "AccountRefresh", 600) * 1000;
@@ -299,17 +312,12 @@ public class LogonServer
     public static bool Rehash(object allowedIpLock)
     {
         var sLog = new CLog();
-        short ServerTrustMe = 1;
-        short ServerModTrustMe = 1;
+        short ServerTrustMe;
+        short ServerModTrustMe;
         var Config = new ConfigMgr();
         var allowedIps = new List<AllowedIP>();
         var allowedModIps = new List<AllowedIP>();
-        string configFile;
-#if WIN32
-        configFile = "./waad-logonserver.ini";
-#else
-        configFile = Path.Combine(CONFDIR, "waad-logonserver.ini");
-#endif
+
         if (!Config.MainConfig.SetSource(configFile))
         {
             var SLog = new Logger();
@@ -327,12 +335,12 @@ public class LogonServer
 
         // Verif Console.... (Branruz)
         if (ServerTrustMe == 1)
-            sLog.Warning("[AllowedIPs]", L_W_MAIN_AI);
+            CLog.Warning("[AllowedIPs]", L_W_MAIN_AI);
         else
             CLog.Notice("[AllowedIPs]", L_W_MAIN_AI_1);
 
         if (ServerModTrustMe == 1)
-            sLog.Warning("[AllowedModIPs]", L_W_MAIN_AI);
+            CLog.Warning("[AllowedModIPs]", L_W_MAIN_AI);
         else
             CLog.Notice("[AllowedModIPs]", "AllowedModIPs : ", L_W_MAIN_AI_1);
 
@@ -348,20 +356,20 @@ public class LogonServer
                 var parts = ip.Split('/');
                 if (parts.Length != 2)
                 {
-                    sLog.Warning(L_W_MAIN_2, ip);
+                    CLog.Warning("[AllowedIPs]", string.Format(L_W_MAIN_2, ip));
                     continue;
                 }
 
                 if (!uint.TryParse(parts[1], out uint ipmask))
                 {
-                    sLog.Warning(L_W_MAIN_2, ip);
+                    CLog.Warning("[AllowedIPs]", string.Format(L_W_MAIN_2, ip));
                     continue;
                 }
 
                 var ipraw = MakeIP(parts[0]);
                 if (ipraw == 0 || ipmask == 0)
                 {
-                    sLog.Warning(L_W_MAIN_2, ip);
+                    CLog.Warning("[AllowedIPs]", string.Format(L_W_MAIN_2, ip));
                     continue;
                 }
 
@@ -373,20 +381,20 @@ public class LogonServer
                 var parts = ip.Split('/');
                 if (parts.Length != 2)
                 {
-                    sLog.Warning(L_W_MAIN_2, ip);
+                    CLog.Warning("[AllowedModIPs]", string.Format(L_W_MAIN_2, ip));
                     continue;
                 }
 
                 if (!uint.TryParse(parts[1], out uint ipmask))
                 {
-                    sLog.Warning(L_W_MAIN_2, ip);
+                    CLog.Warning("[AllowedModIPs]", string.Format(L_W_MAIN_2, ip));
                     continue;
                 }
 
                 var ipraw = MakeIP(parts[0]);
                 if (ipraw == 0 || ipmask == 0)
                 {
-                    sLog.Warning(L_W_MAIN_2, ip);
+                    CLog.Warning("[AllowedModIPs]", string.Format(L_W_MAIN_2, ip));
                     continue;
                 }
 
@@ -413,9 +421,9 @@ public class LogonServer
 
         foreach (var deadSocket in deadSockets)
         {
-            WaadShared.Network.Socket.RemoveSocket(deadSocket);
+            RemoveSocket(deadSocket);
             deadSocket.Disconnect();
-            sLog.Warning("[LogonServer]", "Removed dead socket: " + deadSocket.RemoteEndPoint);
+            CLog.Warning("[LogonServer]", "Removed dead socket: " + deadSocket.RemoteEndPoint);
         }
     }
 
@@ -458,13 +466,15 @@ public class LogonServer
 #endif
                 mrunning = false;
                 break;
-        }
+        }        
+        OnSignal(s);
     }
 
-    public static void RunLS(string[] args, DateTime g_localTime, DateTime uNIXTIME)
+    public static void RunLS(string[] args)
     {
-        uNIXTIME = DateTime.UtcNow;
-        g_localTime = DateTime.Now;
+        var uNIXTIME = DateTime.UtcNow;
+        var g_localTime = DateTime.Now;
+        _ = new LogonServer();
         Run(args, uNIXTIME, g_localTime);
     }
 }

@@ -40,7 +40,7 @@ public class MySQLDatabase : Database
         mConnectionCount = (int)ConnectionCount;
         Connections = new MySqlConnection[mConnectionCount];
 
-        Log.Notice("MySQLDatabase", "Connecting to `%s`, database `%s`...", Hostname, DatabaseName);
+        Log.Notice("MySQLDatabase", string.Format("Connecting to {0}, database {1}...", Hostname, DatabaseName));
 
         for (int i = 0; i < mConnectionCount; ++i)
         {

@@ -476,11 +476,11 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             {
                 if (reader.FieldCount > cols)
                 {
-                    cLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data");
+                    CLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data");
                 }
                 else
                 {
-                    cLog.Error("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), not enough data to proceed.");
+                    CLog.Error("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), not enough data to proceed.");
                     return;
                 }
             }
@@ -523,7 +523,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     max = reader.GetInt32(0) + 1;
                     if (max > STORAGE_ARRAY_MAX)
                     {
-                        cLog.Error("Storage", $"The table, '{indexName}', has a maximum entry of {max}, which is less {STORAGE_ARRAY_MAX}. Any items higher than {STORAGE_ARRAY_MAX} will not be loaded.");
+                        CLog.Error("Storage", $"The table, '{indexName}', has a maximum entry of {max}, which is less {STORAGE_ARRAY_MAX}. Any items higher than {STORAGE_ARRAY_MAX} will not be loaded.");
                         max = STORAGE_ARRAY_MAX;
                     }
                 }
@@ -539,11 +539,11 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             {
                 if (reader.FieldCount > cols)
                 {
-                    cLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data");
+                    CLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data");
                 }
                 else
                 {
-                    cLog.Error("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), not enough data to proceed.");
+                    CLog.Error("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), not enough data to proceed.");
                     return;
                 }
             }
@@ -600,7 +600,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             using SqlDataReader reader = command.ExecuteReader();
             if (reader.FieldCount != cols)
             {
-                cLog.Error("Storage", $"Invalid format in {_indexName} ({cols}/{reader.FieldCount}).");
+                CLog.Error("Storage", $"Invalid format in {_indexName} ({cols}/{reader.FieldCount}).");
                 return;
             }
 
