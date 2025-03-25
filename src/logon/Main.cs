@@ -30,11 +30,12 @@ using WaadShared.Config;
 using WaadShared.Network;
 
 using static WaadShared.Common;
-using static WaadShared.GitExtractor;
+
 using static WaadShared.Main;
 using static WaadShared.Network.Socket;
 using static System.Threading.Thread;
 using static WaadShared.Threading.ThreadPool;
+using System.Reflection;
 
 namespace LogonServer;
 
@@ -48,8 +49,8 @@ public class LogonServer
     private static SQLiteDatabase slLogonSQL = new();
     public static uint MaxBuild { get; private set; } = 0;
     public static uint MinBuild { get; private set; } = 0;
-    public static object[] BRANCH_NAME { get; private set; } = [GetBranchName() ?? "unknown"];
-    public static int REVISION { get; private set; } = GetCommitCount();
+    public static object[] BRANCH_NAME { get; private set; }
+    public static int REVISION { get; private set; }
     public static readonly byte[] sql_hash = new byte[20];
     private static string configFile = Path.Combine(AppContext.BaseDirectory, "waad-logonserver.ini");
 
@@ -113,8 +114,52 @@ public class LogonServer
 
     public static void Main(string[] args)
     {
+        var gitInfo = ReadGitInfo();
+        if (gitInfo.HasValue)
+        {
+            BRANCH_NAME = [gitInfo.Value.Item1];
+            REVISION = gitInfo.Value.Item2;
+        }
+        else
+        {
+            BRANCH_NAME = ["unknown"];
+            REVISION = 0;
+        }
         RunLS(args);
     }
+
+    static (string, int)? ReadGitInfo()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream("waad-logonserver.GitInfo.txt");
+        if (stream == null)
+        {
+            Console.WriteLine("Git information not found.");
+            return null;
+        }
+
+        using var reader = new StreamReader(stream);
+        var content = reader.ReadToEnd();
+
+        var lines = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        string branchName = "unknown";
+        int commitCount = 0;
+
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("Branch:"))
+            {
+                branchName = line["Branch:".Length..].Trim();
+            }
+            else if (line.StartsWith("Commit Count:"))
+            {
+                commitCount = int.Parse(line["Commit Count:".Length..].Trim());
+            }
+        }
+
+        return (branchName, commitCount);
+    }
+
 
     public static void Run(string[] args, DateTime g_localTime, DateTime uNIXTIME)
     {

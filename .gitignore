@@ -4,6 +4,7 @@ binaries/shared/obj/**
 binaries/shared/bin/**
 binaries/logon/bin/**
 binaries/logon/obj/**
+binaries/logon/git*.*
 binaries/realm/obj/**
 binaries/realm/bin/**
 extras/GitExtractor/obj/**
