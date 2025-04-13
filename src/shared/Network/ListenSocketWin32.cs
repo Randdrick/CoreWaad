@@ -24,8 +24,8 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Threading;
+using static WaadShared.Network.Socket;
 
 namespace WaadShared;
 
@@ -79,8 +79,10 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
         }
 
         m_opened = true;
-        len = Marshal.SizeOf(typeof(IPEndPoint));
-        m_cp = SSocketMgr.GetCompletionPort();
+
+        // Replace Marshal.SizeOf with a fixed size for IPEndPoint
+        len = IntPtr.Size * 2; // Assuming 2 pointers for Address and Port
+        m_cp = SocketManager.GetCompletionPort();
     }
 
     ~ListenSocket()
@@ -97,8 +99,29 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
                 continue; // shouldn't happen, we are blocking.
 
             socket = new T();
-            ((dynamic)socket).SetCompletionPort(m_cp);
-            ((dynamic)socket).Accept(m_tempAddress);
+            if (socket == null)
+            {
+                Console.WriteLine("Failed to create a new socket instance.");
+                continue;
+            }
+            bool isSocketValid = true;
+
+            if (m_cp == IntPtr.Zero)
+            {
+                Console.WriteLine("Completion port is not initialized.");
+                continue;
+            }
+
+            if (m_tempAddress == null)
+            {
+                Console.WriteLine("Temporary address is null.");
+                continue;
+            }
+
+            SocketManager.SetCompletionPort(m_cp, isSocketValid);
+            Accept(m_tempAddress);
+            // ((dynamic)socket).SetCompletionPort(m_cp);
+            // ((dynamic)socket).Accept(m_tempAddress);
         }
         return false;
     }
@@ -126,32 +149,48 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
                     continue; // shouldn't happen, we are blocking.
 
                 socket = new T();
-                ((dynamic)socket).SetCompletionPort(m_cp);
-                ((dynamic)socket).Accept(m_tempAddress);
+                if (socket == null)
+                {
+                    Console.WriteLine("Failed to create a new socket instance.");
+                    continue;
+                }
+                bool isSocketValid = true;
+
+                if (m_cp == IntPtr.Zero)
+                {
+                    Console.WriteLine("Completion port is not initialized.");
+                    continue;
+                }
+                SocketManager.SetCompletionPort(m_cp, isSocketValid);
+                Accept(m_tempAddress);
+                // ((dynamic)socket).SetCompletionPort(m_cp);
+                // ((dynamic)socket).Accept(m_tempAddress);
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                // Handle socket exceptions if necessary
-                Console.WriteLine("Socket exception occurred.");
+                Console.WriteLine($"Socket exception occurred: {ex.Message}");
             }
-            catch (ObjectDisposedException)
+            catch (ObjectDisposedException ex)
             {
-                // Handle object disposed exceptions if necessary
-                Console.WriteLine("Socket has been disposed.");
+                Console.WriteLine($"Socket has been disposed: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Unexpected error: {ex.Message}");
             }
         }
         return false;
     }
 }
 
-public static class SSocketMgr
+public class ThreadPoolCompletionPort
 {
-    // public static object Instance;
+    public IntPtr Handle { get; } = new IntPtr(1); // Dummy handle to simulate IOCP
 
-    public static IntPtr GetCompletionPort()
+    public ThreadPoolCompletionPort()
     {
-        // Implementation for getting the completion port
-        return IntPtr.Zero;
+        // Initialize the ThreadPoolCompletionPort
     }
 }
+
 #endif

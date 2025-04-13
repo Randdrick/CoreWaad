@@ -21,17 +21,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Net;
-using System.Threading;
 using System.Text;
+using System.Threading;
+
 using WaadShared;
 using WaadShared.Network;
-using System.IO.Compression;
 
 using static System.Buffer;
 using static LogonServer.RealmListOpcode;
-using System.IO;
-using System.Linq;
+
+
 
 namespace LogonServer;
 
@@ -70,6 +73,7 @@ public class LogonCommServerSocket
         remaining = opcode = 0;
         useCrypto = false;
         authenticated = 0;
+        InitializeHandlers(); // Appel de la méthode pour initialiser les gestionnaires
     }
 
     public LogonCommServerSocket(Socket fd)
@@ -81,6 +85,7 @@ public class LogonCommServerSocket
         removed = true;
         useCrypto = false;
         authenticated = 0;
+        InitializeHandlers(); // Appel de la méthode pour initialiser les gestionnaires
     }
 
     public void OnConnect()

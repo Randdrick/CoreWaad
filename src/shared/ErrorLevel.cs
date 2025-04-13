@@ -25,6 +25,9 @@ namespace WaadShared
     {
         public const string L_N_ACCOUNT = "[AccountMgr] Rechargement des comptes...";
         public const string L_N_ACCOUNT_F = "[AccountMgr] {0} comptes trouvés.";
+        public const string L_E_ACCOUNT_F = "[AccountMgr] Le compte n'a pas été trouvé.";
+        public const string L_E_ACCOUNT_V = "[AccountMgr] Le compte {0} n'a pas pu être vérifié.";
+        public const string L_E_ACCOUNT_SL = "[AccountMgr] Le Salt du compte {0} n'a pas été trouvé.";
         public const string L_W_ACCOUNT_F = ">> Suppression d'un compte en double {0} [{1}]...\n";
         public const string L_D_ACCOUNT_B = "[AccountMgr] Le ban du compte {0} a expiré.";
         public const string L_D_ACCOUNT_M = "[AccountMgr] La mise en silence du compte {0} a expiré.";
@@ -32,6 +35,8 @@ namespace WaadShared
         public const string L_P_ACCOUNT_I_1 = "[AccountMgr] IP ban \"{0}\" ne peut être analysé. Ignore";
         public const string L_E_ACCOUNT_S = "[AccountMgr] Fermeture du socket en raison de l'expiration du ping.\n";
         public const string L_E_ACCOUNT_S_1 = "[AccountMgr] Socket déconnecté : {0} en raison d'une IP qui n'est plus allouée.\n";
+        public const string L_E_ACCOUNT_S_2 = "Le nom du compte est null ou vide.";
+        public const string L_E_ACCOUNT_S_3 = "Le compte n'a pas été trouvé dans la base de données.";
     }
 
     public static class AuthSocket
@@ -70,7 +75,7 @@ namespace WaadShared
         public const string L_N_LOGONCON = "Fichier de configuration rechargé...";
         public const string L_N_LOGONCON_1 = "Attente de la fin du processus de la console....\n";
         public const string L_N_LOGONCON_2 = "Arrêt de la Console.\n";
-        public const string L_N_LOGONCON_3 = "Interprète de la Console";
+        public const string L_N_LOGONCON_3 = "Démarrage de la Console";
         public const string L_N_LOGONCON_4 = "Console: Commande inconnue (utiliser \"help\" pour l'aide).\n";
         public const string L_N_LOGONCON_5 = "Console: --------aide--------";
         public const string L_N_LOGONCON_6 = "   help, ?: affiche ce texte";

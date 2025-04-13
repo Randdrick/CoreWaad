@@ -21,32 +21,24 @@
 
 using System;
 using System.Collections.Generic;
-using WaadShared.Database;
 using System.IO;
-using System.Threading;
+using System.Reflection;
+using static System.Threading.Thread;
+
 using WaadShared;
-using WaadShared.Auth;
 using WaadShared.Config;
 using WaadShared.Network;
-
+using WaadShared.Threading;
 using static WaadShared.Common;
-
 using static WaadShared.Main;
 using static WaadShared.Network.Socket;
-using static System.Threading.Thread;
 using static WaadShared.Threading.ThreadPool;
-using System.Reflection;
 
 namespace LogonServer;
 
 public class LogonServer
 {
     private static bool mrunning = true;
-    private static readonly Mutex _authSocketLock = new();
-    private static readonly HashSet<AuthSocket> _authSockets = [];
-    private static MySQLDatabase sLogonSQL = new();
-    private static PostgresDatabase pLogonSQL = new();
-    private static SQLiteDatabase slLogonSQL = new();
     public static uint MaxBuild { get; private set; } = 0;
     public static uint MinBuild { get; private set; } = 0;
     public static object[] BRANCH_NAME { get; private set; }
@@ -55,62 +47,6 @@ public class LogonServer
     private static string configFile = Path.Combine(AppContext.BaseDirectory, "waad-logonserver.ini");
 
     const string BANNER = "WAAD {0} r{1}/{2}-{3} ({4}) :: Logon Server";
-    private static bool StartDb()
-    {
-        var Config = new ConfigMgr();
-        var sLog = new Logger();
-
-        if (!Config.MainConfig.SetSource(configFile))
-        {
-
-            sLog.OutString(L_N_MAIN_1);
-            return false;
-        }
-
-        // Configure Main Database
-        string lhostname = Config.MainConfig.GetString("Database.Logon", "Hostname");
-        string lusername = Config.MainConfig.GetString("Database.Logon", "Username");
-        string lpassword = Config.MainConfig.GetString("Database.Logon", "Password");
-        string ldatabase = Config.MainConfig.GetString("Database.Logon", "Name");
-        int lport = Config.MainConfig.GetInt32("Database.Logon", "Port");
-        int ltype = Config.MainConfig.GetInt32("Database.Logon", "Type", 1); // Default is MySQL
-
-        bool result = !string.IsNullOrEmpty(lhostname) && !string.IsNullOrEmpty(lusername)
-                    && !string.IsNullOrEmpty(ldatabase) && lport > 0;
-
-        if (!result)
-        {
-            sLog.OutString(L_N_MAIN);
-            return result;
-        }
-
-        sLog.SetScreenLoggingLevel(Config.MainConfig.GetInt32("LogLevel", "Screen"));
-
-        string connectionString = ltype switch
-        {
-            1 => $"Server={lhostname};Port={lport};Database={ldatabase};Uid={lusername};Pwd={lpassword};",
-            2 => $"Host={lhostname};Port={lport};Username={lusername};Password={lpassword};Database={ldatabase};",
-            3 => $"Data Source={ldatabase};Version=3;",
-            _ => throw new InvalidOperationException("Unsupported database type.")
-        };
-
-        SLogonSQL.SetConnectionString(connectionString);
-
-        // Initialize it
-        if (!sLogonSQL.Initialize(lhostname, (uint)lport, lusername, lpassword, ldatabase,
-                                  (uint)Config.MainConfig.GetInt32("Database.Logon", "ConnectionCount", 5), 16384)
-                                  || !pLogonSQL.Initialize(lhostname, (uint)lport, lusername, lpassword, ldatabase,
-                                  (uint)Config.MainConfig.GetInt32("Database.Logon", "ConnectionCount", 5), 16384)
-                                  || !slLogonSQL.Initialize(lhostname, (uint)lport, lusername, lpassword, ldatabase,
-                                  (uint)Config.MainConfig.GetInt32("Database.Logon", "ConnectionCount", 5), 16384)
-                                  )
-        {
-            sLog.OutError(L_E_MAIN);
-            return false;
-        }
-
-        return true;
-    }
 
     public static void Main(string[] args)
     {
@@ -160,12 +96,11 @@ public class LogonServer
         return (branchName, commitCount);
     }
 
-
     public static void Run(string[] args, DateTime g_localTime, DateTime uNIXTIME)
     {
         var sLog = new Logger();
         var configMgr = new ConfigMgr();
-        var ThreadPool = new WaadShared.Threading.ThreadPool();
+        var ThreadPool = new ThreadPool();
         int fileLogLevel = -1;
         int screenLogLevel = 3;
         bool doCheckConf = false;
@@ -237,57 +172,33 @@ public class LogonServer
         sLog.OutString(L_N_MAIN_7);
         sLog.OutString("");
 
-        CLog.Notice("Config", L_N_MAIN_8);
+        CLog.Notice("[Config]", L_N_MAIN_8);
         if (!Rehash(new object()))
             return;
 
-        CLog.Notice("ThreadMgr", L_N_MAIN_9);
+        CLog.Notice("[ThreadMgr]", L_N_MAIN_9);
         Startup(5);
 
-        if (!StartDb())
-            return;
+        if (!DatabaseManager.InitializeDatabases(configMgr, sLog)) return;
 
-        CLog.Notice("AccountMgr", L_N_MAIN_9);
-
-        CLog.Notice("InfoCore", L_N_MAIN_9);
-
-        CLog.Notice("AccountMgr", L_N_MAIN_10);
+        CLog.Notice("[AccountMgr]", L_N_MAIN_9);
+        CLog.Notice("[InfoCore]", L_N_MAIN_9);
+        CLog.Notice("[AccountMgr]", L_N_MAIN_10);
+        
         AccountMgr.Instance.ReloadAccounts(true);
-        CLog.Notice("AccountMgr", string.Format(L_N_MAIN_11, AccountMgr.Instance.GetCount()));
+        CLog.Notice("[AccountMgr]", string.Format(L_N_MAIN_11, AccountMgr.Instance.GetAccountCount()));
+        if (AccountMgr.Instance.GetAccountCount() == 0)
+        {
+            CLog.Warning("[Main]", "No accounts were loaded. Please check the database and ReloadAccounts logic.");
+        }
         CLog.Line();
 
         int atime = configMgr.MainConfig.GetInt32("Rates", "AccountRefresh", 600) * 1000;
         var pfc = new PeriodicFunctionCaller<AccountMgr>(AccountMgr.Instance, AccountMgr.Instance.ReloadAccountsCallback, (uint)atime);
         ThreadPool.ExecuteTask(pfc);
 
-        uint cport = (uint)configMgr.MainConfig.GetInt32("Listen", "RealmListPort", 3724);
-        uint sport = (uint)configMgr.MainConfig.GetInt32("Listen", "ServerPort", 8093);
-        string host = configMgr.MainConfig.GetString("Listen", "Host", "0.0.0.0");
-        string shost = configMgr.MainConfig.GetString("Listen", "ISHost", host);
-        MinBuild = (uint)configMgr.MainConfig.GetInt32("Client", "MinBuild", 12340);
-        MaxBuild = (uint)configMgr.MainConfig.GetInt32("Client", "MaxBuild", 12340);
-        string logonPass = configMgr.MainConfig.GetString("LogonServer", "RemotePassword", "r3m0t3b4d");
-        var hash = new Sha3Hash();
-        hash.UpdateData(logonPass);
-        hash.FinalizeHash();
-        Array.Copy(hash.GetDigest(), sql_hash, 20);
+        if (!SocketManager.InitializeSockets(configMgr, sLog)) return;
 
-        ThreadPool.ExecuteTask(new LogonConsoleThread());
-
-        var Instance = new SocketMgr();
-        Instance.SpawnWorkerThreads();
-
-        var cl = new ListenSocket<AuthSocket>(host, cport);
-        var sl = new ListenSocket<LogonCommServerSocket>(shost, sport);
-
-        bool authSockCreated = cl.IsOpen();
-        bool interSockCreated = sl.IsOpen();
-#if WIN32
-        if (authSockCreated)
-            ThreadPool.ExecuteTask(cl);
-        if (interSockCreated)
-            ThreadPool.ExecuteTask(sl);
-#endif
         AppDomain.CurrentDomain.ProcessExit += (sender, e) => OnSignal();
 
 #if !WIN32
@@ -296,10 +207,10 @@ public class LogonServer
 
         byte[] HashNameShaMagicNumber = [0x57, 0x61, 0x61, 0x64, 0x00, 0x00, 0x00];
 
-        sLog.OutString(L_N_MAIN_12);
+        CLog.Success("Main", L_N_MAIN_12);
 
         uint loopCounter = 0;
-        while (mrunning && authSockCreated && interSockCreated)
+        while (mrunning)
         {
             if (++loopCounter % 400 == 0) // 20 seconds
                 CheckForDeadSockets();
@@ -323,8 +234,7 @@ public class LogonServer
 
         pfc.Kill();
 
-        cl.Close();
-        sl.Close();
+        var Instance = new SocketMgr(); // Create or retrieve the appropriate instance
         Instance.CloseAll();
 #if WIN32
         Instance.ShutdownThreads();
@@ -332,10 +242,8 @@ public class LogonServer
         LogonConsole.Instance.Kill();
 
         sLog.OutString(L_N_MAIN_14);
-        sLogonSQL.EndThreads();
-        sLogonSQL.OnShutdown();
-        sLogonSQL = null;
 
+        DatabaseManager.RemoveDatabase();
         ThreadPool.Shutdown();
 
         File.Delete("waad-logonserver.pid");
@@ -343,7 +251,6 @@ public class LogonServer
         AccountMgr.CloseSocket();
         var serverSocket = new LogonCommServerSocket(); // Create or retrieve the appropriate instance
         InformationCore.Instance.RemoveServerSocket(serverSocket);
-        IPBanner.Instance.Remove(host);
         Instance = null;
 
         sLog.OutString(L_N_MAIN_15);
@@ -356,7 +263,6 @@ public class LogonServer
 
     public static bool Rehash(object allowedIpLock)
     {
-        var sLog = new CLog();
         short ServerTrustMe;
         short ServerModTrustMe;
         var Config = new ConfigMgr();
@@ -452,7 +358,6 @@ public class LogonServer
 
     private static void CheckForDeadSockets()
     {
-        var sLog = new CLog();
         var deadSockets = new List<Socket>();
         var Socket = new Socket();
 

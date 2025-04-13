@@ -31,12 +31,12 @@ namespace WaadShared.Network;
 
 public class Socket
 {
-    private readonly Socket _socket;
+    private static Socket _socket;
     private bool _isConnected;
     private bool _isDeleted;
     private readonly object _writeMutex = new();
     private readonly object _readMutex = new();
-    private IPEndPoint _clientEndPoint;
+    private static IPEndPoint _clientEndPoint;
     private readonly byte[] _readBuffer;
     private readonly byte[] _writeBuffer;
     private int _writeLock;
@@ -158,17 +158,17 @@ public class Socket
         Monitor.Exit(_writeMutex);
     }
 
-    public string GetRemoteIP()
+    public static string GetRemoteIP()
     {
         return _clientEndPoint?.Address.ToString() ?? "noip";
     }
 
-    public int GetRemotePort()
+    public static int GetRemotePort()
     {
         return _clientEndPoint?.Port ?? 0;
     }
 
-    public Socket GetSocket()
+    public static Socket GetSocket()
     {
         return _socket;
     }
@@ -178,7 +178,7 @@ public class Socket
         if (!_isConnected) return;
 
         _isConnected = false;
-        _socket.Close();
+        Close();
 
         // Call virtual ondisconnect
         OnDisconnect();
@@ -206,7 +206,7 @@ public class Socket
         return _isConnected;
     }
 
-    public IPEndPoint GetRemoteStruct()
+    public static IPEndPoint GetRemoteStruct()
     {
         return _clientEndPoint;
     }
@@ -221,7 +221,7 @@ public class Socket
         return _writeBuffer;
     }
 
-    public IPAddress GetRemoteAddress()
+    public static IPAddress GetRemoteAddress()
     {
         return _clientEndPoint?.Address;
     }
@@ -246,16 +246,50 @@ public class Socket
     // Simulated SocketManager class
     public static class SocketManager
     {
+        private static IntPtr _completionPort = IntPtr.Zero;
+
         public static IntPtr GetCompletionPort()
         {
-            // Simulate obtaining a completion port handle
-            return new IntPtr(1); // Placeholder value
-        }
-    }
+            if (_completionPort == IntPtr.Zero)
+            {
+                // Create a new IOCP completion port if it doesn't already exist
+                _completionPort = CreateIoCompletionPort();
 
-    public static void SetCompletionPort(IntPtr cp)
-    {
-        // Removed _completionPort field
+                if (_completionPort == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("Failed to create IOCP completion port.");
+                }
+            }
+
+            return _completionPort;
+        }
+
+        private static IntPtr CreateIoCompletionPort()
+        {
+            // Use ThreadPool to simulate IOCP behavior
+            var completionPort = new ThreadPoolCompletionPort();
+            return completionPort.Handle;
+        }
+        public static void SetCompletionPort(IntPtr completionPort, bool isSocketValid)
+        {
+
+            if (completionPort == IntPtr.Zero)
+            {
+                CLog.Error("[Socket]", "Invalid completion port.");
+                return;
+            }
+
+            // Ensure the socket handle is valid
+
+            if (!isSocketValid)
+            {
+                CLog.Error("[Socket]", "Invalid socket handle.");
+                return;
+            }
+
+            // Associate the socket with the completion port
+            SocketMgr.AssociateSocketWithCompletionPort(isSocketValid, completionPort);
+        }
     }
 
     public void IncSendLock()
@@ -283,39 +317,61 @@ public class Socket
     {
         DecSendLock();
     }
-
-    internal void Bind(IPEndPoint address)
+    internal static void Accept(IPEndPoint remoteEndPoint)
     {
-        _socket.Bind(address);
+        if (remoteEndPoint == null)
+        {
+            CLog.Error("[SOCKET]", "Remote endpoint is null.");
+            return;
+        }
+
+        // Perform any necessary initialization for the accepted connection
+        CLog.Notice("[SOCKET]", $"Accepted connection from {remoteEndPoint.Address}:{remoteEndPoint.Port}");
+
+        // Example: Set up the socket for further communication
+        _socket.Blocking = false;
+        _socket.NoDelay = true;
+
+        // Additional setup logic can be added here
     }
 
-    internal void Close()
+    private static void Listen(IPEndPoint address)
     {
-        _socket.Close();
+        Listen(address);
+    }
+
+    internal static void Bind(IPEndPoint address)
+    {
+        Bind(address);
+    }
+
+    internal static void Close()
+    {
+        Close();
     }
 
     internal Socket Accept(int minPort)
     {
-        _socket.Listen(1);
+        Listen(minPort);
         var acceptedSocket = _socket.Accept();
         return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
     }
 
     internal Socket Accept(IPAddress any, ref int len, int minPort, int maxPort)
     {
-        _socket.Listen(1);
+        Listen(1);
         var acceptedSocket = _socket.Accept();
         return new Socket(acceptedSocket, _writeBuffer.Length, _readBuffer.Length);
     }
 
-    internal void SetSocketOption(SocketOptionLevel socket, SocketOptionName reuseAddress, bool v)
+    internal static void SetSocketOption(SocketOptionLevel socket, SocketOptionName reuseAddress, bool v)
     {
-        _socket.SetSocketOption(socket, reuseAddress, v);
+        SetSocketOption(socket, reuseAddress, v);
     }
 
-    internal void Listen(int v)
+    internal static void Listen(int v)
     {
-        _socket.Listen(v);
+        Listen(v);
     }
 
     internal Socket Accept()
@@ -446,11 +502,11 @@ public class Socket
         }
     }
 
-    public int Receive(byte[] bytes, int space, SocketFlags none)
+    public static int Receive(byte[] bytes, int space, SocketFlags none)
     {
         try
         {
-            return _socket.Receive(bytes, space, none);
+            return Receive(bytes, space, none);
         }
         catch (Exception ex)
         {
@@ -476,11 +532,11 @@ public class Socket
         }
     }
 
-    internal int EndReceive(IAsyncResult result)
+    internal static int EndReceive(IAsyncResult result)
     {
         try
         {
-            return _socket.EndReceive(result);
+            return EndReceive(result);
         }
         catch (Exception ex)
         {
@@ -489,11 +545,11 @@ public class Socket
         }
     }
 
-    internal void BeginReceive(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket socket)
+    internal static void BeginReceive(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket socket)
     {
         try
         {
-            _socket.BeginReceive(bytes, v1, v2, none, asyncCallback, socket);
+            BeginReceive(bytes, v1, v2, none, asyncCallback, socket);
         }
         catch (Exception ex)
         {
@@ -513,11 +569,11 @@ public class Socket
         }
     }
 
-    internal bool Poll(int v, SelectMode selectWrite)
+    internal static bool Poll(int v, SelectMode selectWrite)
     {
         try
         {
-            return _socket.Poll(v, selectWrite);
+            return Poll(v, selectWrite);
         }
         catch (Exception ex)
         {
@@ -526,11 +582,11 @@ public class Socket
         }
     }
 
-    internal object EndAccept(IAsyncResult result)
+    internal static object EndAccept(IAsyncResult result)
     {
         try
         {
-            return _socket.EndAccept(result);
+            return EndAccept(result);
         }
         catch (Exception ex)
         {
@@ -539,11 +595,11 @@ public class Socket
         }
     }
 
-    internal void BeginAccept(AsyncCallback asyncCallback, Socket s)
+    internal static void BeginAccept(AsyncCallback asyncCallback, Socket s)
     {
         try
         {
-            _socket.BeginAccept(asyncCallback, s);
+            BeginAccept(asyncCallback, s);
         }
         catch (Exception ex)
         {
@@ -551,11 +607,11 @@ public class Socket
         }
     }
 
-    internal void BeginSend(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket s)
+    internal static void BeginSend(byte[] bytes, int v1, int v2, SocketFlags none, AsyncCallback asyncCallback, Socket s)
     {
         try
         {
-            _socket.BeginSend(bytes, v1, v2, none, asyncCallback, s);
+            BeginSend(bytes, v1, v2, none, asyncCallback, s);
         }
         catch (Exception ex)
         {

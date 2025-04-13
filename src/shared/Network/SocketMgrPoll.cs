@@ -48,7 +48,7 @@ public class SocketMgr
     private readonly byte[] m_writeBuffer = new byte[1024];
     private int m_writeByteCount = 0;
 
-    private SocketMgr()
+    public SocketMgr()
     {
         for (int i = 0; i < SOCKET_HOLDER_SIZE; i++)
         {

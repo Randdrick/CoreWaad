@@ -463,20 +463,22 @@ public static partial class Common
     {
         return RTrim(LTrim(s, findStr), findStr);
     }
-    public class Field(object v)
+    public class Field
     {
-        private readonly object v = v;
+        private readonly object value;
 
-        public static bool GetBool() => false;
-        public static byte GetUInt8() => 0;
-        public static ushort GetUInt16() => 0;
-        public static uint GetUInt32() => 0;
-        public static int GetInt32() => 0;
-        public static float GetFloat() => 0;
-        public static string GetString() => "";
-        public static uint GetUInt32(Field field) => 0;
-        public static byte GetUInt8(Field field) => 0;
-        public static string GetString(Field field) => "";
+        public Field(object v)
+        {
+            value = v;
+        }
+
+        public bool GetBool() => value is bool b && b;
+        public byte GetUInt8() => value is byte b ? b : (byte)0;
+        public ushort GetUInt16() => value is ushort s ? s : (ushort)0;
+        public uint GetUInt32() => value is uint u ? u : 0;
+        public int GetInt32() => value is int i ? i : 0;
+        public float GetFloat() => value is float f ? f : 0;
+        public string GetString() => value?.ToString() ?? "";
     }
 }
 

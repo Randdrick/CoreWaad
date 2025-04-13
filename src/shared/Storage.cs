@@ -22,6 +22,9 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Data.SQLite;
+using MySql.Data.MySqlClient;
+using Npgsql;
 using static WaadShared.Common;
 
 namespace WaadShared;
@@ -392,6 +395,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
 
         int offset = 0;
         int fieldIndex = 0;
+        var typeFields = typeof(T).GetFields();
 
         foreach (char formatChar in _formatString)
         {
@@ -402,32 +406,32 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             switch (formatChar)
             {
                 case 'b': // Boolean
-                    typeof(T).GetFields()[offset].SetValue(allocated, Field.GetBool());
+                    typeFields[offset].SetValue(allocated, field.GetBool());
                     offset++;
                     break;
                 case 'c': // Byte
-                    typeof(T).GetFields()[offset].SetValue(allocated, Field.GetUInt8());
+                    typeFields[offset].SetValue(allocated, field.GetUInt8());
                     offset++;
                     break;
                 case 'h': // UInt16
-                    typeof(T).GetFields()[offset].SetValue(allocated, Field.GetUInt16());
+                    typeFields[offset].SetValue(allocated, field.GetUInt16());
                     offset++;
                     break;
                 case 'u': // UInt32
-                    typeof(T).GetFields()[offset].SetValue(allocated, Field.GetUInt32());
+                    typeFields[offset].SetValue(allocated, field.GetUInt32());
                     offset++;
                     break;
                 case 'i': // Int32
-                    typeof(T).GetFields()[offset].SetValue(allocated, Field.GetInt32());
+                    typeFields[offset].SetValue(allocated, field.GetInt32());
                     offset++;
                     break;
                 case 'f': // Float
-                    typeof(T).GetFields()[offset].SetValue(allocated, Field.GetFloat());
+                    typeFields[offset].SetValue(allocated, field.GetFloat());
                     offset++;
                     break;
                 case 's': // String
-                    string strValue = Field.GetString() ?? string.Empty;
-                    typeof(T).GetFields()[offset].SetValue(allocated, strValue);
+                    string strValue = field.GetString() ?? string.Empty;
+                    typeFields[offset].SetValue(allocated, strValue);
                     offset++;
                     break;
                 case 'x': // Skip
@@ -440,43 +444,88 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         }
     }
 
+    public static class SLogonSQL
+    {
+        private static string connectionString;
+        private static int databaseType;
+
+        public static int DatabaseType
+        {
+            get => databaseType;
+            set => databaseType = value;
+        }
+
+        public static void SetConnectionString(string connString, int dbType)
+        {
+            connectionString = connString;
+            databaseType = dbType;
+        }
+
+        public static dynamic CreateConnection()
+        {
+            return databaseType switch
+            {
+                1 => new MySqlConnection(connectionString), // MySQL
+                2 => new NpgsqlConnection(connectionString), // PostgreSQL
+                3 => new SQLiteConnection(connectionString), // SQLite
+                _ => throw new InvalidOperationException("Unsupported database type.")
+            };
+        }
+
+        public static dynamic CreateCommand(string query, dynamic connection)
+        {
+            return databaseType switch
+            {
+                1 => new MySqlCommand(query, connection), // MySQL
+                2 => new NpgsqlCommand(query, connection), // PostgreSQL
+                3 => new SQLiteCommand(query, connection), // SQLite
+                _ => throw new InvalidOperationException("Unsupported database type.")
+            };
+        }
+    }
+
     public override void Load(string indexName, string formatString)
     {
         base.Load(indexName, formatString);
         var cLog = new CLog();
 
-        // Assuming WorldDatabase is a SqlConnection or similar
-        using SqlConnection connection = new("YourConnectionString");
+        // Vérifiez que le type de base de données est défini
+        if (SLogonSQL.DatabaseType == 0)
+        {
+            CLog.Error("Storage", "Database type is not set. Cannot load data.");
+            return;
+        }
+
+        // Ouvrir une connexion en fonction du type de base de données
+        using var connection = SLogonSQL.CreateConnection();
         connection.Open();
 
-        int max = STORAGE_ARRAY_MAX; // Define this constant
+        int max = STORAGE_ARRAY_MAX; // Définir cette constante
         if (_storage.NeedsMax())
         {
-            using (SqlCommand command = new($"SELECT MAX(entry) FROM {indexName}", connection))
+            using var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {indexName}", connection);
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
             {
-                using SqlDataReader reader = command.ExecuteReader();
-                if (reader.Read())
+                max = reader.GetInt32(0) + 1;
+                if (max > STORAGE_ARRAY_MAX)
                 {
-                    max = reader.GetInt32(0) + 1;
-                    if (max > STORAGE_ARRAY_MAX)
-                    {
-                        Console.WriteLine($"The table, '{indexName}', has a maximum entry of {max}, which is less {STORAGE_ARRAY_MAX}. Any items higher than {STORAGE_ARRAY_MAX} will not be loaded.");
-                        max = STORAGE_ARRAY_MAX;
-                    }
+                    CLog.Warning("Storage", $"The table '{indexName}' has a maximum entry of {max}, which exceeds {STORAGE_ARRAY_MAX}. Entries beyond {STORAGE_ARRAY_MAX} will not be loaded.");
+                    max = STORAGE_ARRAY_MAX;
                 }
             }
             _storage.Setup(max);
         }
 
         int cols = formatString.Length;
-        using (SqlCommand command = new($"SELECT * FROM {indexName}", connection))
+        using (var command = SLogonSQL.CreateCommand($"SELECT * FROM {indexName}", connection))
         {
-            using SqlDataReader reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader();
             if (reader.FieldCount != cols)
             {
                 if (reader.FieldCount > cols)
                 {
-                    CLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data");
+                    CLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data.");
                 }
                 else
                 {
@@ -494,7 +543,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     Field[] fields = new Field[reader.FieldCount];
                     for (int i = 0; i < reader.FieldCount; i++)
                     {
-                        fields[i] = new Field (reader.GetValue(i));
+                        fields[i] = new Field(reader.GetValue(i));
                     }
                     LoadBlock(fields, allocated);
                 }
@@ -502,20 +551,26 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             CLog.Notice("Storage", $"{reader.RecordsAffected} entries loaded from table {indexName}.");
         }
     }
-
     public void LoadAdditionalData(string indexName, string formatString)
     {
         base.Load(indexName, formatString);
         var cLog = new CLog();
 
-        // Assuming WorldDatabase is a SqlConnection or similar
-        using SqlConnection connection = new("YourConnectionString");
+        // Vérifiez que le type de base de données est défini
+        if (SLogonSQL.DatabaseType == 0)
+        {
+            CLog.Error("Storage", "Database type is not set. Cannot load data.");
+            return;
+        }
+
+        // Ouvrir une connexion en fonction du type de base de données
+        using var connection = SLogonSQL.CreateConnection();
         connection.Open();
 
         int max = STORAGE_ARRAY_MAX;
         if (_storage.NeedsMax())
         {
-            using (SqlCommand command = new($"SELECT MAX(entry) FROM {indexName}", connection))
+            using (var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {indexName}", connection))
             {
                 using SqlDataReader reader = command.ExecuteReader();
                 if (reader.Read())
@@ -532,9 +587,9 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         }
 
         int cols = formatString.Length;
-        using (SqlCommand command = new($"SELECT * FROM {indexName}", connection))
+        using (var command = SLogonSQL.CreateCommand($"SELECT * FROM {indexName}", connection))
         {
-            using SqlDataReader reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader();
             if (reader.FieldCount != cols)
             {
                 if (reader.FieldCount > cols)
@@ -568,16 +623,22 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
 
     public override void Reload()
     {
-        var cLog = new CLog();
         CLog.Notice("Storage", $"Reloading database cache from `{_indexName}`...");
 
-        // Assuming WorldDatabase is a SqlConnection or similar
-        using SqlConnection connection = new("YourConnectionString");
+        // Vérifiez que le type de base de données est défini
+        if (SLogonSQL.DatabaseType == 0)
+        {
+            CLog.Error("Storage", "Database type is not set. Cannot load data.");
+            return;
+        }
+
+        // Ouvrir une connexion en fonction du type de base de données
+        using var connection = SLogonSQL.CreateConnection();
         connection.Open();
 
-        using (SqlCommand command = new($"SELECT MAX(entry) FROM {_indexName}", connection))
+        using (var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {_indexName}", connection))
         {
-            using SqlDataReader reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader();
             if (!reader.Read())
                 return;
 
@@ -595,9 +656,9 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         }
 
         int cols = _formatString.Length;
-        using (SqlCommand command = new($"SELECT * FROM {_indexName}", connection))
+        using (var command = SLogonSQL.CreateCommand($"SELECT * FROM {_indexName}", connection))
         {
-            using SqlDataReader reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader();
             if (reader.FieldCount != cols)
             {
                 CLog.Error("Storage", $"Invalid format in {_indexName} ({cols}/{reader.FieldCount}).");

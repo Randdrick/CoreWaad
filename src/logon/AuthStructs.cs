@@ -26,7 +26,7 @@ namespace LogonServer;
 public class AuthStructs
 {
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct sAuthLogonChallengeC
+    public struct SAuthLogonChallengeC
     {
         public byte cmd;
         public byte error;
@@ -51,7 +51,7 @@ public class AuthStructs
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct sAuthReconnectChallengeC
+    public struct SAuthReconnectChallengeC
     {
         public byte cmd;
         public byte error;
@@ -76,7 +76,7 @@ public class AuthStructs
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct sAuthLogonChallengeS
+    public struct SAuthLogonChallengeS
     {
         public byte cmd;
         public byte error;
@@ -96,7 +96,7 @@ public class AuthStructs
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct sAuthLogonProofC
+    public struct SAuthLogonProofC
     {
         public byte cmd;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
@@ -110,7 +110,7 @@ public class AuthStructs
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct sAuthLogonProofKeyC
+    public struct SAuthLogonProofKeyC
     {
         public ushort unk1;
         public uint unk2;
@@ -121,7 +121,7 @@ public class AuthStructs
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct sAuthLogonProofS
+    public struct SAuthLogonProofS
     {
         public byte cmd;
         public byte error;

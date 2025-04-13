@@ -48,7 +48,7 @@ public abstract class ThreadBase
     {
         string threadName = string.Format(format, args);
         // Implement your logic here to set the thread name
-        Console.WriteLine(threadName); // Example implementation
+        CLog.Notice("[ThreadMgr]", threadName); 
     }
 }
 
@@ -58,7 +58,7 @@ public class CThread : ThreadBase
 
     public void ThreadProcQuery()
     {
-        SetThreadName("Database Execute Thread");
+        // SetThreadName("Database Execute Thread");
         SetThreadState(CThreadState.THREADSTATE_BUSY);
         ThreadRunning = true;
 

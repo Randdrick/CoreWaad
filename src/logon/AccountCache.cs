@@ -19,7 +19,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using MySql.Data.MySqlClient;
+using Npgsql;
+using System.Data.SQLite;
 using System.Linq;
 using System.Net;
 using WaadShared;
@@ -136,7 +138,7 @@ public class IPBanner
                 {
                     var ipb = new IPBan();
                     string smask = "32";
-                    string ip = Field.GetString(row[0]);
+                    string ip = new Field(row[0]).GetString();
                     int i = ip.IndexOf('/');
                     string stmp = ip[..i];
                     if (i == -1)
@@ -158,7 +160,7 @@ public class IPBanner
 
                     ipb.Bytes = (byte)ipmask;
                     ipb.Mask = ipraw;
-                    ipb.Expire = Field.GetUInt32(row[1]);
+                    ipb.Expire = new Field(row[1]).GetUInt32();
                     ipb.DbIp = ip;
                     banList.Add(ipb);
                 }
@@ -271,21 +273,62 @@ public class AccountMgr
     private static AccountMgr _instance;
     public static AccountMgr Instance => _instance ??= new AccountMgr();
     public static AccountMgr GetSingleton() => new();
-    private readonly Dictionary<string, Account> AccountDatabase = [];
+    private static readonly Dictionary<string, Account> AccountDatabase = [];
     private readonly object setBusy = new();
 
     public void AddAccount(Field[] field)
     {
         var sLog = new Logger();
+
+        // Vérifiez que le tableau 'field' n'est pas nul et contient des éléments
+        if (field == null || field.Length < 9)
+        {
+            sLog.OutError("[AddAccount] Field array is null or does not contain enough elements.");
+            return;
+        }
+
+        string username = field[1].GetString();
+        if (string.IsNullOrEmpty(username))
+        {
+            sLog.OutError("[AddAccount] Account name is null or empty.");
+            return;
+        }
+
+        username = username.ToUpper(); // Normalize the username to uppercase
+
         var acct = new Account
         {
-            AccountId = Field.GetUInt32(field[0]),
-            AccountFlags = Field.GetUInt8(field[3]),
-            Banned = Field.GetUInt32(field[4]),
-            GMFlags = Field.GetString(field[2]),
-            Salt = new BigNumber(Field.GetString(field[7]) ?? ""),
-            Verifier = new BigNumber(Field.GetString(field[8]) ?? "")
+            AccountId = field[0].GetUInt32(),
+            AccountFlags = field[3].GetUInt8(),
+            Banned = field[4].GetUInt32(),
+            UsernamePtr = username // Assign the username to the account object
         };
+
+        string GMFlags = field[2].GetString();
+        string Salt = field[7].GetString() ?? "";
+        string Verifier = field[8].GetString() ?? "";
+
+        if (!string.IsNullOrEmpty(Salt))
+        {
+            acct.Salt = new BigNumber();
+            acct.Salt.SetHexStr(Salt);
+        }
+        else
+        {
+            sLog.OutError("[AddAccount] Missing salt for account: {0}", username);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(Verifier))
+        {
+            acct.Verifier = new BigNumber();
+            acct.Verifier.SetHexStr(Verifier);
+        }
+        else
+        {
+            sLog.OutError("[AddAccount] Missing verifier for account: {0}", username);
+            return;
+        }
 
         if (UNIXTIME.Value > acct.Banned && acct.Banned != 0 && acct.Banned != 1)
         {
@@ -301,12 +344,12 @@ public class AccountMgr
             SLogonSQL.Execute(updateQuery, parameters);
         }
 
-        acct.SetGMFlags(acct.GMFlags);
+        acct.SetGMFlags(GMFlags);
         acct.Locale = "enUS".ToCharArray();
 
-        if (Field.GetString(field[5]) != "enUS")
+        if (field[5].GetString() != "enUS")
         {
-            acct.Locale = Field.GetString(field[5]).ToCharArray();
+            acct.Locale = field[5].GetString().ToCharArray();
             acct.ForcedLocale = true;
         }
         else
@@ -314,7 +357,7 @@ public class AccountMgr
             acct.ForcedLocale = false;
         }
 
-        acct.Muted = Field.GetUInt32(field[6]);
+        acct.Muted = field[6].GetUInt32();
         if (UNIXTIME.Value > acct.Muted && acct.Muted != 0 && acct.Muted != 1)
         {
             acct.Muted = 0;
@@ -327,7 +370,18 @@ public class AccountMgr
             SLogonSQL.Execute(updateMutedQuery, mutedParameters);
         }
 
-        AccountDatabase[acct.UsernamePtr] = acct;
+        lock (setBusy)
+        {
+            AccountDatabase[username] = acct; // Add the account object to the dictionary
+        }
+    }
+
+    public int GetAccountCount()
+    {
+        lock (setBusy)
+        {
+            return AccountDatabase.Count;
+        }
     }
 
     public Account GetAccount(string name)
@@ -341,11 +395,11 @@ public class AccountMgr
 
     public static void UpdateAccount(Account acct, Field[] field)
     {
-        uint id = Field.GetUInt32(field[0]);
-        string username = Field.GetString(field[1]);
-        string gmFlags = Field.GetString(field[2]);
-        string salt = Field.GetString(field[7]) ?? "";
-        string verifier = Field.GetString(field[8]) ?? "";
+        uint id = new Field(field[0]).GetUInt32();
+        string username = new Field(field[1]).GetString();
+        string gmFlags = new Field(field[2]).GetString();
+        string salt = new Field(field[7]).GetString() ?? "";
+        string verifier = new Field(field[8]).GetString() ?? "";
         var Logger = new Logger();
 
         if (id != acct.AccountId)
@@ -363,9 +417,9 @@ public class AccountMgr
             return;
         }
 
-        acct.AccountId = Field.GetUInt32(field[0]);
-        acct.AccountFlags = Field.GetUInt8(field[3]);
-        acct.Banned = Field.GetUInt32(field[4]);
+        acct.AccountId = new Field(field[0]).GetUInt32();
+        acct.AccountFlags = new Field(field[3]).GetUInt8();
+        acct.Banned = new Field(field[4]).GetUInt32();
 
         if (!string.IsNullOrEmpty(salt))
         {
@@ -392,9 +446,9 @@ public class AccountMgr
         }
 
         acct.SetGMFlags(gmFlags);
-        if (Field.GetString(field[5]) != "enUS")
+        if (new Field(field[5]).GetString() != "enUS")
         {
-            acct.Locale = Field.GetString(field[5]).ToCharArray();
+            acct.Locale = new Field(field[5]).GetString().ToCharArray();
             acct.ForcedLocale = true;
         }
         else
@@ -402,7 +456,7 @@ public class AccountMgr
             acct.ForcedLocale = false;
         }
 
-        acct.Muted = Field.GetUInt32(field[6]);
+        acct.Muted = new Field(field[6]).GetUInt32();
         if (UNIXTIME.Value > acct.Muted && acct.Muted != 0 && acct.Muted != 1)
         {
             acct.Muted = 0;
@@ -417,15 +471,15 @@ public class AccountMgr
             SLogonSQL.Execute(updateMutedQuery, mutedParameters);
         }
 
-        username = username.ToUpper();
+        _ = username.ToUpper();
     }
 
     public void ReloadAccounts(bool silent)
     {
-        var Logger = new Logger();
+        var sLog = new Logger();
         lock (setBusy)
         {
-            if (!silent) Logger.OutString(L_N_ACCOUNT);
+            if (!silent) sLog.OutString(L_N_ACCOUNT);
 
             var result = SLogonSQL.Query("SELECT a.acct, a.login, a.gm, a.flags, a.banned, a.forceLanguage, a.muted, ad.salt, ad.verifier FROM accounts a LEFT JOIN account_data ad ON a.acct = ad.acct");
             var accountList = new HashSet<string>();
@@ -434,9 +488,21 @@ public class AccountMgr
             {
                 foreach (var field in result)
                 {
-                    string accountName = Field.GetString(field[1]).ToUpper();
-                    var acct = GetAccount(accountName);
+                    // Vérifiez que le champ du nom de compte est valide
+                    if (field.Length < 2 || field[1] == null)
+                    {
+                        sLog.OutError("[ReloadAccounts] Invalid account name field.");
+                        continue;
+                    }
 
+                    string accountName = field[1].GetString()?.ToUpper(); // Normalisez le nom en majuscules
+                    if (string.IsNullOrEmpty(accountName))
+                    {
+                        CLog.Error("[ACCOUNTMGR]", L_E_ACCOUNT_S_2);
+                        continue;
+                    }
+
+                    var acct = GetAccount(accountName);
                     if (acct == null)
                     {
                         AddAccount(field);
@@ -449,7 +515,12 @@ public class AccountMgr
                     accountList.Add(accountName);
                 }
             }
+            else
+            {
+                sLog.OutError("[ReloadAccounts] Failed to retrieve accounts from the database.");
+            }
 
+            // Supprimez les comptes qui ne sont plus dans la base de données
             foreach (var kvp in AccountDatabase.ToList())
             {
                 if (!accountList.Contains(kvp.Key))
@@ -462,7 +533,7 @@ public class AccountMgr
                 }
             }
 
-            if (!silent) Logger.OutString(L_N_ACCOUNT_F, AccountDatabase.Count);
+            if (!silent) sLog.OutDetail($"[ACCOUNTMGR] {AccountDatabase.Count} comptes trouvés.");
         }
 
         IPBanner.Reload();
@@ -471,11 +542,6 @@ public class AccountMgr
     public void ReloadAccountsCallback()
     {
         ReloadAccounts(true);
-    }
-
-    public int GetCount()
-    {
-        return AccountDatabase.Count;
     }
 
     internal static void CloseSocket()
@@ -640,10 +706,10 @@ public class InformationCore
 
             foreach (var socket in serverSockets)
             {
-                var remoteAddress = Socket.GetRemoteAddress();
+                var remoteAddress = WaadShared.Network.Socket.GetRemoteAddress();
                 if (remoteAddress != null && !LogonCommServerSocket.IsServerAllowed(remoteAddress))
                 {
-                    sLog.OutError(L_E_ACCOUNT_S_1, Socket.GetRemoteIP());
+                    sLog.OutError(L_E_ACCOUNT_S_1, WaadShared.Network.Socket.GetRemoteIP());
                     socketsToRemove.Add(socket);
                 }
             }
@@ -678,17 +744,98 @@ public static class UNIXTIME
 public static class SLogonSQL
 {
     private static string connectionString;
+    private static int databaseType; // 1 = MySQL, 2 = PostgreSQL, 3 = SQLite
 
-    public static void SetConnectionString(string connString)
+    public static void SetConnectionString(string connString, int dbType)
     {
         connectionString = connString;
+        databaseType = dbType;
     }
 
     public static void Execute(string query, Dictionary<string, object> parameters = null)
     {
-        using var connection = new SqlConnection(connectionString);
-        connection.Open();
-        using var command = new SqlCommand(query, connection);
+        switch (databaseType)
+        {
+            case 1: // MySQL
+                using (var connection = new MySqlConnection(connectionString))
+                {
+                    connection.Open();
+                    using var command = new MySqlCommand(query, connection);
+                    AddParameters(command, parameters);
+                    command.ExecuteNonQuery();
+                }
+                break;
+
+            case 2: // PostgreSQL
+                using (var connection = new NpgsqlConnection(connectionString))
+                {
+                    connection.Open();
+                    using var command = new NpgsqlCommand(query, connection);
+                    AddParameters(command, parameters);
+                    command.ExecuteNonQuery();
+                }
+                break;
+
+            case 3: // SQLite
+                using (var connection = new SQLiteConnection(connectionString))
+                {
+                    connection.Open();
+                    using var command = new SQLiteCommand(query, connection);
+                    AddParameters(command, parameters);
+                    command.ExecuteNonQuery();
+                }
+                break;
+
+            default:
+                throw new InvalidOperationException("Unsupported database type.");
+        }
+    }
+
+    public static List<Field[]> Query(string query)
+    {
+        var result = new List<Field[]>();
+
+        switch (databaseType)
+        {
+            case 1: // MySQL
+                using (var connection = new MySqlConnection(connectionString))
+                {
+                    connection.Open();
+                    using var command = new MySqlCommand(query, connection);
+                    using var reader = command.ExecuteReader();
+                    result = ReadFields(reader);
+                }
+                break;
+
+            case 2: // PostgreSQL
+                using (var connection = new NpgsqlConnection(connectionString))
+                {
+                    connection.Open();
+                    using var command = new NpgsqlCommand(query, connection);
+                    using var reader = command.ExecuteReader();
+                    result = ReadFields(reader);
+                }
+                break;
+
+            case 3: // SQLite
+                using (var connection = new SQLiteConnection(connectionString))
+                {
+                    connection.Open();
+                    using var command = new SQLiteCommand(query, connection);
+                    using var reader = command.ExecuteReader();
+                    result = ReadFields(reader);
+                }
+                break;
+
+            default:
+                throw new InvalidOperationException("Unsupported database type.");
+        }
+
+        return result;
+    }
+
+    private static void AddParameters(dynamic command, Dictionary<string, object> parameters)
+    {
         if (parameters != null)
         {
             foreach (var param in parameters)
@@ -696,28 +843,23 @@ public static class SLogonSQL
                 command.Parameters.AddWithValue(param.Key, param.Value);
             }
         }
-        command.ExecuteNonQuery();
     }
 
-    public static List<Field[]> Query(string query)
+    private static List<Field[]> ReadFields(dynamic reader)
     {
         var result = new List<Field[]>();
+        var fieldCount = reader.FieldCount;
 
-        using (var connection = new SqlConnection(connectionString))
+        while (reader.Read())
         {
-            connection.Open();
-            using var command = new SqlCommand(query, connection);
-            using var reader = command.ExecuteReader();
-            var fieldCount = reader.FieldCount;
-            while (reader.Read())
+            var fields = new Field[fieldCount];
+            for (int i = 0; i < fieldCount; i++)
             {
-                var fields = new Field[fieldCount];
-                for (int i = 0; i < fieldCount; i++)
-                {
-                    fields[i] = new Field(reader.GetValue(i));
-                }
-                result.Add(fields);
+                // Ensure the value is not DBNull
+                var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                fields[i] = new Field(value);
             }
+            result.Add(fields);
         }
 
         return result;

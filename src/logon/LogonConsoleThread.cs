@@ -21,8 +21,8 @@
 
 using System;
 using System.Threading;
-using WaadShared;
 
+using static WaadShared.ThreadBase;
 using static WaadShared.LogonConsole;
 
 #nullable enable
@@ -40,7 +40,7 @@ public class LogonConsoleThread : WaadShared.Threading.ThreadBase
 
     public bool Run()
     {
-        CThread.SetThreadName(L_N_LOGONCON_3);
+        SetThreadName(L_N_LOGONCON_3);
         LogonConsole.Instance._thread = this;
 
         try
@@ -63,7 +63,7 @@ public class LogonConsoleThread : WaadShared.Threading.ThreadBase
 
     public override bool Run(CancellationToken token)
     {
-        CThread.SetThreadName(L_N_LOGONCON_3);
+        SetThreadName(L_N_LOGONCON_3);
         LogonConsole.Instance._thread = this;
 
         try

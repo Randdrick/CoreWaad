@@ -36,7 +36,7 @@ namespace WaadShared.Network
         private int socketCount;
         private static SocketMgr instance;        
 
-        private SocketMgr()
+        public SocketMgr()
         {
             fds = new List<Socket>(SOCKET_HOLDER_SIZE);
             listenfds = new List<Socket>(SOCKET_HOLDER_SIZE);

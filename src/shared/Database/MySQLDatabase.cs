@@ -40,7 +40,7 @@ public class MySQLDatabase : Database
         mConnectionCount = (int)ConnectionCount;
         Connections = new MySqlConnection[mConnectionCount];
 
-        Log.Notice("MySQLDatabase", string.Format("Connecting to {0}, database {1}...", Hostname, DatabaseName));
+        CLog.Notice("[MySQLDatabase]", string.Format("Connecting to {0}, database {1}...", Hostname, DatabaseName));
 
         for (int i = 0; i < mConnectionCount; ++i)
         {
@@ -65,7 +65,7 @@ public class MySQLDatabase : Database
             }
             catch (MySqlException ex)
             {
-                Log.Error("MySQLDatabase", $"Connection failed due to: `{ex.Message}`");
+                CLog.Error("[MySQLDatabase]", $"Connection failed due to: `{ex.Message}`");
                 conn.Dispose();
                 return false;
             }
@@ -88,12 +88,12 @@ public class MySQLDatabase : Database
                 }
                 catch (Exception ex)
                 {
-                    Log.Error("MySQLDatabase", $"Error shutting down connection: {ex.Message}");
+                    CLog.Error("MySQLDatabase", $"Error shutting down connection: {ex.Message}");
                 }
             }
         }
         Connections = null;
-        Log.Notice("MySQLDatabase", "All connections have been shut down.");
+        CLog.Notice("MySQLDatabase", "All connections have been shut down.");
     }
 
     public override string EscapeString(string escape)
@@ -131,7 +131,7 @@ public class MySQLDatabase : Database
         }
         catch (MySqlException ex)
         {
-            Log.Error("MySQLDatabase", $"Error executing query: {ex.Message}");
+            CLog.Error("[MySQLDatabase]", $"Error executing query: {ex.Message}");
             return false;
         }
     }
@@ -151,7 +151,7 @@ public class MySQLDatabase : Database
         }
         catch (MySqlException ex)
         {
-            Log.Error("MySQLDatabase", $"Error storing query result: {ex.Message}");
+            CLog.Error("[MySQLDatabase]", $"Error storing query result: {ex.Message}");
         }
 
         return null;
@@ -168,7 +168,7 @@ public class MySQLDatabase : Database
         }
         catch (MySqlException ex)
         {
-            Log.Error("MySQLDatabase", $"Error starting transaction: {ex.Message}");
+            CLog.Error("[MySQLDatabase]", $"Error starting transaction: {ex.Message}");
         }
     }
 
@@ -183,7 +183,7 @@ public class MySQLDatabase : Database
         }
         catch (MySqlException ex)
         {
-            Log.Error("MySQLDatabase", $"Error committing transaction: {ex.Message}");
+            Log.Error("[MySQLDatabase]", $"Error committing transaction: {ex.Message}");
         }
     }
 

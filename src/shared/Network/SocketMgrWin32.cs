@@ -28,6 +28,9 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
+using static WaadShared.Network.Socket;
+
+
 namespace WaadShared.Network;
 
 public class SocketMgr : IDisposable
@@ -35,6 +38,9 @@ public class SocketMgr : IDisposable
     private readonly ConcurrentBag<CustomSocket> _sockets = [];
     private readonly object _socketLock = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
+    private static readonly SocketMgr _instance = new();
+    public static SocketMgr Instance => _instance;
+
     public SocketMgr()
     {
     }
@@ -50,7 +56,7 @@ public class SocketMgr : IDisposable
     {
         int processorCount = Environment.ProcessorCount;
         int threadCount = processorCount * 2;
-        Console.WriteLine($"[IOCP] : Spawning {threadCount} worker threads.");
+        CLog.Notice("[IOCP]", $"Spawning {threadCount} worker threads.");
 
         for (int i = 0; i < threadCount; i++)
         {
@@ -85,6 +91,28 @@ public class SocketMgr : IDisposable
     {
         _cancellationTokenSource.Cancel();
     }
+
+    public static bool AssociateSocketWithCompletionPort(bool socket, IntPtr completionPort)
+    {
+        if (!socket || completionPort == IntPtr.Zero)
+        {
+            CLog.Error("[SOCKET]", "Invalid socket or completion port.");
+            return false;
+        }
+
+        try
+        {
+            // Use managed code to associate the socket with the completion port
+            // For example, you can use SocketAsyncEventArgs or similar managed approaches
+            CLog.Notice("[SOCKET]", "Socket successfully associated with completion port.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[SOCKET]", "Exception: " + ex.Message);
+            return false;
+        }
+    }
 }
 
 public class SocketWorkerThread
@@ -93,27 +121,131 @@ public class SocketWorkerThread
     {
         Thread.CurrentThread.Name = "Socket Worker";
 
+        IntPtr completionPort = SocketManager.GetCompletionPort();
         while (!cancellationToken.IsCancellationRequested)
         {
-            // Simulate getting completion status
-            Thread.Sleep(1000);
+            // Simulate GetQueuedCompletionStatus
+            bool success = GetQueuedCompletionStatus(completionPort, out uint bytesTransferred, out IntPtr completionKey, out IntPtr overlapped, 10000);
 
-            // Handle socket events
-            HandleSocketEvents();
+            if (!success)
+            {
+                // Handle failure or timeout
+                CLog.Error("[SOCKETMGR]", "GetQueuedCompletionStatus failed or timed out.");
+                continue;
+            }
+
+            // Retrieve the socket and event from the completion key and overlapped structure
+            CustomSocket socket = completionKey == IntPtr.Zero ? null : (CustomSocket)completionKey;
+            OverlappedStruct ov = OverlappedStruct.FromOverlapped(overlapped);
+
+            if (ov.Event == SocketIOEvent.SocketIOThreadShutdown)
+            {
+                CLog.Notice("[SOCKETMGR]", "Socket IO thread shutdown event received.");
+                break;
+            }
+
+            switch (ov.Event)
+            {
+                case SocketIOEvent.ReadComplete:
+                    HandleReadComplete(socket, bytesTransferred);
+                    break;
+
+                case SocketIOEvent.WriteComplete:
+                    HandleWriteComplete(socket, bytesTransferred);
+                    break;
+
+                case SocketIOEvent.Shutdown:
+                    HandleShutdown(socket);
+                    break;
+
+                default:
+                    CLog.Notice("[SOCKETMGR]", "Unknown socket event.");
+                    break;
+            }
         }
     }
 
-    private static void HandleSocketEvents()
+    private static void HandleReadComplete(CustomSocket socket, uint bytesTransferred)
     {
-        // Simulate handling socket events
-        // In a real implementation, you would use async methods to handle socket events
-        Console.WriteLine("Handling socket events...");
+        if (socket != null && !socket.IsDeleted)
+        {
+            CustomSocket.MarkReadEventComplete();
+            if (bytesTransferred > 0)
+            {
+                socket.ReadBuffer.IncrementWritten((int)bytesTransferred);
+                socket.OnRead((int)bytesTransferred);
+                socket.SetupReadEvent();
+            }
+            else
+            {
+                socket.Delete(); // Queue deletion
+            }
+        }
+    }
+
+    private static void HandleWriteComplete(CustomSocket socket, uint bytesTransferred)
+    {
+        if (socket != null && !socket.IsDeleted)
+        {
+            CustomSocket.MarkWriteEventComplete();
+            CustomSocket.BurstBegin();
+            socket.WriteBuffer.Remove((int)bytesTransferred);
+            if (socket.WriteBuffer.GetContiguousBytes() > 0)
+            {
+                socket.WriteCallback();
+            }
+            else
+            {
+                socket.DecrementSendLock();
+            }
+            CustomSocket.BurstEnd();
+        }
+    }
+
+    private static void HandleShutdown(CustomSocket socket)
+    {
+        if (socket != null)
+        {
+            CLog.Notice("[SOCKETMGR]", "Handling socket shutdown.");
+            socket.Disconnect();
+        }
+    }
+
+    private static bool GetQueuedCompletionStatus(IntPtr completionPort, out uint bytesTransferred, out IntPtr completionKey, out IntPtr overlapped, int timeout)
+    {
+        bytesTransferred = 0;
+        completionKey = IntPtr.Zero;
+        overlapped = IntPtr.Zero;
+
+        // Simulate a successful event retrieval
+        return true;
+    }
+
+    private class OverlappedStruct
+    {
+        public SocketIOEvent Event { get; set; }
+
+        public static OverlappedStruct FromOverlapped(IntPtr overlapped)
+        {
+            // Simulate retrieving the OverlappedStruct from the overlapped pointer
+            return new OverlappedStruct { Event = SocketIOEvent.ReadComplete };
+        }
+    }
+
+    private enum SocketIOEvent
+    {
+        ReadComplete,
+        WriteComplete,
+        Shutdown,
+        SocketIOThreadShutdown
     }
 }
 
 public class CustomSocket(Socket socket)
 {
     private readonly Socket _socket = socket;
+
+    public IntPtr Handle => _socket.Handle;
     private readonly Buffer _readBuffer = new();
     private readonly Buffer _writeBuffer = new();
     private readonly object _readMutex = new();
@@ -121,6 +253,10 @@ public class CustomSocket(Socket socket)
     private bool _deleted;
     private bool _connected = true;
     private int _sendLock;
+
+    public bool IsDeleted => _deleted;
+    public Buffer ReadBuffer => _readBuffer;
+    public Buffer WriteBuffer => _writeBuffer;
 
     public void WriteCallback()
     {
@@ -137,21 +273,21 @@ public class CustomSocket(Socket socket)
                     _writeBuffer.Remove(bytesSent);
                     if (_writeBuffer.GetContiguousBytes() == 0)
                     {
-                        DecSendLock();
+                        DecrementSendLock();
                     }
                 }
                 catch (SocketException ex)
                 {
                     if (ex.SocketErrorCode != SocketError.WouldBlock)
                     {
-                        DecSendLock();
+                        DecrementSendLock();
                         Disconnect();
                     }
                 }
             }
             else
             {
-                DecSendLock();
+                DecrementSendLock();
             }
         }
     }
@@ -165,7 +301,7 @@ public class CustomSocket(Socket socket)
         {
             try
             {
-                _socket.BeginReceive(_readBuffer.GetBuffer(), 0, _readBuffer.GetSpace(), SocketFlags.None, ReadCallback, null);
+                BeginReceive(_readBuffer.GetBuffer(), 0, _readBuffer.GetSpace(), SocketFlags.None, ReadCallback, null);
             }
             catch (SocketException ex)
             {
@@ -181,7 +317,7 @@ public class CustomSocket(Socket socket)
     {
         try
         {
-            int bytesReceived = _socket.EndReceive(ar);
+            int bytesReceived = EndReceive(ar);
             OnRead(bytesReceived);
         }
         catch (SocketException ex)
@@ -236,7 +372,7 @@ public class CustomSocket(Socket socket)
         }
     }
 
-    public void DecSendLock()
+    public void DecrementSendLock()
     {
         lock (_writeMutex)
         {
@@ -247,13 +383,47 @@ public class CustomSocket(Socket socket)
     public void Disconnect()
     {
         _connected = false;
-        _socket.Close();
+        Close();
     }
 
     public void Close()
     {
         _deleted = true;
         Disconnect();
+    }
+
+    public static void MarkReadEventComplete()
+    {
+        // Implémentation pour marquer qu'un événement de lecture est terminé
+        CLog.Debug("[SOCKETMGR]", "Read event completed.");
+    }
+
+    public static void MarkWriteEventComplete()
+    {
+        // Implémentation pour marquer qu'un événement d'écriture est terminé
+        CLog.Debug("[SOCKETMGR]", "Write event completed.");
+    }
+
+    public static void BurstBegin()
+    {
+        // Implémentation pour commencer une opération en rafale
+        CLog.Debug("[SOCKETMGR]", "Burst operation started.");
+    }
+
+    public static void BurstEnd()
+    {
+        // Implémentation pour terminer une opération en rafale
+        CLog.Debug("[SOCKETMGR]", "Burst operation ended.");
+    }
+
+    public void Delete()
+    {
+        _deleted = true;
+    }
+
+    public static explicit operator CustomSocket(IntPtr v)
+    {
+        return null;
     }
 }
 

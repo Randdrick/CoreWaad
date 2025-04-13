@@ -67,7 +67,7 @@ namespace WaadShared.Network
         public object EventListLock => eventListLock;
         private int socketCount;
 
-        private SocketMgr()
+        public SocketMgr()
         {
             socketCount = 0;
         }

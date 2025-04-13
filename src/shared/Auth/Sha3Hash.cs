@@ -27,7 +27,7 @@ namespace WaadShared.Auth;
 
 public class Sha3Hash : IDisposable
 {
-    private readonly Sha3Digest sha3 = new(512);
+    private readonly Sha3Digest sha3 = new(256);
     private readonly byte[] mDigest = new byte[32];
     private bool _disposed = false;
 
