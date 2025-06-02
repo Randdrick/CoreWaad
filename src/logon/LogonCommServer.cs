@@ -47,7 +47,7 @@ public class LogonPacket
 public class LogonCommServerSocket
 {
     private readonly LogonCommServerSocket socket;
-    private readonly Socket Socket = new();
+    public readonly Socket Socket = new();
     private readonly AccountMgr AccountMgr = new();
     public uint lastPing;
     private uint nextServerPing;
@@ -90,7 +90,7 @@ public class LogonCommServerSocket
 
     public void OnConnect()
     {
-        if (!IsServerAllowed(Socket.GetRemoteAddress()))
+        if (!IsServerAllowed(Socket.GetRemoteAddress(Socket)))
         {
             Console.WriteLine($"Server {Socket.GetRemoteIP()} is not allowed.");
             Socket.Disconnect();
@@ -140,6 +140,13 @@ public class LogonCommServerSocket
                 else
                 {
                     remaining = Swap32(remaining);
+                }
+
+                if (remaining > 65535) // Prevent overly large packets
+                {
+                    Console.WriteLine("Packet size exceeds maximum allowed size.");
+                    Socket.Disconnect();
+                    return;
                 }
             }
 
@@ -521,7 +528,7 @@ public class LogonCommServerSocket
         uint method = recvData.ReadUInt32();
         var IPBanner = new IPBanner();
 
-        if (!IsServerAllowed(Socket.GetRemoteAddress()))
+        if (!IsServerAllowed(Socket.GetRemoteAddress(Socket)))
         {
             Console.WriteLine($"Method: {method}, IP: {Socket.GetRemoteIP()}");
             return;

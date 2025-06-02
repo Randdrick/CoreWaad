@@ -88,12 +88,12 @@ public class MySQLDatabase : Database
                 }
                 catch (Exception ex)
                 {
-                    CLog.Error("MySQLDatabase", $"Error shutting down connection: {ex.Message}");
+                    CLog.Error("[MySQLDatabase]", $"Error shutting down connection: {ex.Message}");
                 }
             }
         }
         Connections = null;
-        CLog.Notice("MySQLDatabase", "All connections have been shut down.");
+        CLog.Notice("[MySQLDatabase]", "All connections have been shut down.");
     }
 
     public override string EscapeString(string escape)

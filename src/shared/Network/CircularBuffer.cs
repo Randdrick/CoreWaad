@@ -31,6 +31,7 @@ public class CircularBuffer
     private int m_regionBPointer;
     private int m_regionASize;
     private int m_regionBSize;
+    public readonly int Length;
 
     public CircularBuffer()
     {
@@ -236,12 +237,12 @@ public class CircularBuffer
 
     private int GetAFreeSpace()
     {
-        return (m_bufferEnd - m_regionAPointer - m_regionASize);
+        return m_bufferEnd - m_regionAPointer - m_regionASize;
     }
 
     private int GetSpaceBeforeA()
     {
-        return (m_regionAPointer - 0);
+        return m_regionAPointer - 0;
     }
 
     private void AllocateB()

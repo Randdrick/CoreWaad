@@ -344,6 +344,7 @@ public class QueryBuffer : IDisposable
         {
             if (query.Length >= MAXQUERY)
             {
+                Console.WriteLine($"Query exceeds maximum allowed size of {MAXQUERY} bytes. Truncating.");
                 query = query[..(MAXQUERY - 1)];
             }
 
@@ -353,8 +354,14 @@ public class QueryBuffer : IDisposable
 
     public void AddQueryNA(string str)
     {
-        if (str != null)
+        if (!string.IsNullOrEmpty(str))
         {
+            if (str.Length >= MAXQUERY)
+            {
+                Console.WriteLine($"Query exceeds maximum allowed size of {MAXQUERY} bytes. Truncating.");
+                str = str[..(MAXQUERY - 1)];
+            }
+
             Queries.Add(str);
         }
     }

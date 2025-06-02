@@ -706,10 +706,10 @@ public class InformationCore
 
             foreach (var socket in serverSockets)
             {
-                var remoteAddress = WaadShared.Network.Socket.GetRemoteAddress();
+                var remoteAddress = Socket.GetRemoteAddress(socket.Socket);
                 if (remoteAddress != null && !LogonCommServerSocket.IsServerAllowed(remoteAddress))
                 {
-                    sLog.OutError(L_E_ACCOUNT_S_1, WaadShared.Network.Socket.GetRemoteIP());
+                    sLog.OutError(L_E_ACCOUNT_S_1, Socket.GetRemoteIP());
                     socketsToRemove.Add(socket);
                 }
             }

@@ -24,7 +24,10 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Linq;
 using System.Threading;
+
+using static WaadShared.Network.SocketManager;
 using static WaadShared.Network.Socket;
 
 namespace WaadShared;
@@ -43,6 +46,12 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
     public ListenSocket(string ListenAddress, uint Port)
     {
         m_socket = SocketOps.CreateTCPFileDescriptor();
+        if (m_socket == null)
+        {
+            Console.WriteLine("Failed to create TCP file descriptor.");
+            return;
+        }
+
         SocketOps.ReuseAddr(m_socket);
         SocketOps.Blocking(m_socket);
 
@@ -52,19 +61,41 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
 
         if (ListenAddress != "0.0.0.0")
         {
-            IPHostEntry hostname = Dns.GetHostEntry(ListenAddress);
-            if (hostname != null)
-                m_address.Address = hostname.AddressList[0];
+            try
+            {
+                if (ListenAddress == "127.0.0.1")
+                {
+                    // Explicitly set to loopback address
+                    m_address.Address = IPAddress.Loopback;
+                }
+                else
+                {
+                    IPHostEntry hostname = Dns.GetHostEntry(ListenAddress);
+                    if (hostname != null && hostname.AddressList.Length > 0)
+                    {
+                        // Select the first IPv4 address from the AddressList
+                        m_address.Address = hostname.AddressList.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork)
+                                            ?? throw new Exception($"No valid IPv4 address found for {ListenAddress}.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to resolve ListenAddress '{ListenAddress}': {ex.Message}");
+                return;
+            }
         }
 
-        // bind.. well attempt to.
+        // Log the value of m_address before binding
+        CLog.Notice("[ListenSocket]", $"En attente d'écoute sur l'adresse : {m_address.Address}, Port: {m_address.Port}");
+
         try
         {
             m_socket.Bind(m_address);
         }
-        catch (SocketException)
+        catch (SocketException ex)
         {
-            Console.WriteLine($"Bind unsuccessful on port {Port}.");
+            Console.WriteLine($"Bind unsuccessful on port {Port}: {ex.Message}");
             return;
         }
 
@@ -82,7 +113,7 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
 
         // Replace Marshal.SizeOf with a fixed size for IPEndPoint
         len = IntPtr.Size * 2; // Assuming 2 pointers for Address and Port
-        m_cp = SocketManager.GetCompletionPort();
+        m_cp = GetCompletionPort();
     }
 
     ~ListenSocket()
@@ -94,34 +125,44 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
     {
         while (m_opened)
         {
-            aSocket = m_socket.Accept();
-            if (aSocket == null)
-                continue; // shouldn't happen, we are blocking.
-
-            socket = new T();
-            if (socket == null)
+            try
             {
-                Console.WriteLine("Failed to create a new socket instance.");
-                continue;
-            }
-            bool isSocketValid = true;
+                aSocket = m_socket.Accept();
+                if (aSocket == null)
+                {
+                    Console.WriteLine("Accept returned null.");
+                    continue; // shouldn't happen, we are blocking.
+                }
 
-            if (m_cp == IntPtr.Zero)
+                socket = new T();
+                if (socket == null)
+                {
+                    Console.WriteLine("Failed to create a new socket instance.");
+                    continue;
+                }
+                bool isSocketValid = true;
+
+                if (m_cp == IntPtr.Zero)
+                {
+                    Console.WriteLine("Completion port is not initialized.");
+                    continue;
+                }
+
+                if (m_tempAddress == null)
+                {
+                    Console.WriteLine("Temporary address is null.");
+                    continue;
+                }
+
+                SetCompletionPort(m_cp, isSocketValid);
+
+                Accept(m_tempAddress);
+            }
+            catch (Exception ex)
             {
-                Console.WriteLine("Completion port is not initialized.");
-                continue;
+                Console.WriteLine($"Unexpected error: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
             }
-
-            if (m_tempAddress == null)
-            {
-                Console.WriteLine("Temporary address is null.");
-                continue;
-            }
-
-            SocketManager.SetCompletionPort(m_cp, isSocketValid);
-            Accept(m_tempAddress);
-            // ((dynamic)socket).SetCompletionPort(m_cp);
-            // ((dynamic)socket).Accept(m_tempAddress);
         }
         return false;
     }
@@ -144,27 +185,36 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
         {
             try
             {
-                aSocket = m_socket.Accept();
+                aSocket = m_socket?.Accept();
                 if (aSocket == null)
+                {
+                    Console.WriteLine("Accept returned null.");
                     continue; // shouldn't happen, we are blocking.
+                }
 
                 socket = new T();
+                // socket = (T)Activator.CreateInstance(typeof(T), aSocket, ByteBuffer.DEFAULT_SIZE, ByteBuffer.DEFAULT_SIZE);
                 if (socket == null)
                 {
                     Console.WriteLine("Failed to create a new socket instance.");
                     continue;
                 }
-                bool isSocketValid = true;
-
+#if CONFIG_USE_IOCP
                 if (m_cp == IntPtr.Zero)
                 {
                     Console.WriteLine("Completion port is not initialized.");
                     continue;
                 }
-                SocketManager.SetCompletionPort(m_cp, isSocketValid);
+#endif
+                if (m_tempAddress == null)
+                {
+                    Console.WriteLine("Temporary address is null.");
+                    continue;
+                }
+
+                // Ensure SetCompletionPort and Accept are properly invoked
+                SetCompletionPort(m_cp, true);
                 Accept(m_tempAddress);
-                // ((dynamic)socket).SetCompletionPort(m_cp);
-                // ((dynamic)socket).Accept(m_tempAddress);
             }
             catch (SocketException ex)
             {
@@ -174,9 +224,13 @@ public class ListenSocket<T> : Threading.ThreadBase where T : new()
             {
                 Console.WriteLine($"Socket has been disposed: {ex.Message}");
             }
+            catch (NullReferenceException ex)
+            {
+                Console.WriteLine($"Null reference encountered: {ex.Message}");
+            }
             catch (Exception ex)
             {
-                Console.WriteLine($"Unexpected error: {ex.Message}");
+                Console.WriteLine($"Unexpected error to Run(CancellationToken token): {ex.Message}");
             }
         }
         return false;

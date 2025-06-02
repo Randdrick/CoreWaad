@@ -81,6 +81,7 @@ namespace WaadShared
         public const string L_N_LOGONCON_6 = "   help, ?: affiche ce texte";
         public const string L_N_LOGONCON_7 = "   reload: recharge les comptes";
         public const string L_N_LOGONCON_8 = "   shutdown, exit: ferme le programme";
+        public const string L_N_LOGONCON_9 = "Les Threads de la console ne sont plus en cours d'exécution ou sont déjà arrêtés.";
     }
 
     public static class LogonCommServer
@@ -112,6 +113,7 @@ namespace WaadShared
         public const string L_N_MAIN_10 = "Pré-chargement des comptes...";
         public const string L_N_MAIN_11 = "{0} comptes chargés et prêts.";
         public const string L_N_MAIN_12 = "Succès ! Prêt pour les connexions";
+        public const string L_N_MAIN_12_A = "CTRL+C détecté, arrêt du serveur...";
         public const string L_N_MAIN_13 = "Fermeture...";
         public const string L_N_MAIN_14 = "Fermeture de la base de données en cours...";
         public const string L_N_MAIN_15 = "Arrêt du serveur";

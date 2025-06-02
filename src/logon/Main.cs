@@ -101,6 +101,7 @@ public class LogonServer
         var sLog = new Logger();
         var configMgr = new ConfigMgr();
         var ThreadPool = new ThreadPool();
+        var Instance = new SocketMgr(); // Create or retrieve the appropriate instance
         int fileLogLevel = -1;
         int screenLogLevel = 3;
         bool doCheckConf = false;
@@ -184,7 +185,7 @@ public class LogonServer
         CLog.Notice("[AccountMgr]", L_N_MAIN_9);
         CLog.Notice("[InfoCore]", L_N_MAIN_9);
         CLog.Notice("[AccountMgr]", L_N_MAIN_10);
-        
+
         AccountMgr.Instance.ReloadAccounts(true);
         CLog.Notice("[AccountMgr]", string.Format(L_N_MAIN_11, AccountMgr.Instance.GetAccountCount()));
         if (AccountMgr.Instance.GetAccountCount() == 0)
@@ -192,6 +193,14 @@ public class LogonServer
             CLog.Warning("[Main]", "No accounts were loaded. Please check the database and ReloadAccounts logic.");
         }
         CLog.Line();
+        
+        // Ajout d'un gestionnaire pour CTRL+C (SIGINT) pour arrêter proprement le serveur
+        Console.CancelKeyPress += (sender, e) =>
+        {
+            CLog.Notice("[Main]", L_N_MAIN_12_A);
+            mrunning = false;          
+            e.Cancel = true; // Empêche la terminaison brutale, laisse le code de shutdown s'exécuter
+        };
 
         int atime = configMgr.MainConfig.GetInt32("Rates", "AccountRefresh", 600) * 1000;
         var pfc = new PeriodicFunctionCaller<AccountMgr>(AccountMgr.Instance, AccountMgr.Instance.ReloadAccountsCallback, (uint)atime);
@@ -207,7 +216,7 @@ public class LogonServer
 
         byte[] HashNameShaMagicNumber = [0x57, 0x61, 0x61, 0x64, 0x00, 0x00, 0x00];
 
-        CLog.Success("Main", L_N_MAIN_12);
+        CLog.Success("[Main]", L_N_MAIN_12);
 
         uint loopCounter = 0;
         while (mrunning)
@@ -230,30 +239,54 @@ public class LogonServer
             Sleep(10);
         }
 
-        sLog.OutString(L_N_MAIN_13);
+        CLog.Notice("[Main]", L_N_MAIN_13);
 
         pfc.Kill();
 
-        var Instance = new SocketMgr(); // Create or retrieve the appropriate instance
         Instance.CloseAll();
 #if WIN32
         Instance.ShutdownThreads();
 #endif
-        LogonConsole.Instance.Kill();
 
-        sLog.OutString(L_N_MAIN_14);
+        CLog.Notice("[Main]", L_N_MAIN_14);
 
         DatabaseManager.RemoveDatabase();
-        ThreadPool.Shutdown();
+
+        // Ajout : sécurise l'appel à LogonConsole.Instance.Kill()
+        try
+        {
+            var logonConsole = LogonConsole.Instance;
+            if (logonConsole != null)
+            {
+                try
+                {
+                    logonConsole.Kill();
+                }
+                catch (Exception ex2)
+                {
+                    CLog.Error("[Main]", $"Exception inside LogonConsole.Instance.Kill(): {ex2.Message}");
+                }
+            }
+            else
+            {
+                CLog.Warning("[Main]", "LogonConsole.Instance is null, nothing to kill.");
+            }
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[Main]", $"Exception during LogonConsole.Instance.Kill(): {ex.Message}");
+        }
 
         File.Delete("waad-logonserver.pid");
 
         AccountMgr.CloseSocket();
         var serverSocket = new LogonCommServerSocket(); // Create or retrieve the appropriate instance
         InformationCore.Instance.RemoveServerSocket(serverSocket);
+        ThreadPool.Shutdown();
         Instance = null;
 
-        sLog.OutString(L_N_MAIN_15);
+        CLog.Notice("[Main]", L_N_MAIN_15);
+        Environment.Exit(0);
     }
 
     private static void OnSignal()

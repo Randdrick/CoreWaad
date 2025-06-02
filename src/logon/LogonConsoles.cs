@@ -41,13 +41,17 @@ public class LogonConsole
 
     public static void TranslateRehash(string str)
     {
-        var sLog = new Logger();
-        sLog.OutString(L_N_LOGONCON);
+        CLog.Notice("[LogonConsole]", L_N_LOGONCON);
         LogonServer.Rehash(str);
     }
 
     public void Kill()
     {
+        if (_thread == null)
+        {
+            CLog.Notice("[LogonConsole]", L_N_LOGONCON_9);
+            return;
+        }
 #if WIN32
         // Simulate keydown/keyup event
         _thread.kill = true;
@@ -59,19 +63,22 @@ public class LogonConsole
             Console.WriteLine("\r"); // Simuler l'appui sur la touche Entrée
         });
 
-        Console.WriteLine(L_N_LOGONCON_1);
+        CLog.Notice("[LogonConsole]", L_N_LOGONCON_1);
 
         while (_thread != null)
         {
             Thread.Sleep(100);
         }
 
-        Console.WriteLine(L_N_LOGONCON_2);
+        CLog.Notice("[LogonConsole]", L_N_LOGONCON_2);
+#else
+        CLog.Notice("[LogonConsole]", L_N_LOGONCON_2);
 #endif
     }
 
     public void ProcessCmd(string cmd)
     {
+        var sLog = new Logger();
         var cmds = new Dictionary<string, Action<string>>
         {
             { "?", TranslateHelp }, { "help", TranslateHelp },
@@ -90,7 +97,7 @@ public class LogonConsole
             }
         }
 
-        Console.WriteLine(L_N_LOGONCON_4);
+        sLog.OutError(L_N_LOGONCON_4);
     }
 
     public static void ReloadAccts(string str)

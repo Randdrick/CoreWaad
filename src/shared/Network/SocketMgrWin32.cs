@@ -35,7 +35,7 @@ namespace WaadShared.Network;
 
 public class SocketMgr : IDisposable
 {
-    private readonly ConcurrentBag<CustomSocket> _sockets = [];
+    private readonly ConcurrentBag<Socket> _sockets = [];
     private readonly object _socketLock = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private static readonly SocketMgr _instance = new();
@@ -66,16 +66,16 @@ public class SocketMgr : IDisposable
 
     public void CloseAll()
     {
-        List<CustomSocket> toKill = [];
+        List<Socket> toKill = [];
 
         lock (_socketLock)
         {
             toKill.AddRange(_sockets);
         }
 
-        foreach (CustomSocket socket in toKill)
+        foreach (Socket socket in toKill)
         {
-            socket.Close();
+            socket.Disconnect();
         }
 
         while (true)
@@ -135,7 +135,12 @@ public class SocketWorkerThread
             }
 
             // Retrieve the socket and event from the completion key and overlapped structure
-            CustomSocket socket = completionKey == IntPtr.Zero ? null : (CustomSocket)completionKey;
+            Socket socket = null;
+            if (completionKey != IntPtr.Zero)
+            {
+                var handle = System.Runtime.InteropServices.GCHandle.FromIntPtr(completionKey);
+                socket = handle.Target as Socket;
+            }
             OverlappedStruct ov = OverlappedStruct.FromOverlapped(overlapped);
 
             if (ov.Event == SocketIOEvent.SocketIOThreadShutdown)
@@ -165,44 +170,39 @@ public class SocketWorkerThread
         }
     }
 
-    private static void HandleReadComplete(CustomSocket socket, uint bytesTransferred)
+    private static void HandleReadComplete(Socket socket, uint bytesTransferred)
     {
-        if (socket != null && !socket.IsDeleted)
+        if (socket != null && !socket.IsDeleted())
         {
-            CustomSocket.MarkReadEventComplete();
             if (bytesTransferred > 0)
             {
-                socket.ReadBuffer.IncrementWritten((int)bytesTransferred);
-                socket.OnRead((int)bytesTransferred);
-                socket.SetupReadEvent();
+                SocketExtensions.OnRead(socket, (int)bytesTransferred);
             }
             else
             {
-                socket.Delete(); // Queue deletion
+                socket.Delete();
             }
         }
     }
 
-    private static void HandleWriteComplete(CustomSocket socket, uint bytesTransferred)
+    private static void HandleWriteComplete(Socket socket, uint bytesTransferred)
     {
-        if (socket != null && !socket.IsDeleted)
+        if (socket != null && !socket.IsDeleted())
         {
-            CustomSocket.MarkWriteEventComplete();
-            CustomSocket.BurstBegin();
-            socket.WriteBuffer.Remove((int)bytesTransferred);
-            if (socket.WriteBuffer.GetContiguousBytes() > 0)
+            socket.BurstBegin();
+            if (socket.GetWriteBufferSize() > 0)
             {
                 socket.WriteCallback();
             }
             else
             {
-                socket.DecrementSendLock();
+                socket.DecSendLock();
             }
-            CustomSocket.BurstEnd();
+            socket.BurstEnd();
         }
     }
 
-    private static void HandleShutdown(CustomSocket socket)
+    private static void HandleShutdown(Socket socket)
     {
         if (socket != null)
         {
@@ -238,230 +238,6 @@ public class SocketWorkerThread
         WriteComplete,
         Shutdown,
         SocketIOThreadShutdown
-    }
-}
-
-public class CustomSocket(Socket socket)
-{
-    private readonly Socket _socket = socket;
-
-    public IntPtr Handle => _socket.Handle;
-    private readonly Buffer _readBuffer = new();
-    private readonly Buffer _writeBuffer = new();
-    private readonly object _readMutex = new();
-    private readonly object _writeMutex = new();
-    private bool _deleted;
-    private bool _connected = true;
-    private int _sendLock;
-
-    public bool IsDeleted => _deleted;
-    public Buffer ReadBuffer => _readBuffer;
-    public Buffer WriteBuffer => _writeBuffer;
-
-    public void WriteCallback()
-    {
-        if (_deleted || !_connected)
-            return;
-
-        lock (_writeMutex)
-        {
-            if (_writeBuffer.GetContiguousBytes() > 0)
-            {
-                try
-                {
-                    int bytesSent = _socket.Send(_writeBuffer.GetBuffer(), _writeBuffer.GetContiguousBytes(), SocketFlags.None);
-                    _writeBuffer.Remove(bytesSent);
-                    if (_writeBuffer.GetContiguousBytes() == 0)
-                    {
-                        DecrementSendLock();
-                    }
-                }
-                catch (SocketException ex)
-                {
-                    if (ex.SocketErrorCode != SocketError.WouldBlock)
-                    {
-                        DecrementSendLock();
-                        Disconnect();
-                    }
-                }
-            }
-            else
-            {
-                DecrementSendLock();
-            }
-        }
-    }
-
-    public void SetupReadEvent()
-    {
-        if (_deleted || !_connected)
-            return;
-
-        lock (_readMutex)
-        {
-            try
-            {
-                BeginReceive(_readBuffer.GetBuffer(), 0, _readBuffer.GetSpace(), SocketFlags.None, ReadCallback, null);
-            }
-            catch (SocketException ex)
-            {
-                if (ex.SocketErrorCode != SocketError.WouldBlock)
-                {
-                    Disconnect();
-                }
-            }
-        }
-    }
-
-    private void ReadCallback(IAsyncResult ar)
-    {
-        try
-        {
-            int bytesReceived = EndReceive(ar);
-            OnRead(bytesReceived);
-        }
-        catch (SocketException ex)
-        {
-            if (ex.SocketErrorCode != SocketError.WouldBlock)
-            {
-                Disconnect();
-            }
-        }
-    }
-
-    public void OnRead(int len)
-    {
-        if (len == 0)
-        {
-            Disconnect();
-            return;
-        }
-
-        _readBuffer.IncrementWritten(len);
-        OnRecvData();
-
-        if (!_connected)
-            return;
-
-        SetupReadEvent();
-    }
-
-    public static void OnRecvData()
-    {
-        // Handle received data
-    }
-
-    public void BurstPush()
-    {
-        if (AcquireSendLock())
-        {
-            WriteCallback();
-        }
-    }
-
-    public bool AcquireSendLock()
-    {
-        lock (_writeMutex)
-        {
-            if (_sendLock == 0)
-            {
-                _sendLock = 1;
-                return true;
-            }
-            return false;
-        }
-    }
-
-    public void DecrementSendLock()
-    {
-        lock (_writeMutex)
-        {
-            _sendLock = 0;
-        }
-    }
-
-    public void Disconnect()
-    {
-        _connected = false;
-        Close();
-    }
-
-    public void Close()
-    {
-        _deleted = true;
-        Disconnect();
-    }
-
-    public static void MarkReadEventComplete()
-    {
-        // Implémentation pour marquer qu'un événement de lecture est terminé
-        CLog.Debug("[SOCKETMGR]", "Read event completed.");
-    }
-
-    public static void MarkWriteEventComplete()
-    {
-        // Implémentation pour marquer qu'un événement d'écriture est terminé
-        CLog.Debug("[SOCKETMGR]", "Write event completed.");
-    }
-
-    public static void BurstBegin()
-    {
-        // Implémentation pour commencer une opération en rafale
-        CLog.Debug("[SOCKETMGR]", "Burst operation started.");
-    }
-
-    public static void BurstEnd()
-    {
-        // Implémentation pour terminer une opération en rafale
-        CLog.Debug("[SOCKETMGR]", "Burst operation ended.");
-    }
-
-    public void Delete()
-    {
-        _deleted = true;
-    }
-
-    public static explicit operator CustomSocket(IntPtr v)
-    {
-        return null;
-    }
-}
-
-public class Buffer
-{
-    private readonly byte[] _buffer = new byte[1024];
-    private int _written;
-
-    public void IncrementWritten(int len)
-    {
-        _written += len;
-    }
-
-    public void Remove(int len)
-    {
-        Array.Copy(_buffer, len, _buffer, 0, _written - len);
-        _written -= len;
-    }
-
-    public int GetContiguousBytes()
-    {
-        return _written;
-    }
-
-    public byte[] GetBuffer()
-    {
-        return _buffer;
-    }
-
-    public int GetSpace()
-    {
-        return _buffer.Length - _written;
-    }
-
-    internal static void BlockCopy(byte[] source, int sourceOffset, byte[] destination, int destinationOffset, int length)
-    {
-        // Utilisation de Buffer.BlockCopy pour copier les données
-        System.Buffer.BlockCopy(source, sourceOffset, destination, destinationOffset, length);
     }
 }
 
