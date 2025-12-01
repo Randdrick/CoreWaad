@@ -218,7 +218,7 @@ public class ThreadPool
             break;
         }
     }
-    public static CustomThread StartThread(ThreadBase executionTarget)
+    internal static CustomThread StartThread(ThreadBase executionTarget)
     {       
         if (executionTarget == null)
         {
@@ -235,17 +235,17 @@ public class ThreadPool
     }
 
 
-    private static bool RunThread(ThreadBase target, CancellationToken token)
-    {      
+    internal static bool RunThread(ThreadBase target, CancellationToken token)
+    {
         if (target == null)
         {
             CLog.Debug("[THREADPOOL]", "Thread has no execution target.");
             return false;
         }
-
         bool res = false;
         try
         {
+
             res = target.Run(token);
         }
         catch (Exception ex)
@@ -254,6 +254,7 @@ public class ThreadPool
         }
         return res;
     }
+
 
     public static void Startup(byte threadCount)
     {
@@ -322,5 +323,25 @@ public class CustomThread(Func<bool> value, CancellationToken token)
     internal static void Yield()
     {
         Thread.Yield();
+    }
+
+    internal static CustomThread StartThread(ThreadBase executionTarget)
+    {
+        if (executionTarget == null)
+        {
+            CLog.Debug("[THREADPOOL]", "Attempt to start a thread with no execution target.");
+            return null;
+        }
+
+        var cts = new CancellationTokenSource();
+        CustomThread t = new(
+            () => ThreadPool.RunThread(executionTarget, cts.Token),
+            cts.Token
+        );
+
+        t.Start();
+        CLog.Debug("[THREADPOOL]", $"Started new thread {t.ManagedThreadId} with execution target.");
+
+        return t;
     }
 }

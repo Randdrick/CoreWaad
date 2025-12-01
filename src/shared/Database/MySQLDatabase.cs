@@ -27,13 +27,50 @@ using MySql.Data.MySqlClient;
 using static System.Threading.Thread;
 
 namespace WaadShared.Database;
-
 public class MySQLDatabase : Database
 {
     private new MySqlConnection[] Connections;
     private new int mConnectionCount;
     private readonly uint fieldCount = 0;
     private readonly uint rowCount = 0;
+
+    public bool DumpDatabase(string filePath)
+    {
+        // Utilise mysqldump (doit être dans le PATH)
+        try
+        {
+            var conn = Connections != null && Connections.Length > 0 ? Connections[0] : null;
+            if (conn == null)
+                throw new InvalidOperationException("Aucune connexion MySQL active.");
+
+            var csb = new MySqlConnectionStringBuilder(conn.ConnectionString);
+            var args = $"--user=\"{csb.UserID}\" --password=\"{csb.Password}\" --host=\"{csb.Server}\" --port={csb.Port} {csb.Database} --result-file=\"{filePath}\" --skip-lock-tables";
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "mysqldump",
+                Arguments = args,
+                RedirectStandardOutput = false,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            proc.WaitForExit();
+            if (proc.ExitCode != 0)
+            {
+                var err = proc.StandardError.ReadToEnd();
+                CLog.Error("[MySQLDatabase]", $"mysqldump error: {err}");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[MySQLDatabase]", $"DumpDatabase exception: {ex.Message}");
+            return false;
+        }
+    }
 
     public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
     {

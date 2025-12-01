@@ -21,6 +21,7 @@
 
 using System;
 using System.Collections.Generic;
+using WaadShared.Database;
 
 namespace WaadShared;
 
@@ -226,8 +227,6 @@ public class CallbackP5<T, P1, P2, P3, P4, P5>(T classInstance, Action<T, P1, P2
     }
 }
 
-public class QueryResult { }
-
 public struct AsyncQueryResult { }
 
 public class SQLCallbackBase
@@ -374,8 +373,8 @@ public class SQLFunctionCallbackP0(Action<QueryResult> method) : SQLCallbackBase
         try
         {
             // Convert List<AsyncQueryResult> to QueryResult if necessary
-            QueryResult queryResult = new();
-            _method(queryResult);
+            QueryResult queryResult = null; // or assign a concrete implementation if available
+            _method(queryResult!);
         }
         catch (Exception ex)
         {
@@ -400,8 +399,8 @@ public class SQLFunctionCallbackP1<T1>(Action<QueryResult, T1> method, T1 par1) 
         try
         {
             // Convert List<AsyncQueryResult> to QueryResult if necessary
-            QueryResult queryResult = new();
-            _method(queryResult, _p1);
+            QueryResult queryResult = null; // Assign null or a concrete implementation if available
+            _method(queryResult!, _p1);
         }
         catch (Exception ex)
         {

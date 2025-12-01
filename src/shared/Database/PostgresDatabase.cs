@@ -26,11 +26,50 @@ using Npgsql;
 using static System.Threading.Thread;
 
 namespace WaadShared.Database;
-
 public class PostgresDatabase : Database
 {
     private new IDatabaseConnection[] Connections;
     private new int mConnectionCount;
+
+    public bool DumpDatabase(string filePath)
+    {
+        // Utilise pg_dump (doit être dans le PATH)
+        try
+        {
+            var wrapper = Connections != null && Connections.Length > 0 ? Connections[0] : null;
+            if (wrapper is not NpgsqlConnectionWrapper conn)
+                throw new InvalidOperationException("Aucune connexion PostgreSQL active.");
+
+            var csb = new Npgsql.NpgsqlConnectionStringBuilder(conn.GetConnection().ConnectionString);
+            var args = $"--username=\"{csb.Username}\" --host=\"{csb.Host}\" --port={csb.Port} --format=plain --file=\"{filePath}\" {csb.Database}";
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "pg_dump",
+                Arguments = args,
+                RedirectStandardOutput = false,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            // Pour passer le mot de passe, on peut utiliser la variable d'environnement PGPASSWORD
+            psi.Environment["PGPASSWORD"] = csb.Password;
+            using var proc = System.Diagnostics.Process.Start(psi);
+            proc.WaitForExit();
+            if (proc.ExitCode != 0)
+            {
+                var err = proc.StandardError.ReadToEnd();
+                Log.Error("PostgresDatabase", $"pg_dump error: {err}");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("PostgresDatabase", $"DumpDatabase exception: {ex.Message}");
+            return false;
+        }
+    }
 
     public PostgresDatabase() : base()
     {
@@ -255,6 +294,7 @@ public class PostgresDatabase : Database
         return escape.Replace("'", "''");
     }
 }
+
 
 public class PostgresQueryResult(NpgsqlDataReader reader) : QueryResult((uint)reader.FieldCount, (uint)reader.RecordsAffected)
 {

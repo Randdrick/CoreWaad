@@ -32,9 +32,7 @@ using WaadShared;
 using WaadShared.Network;
 
 using static System.Buffer;
-using static LogonServer.RealmListOpcode;
-
-
+using static WaadShared.RealmListOpcode;
 
 namespace LogonServer;
 
@@ -51,6 +49,7 @@ public class LogonCommServerSocket
     private readonly AccountMgr AccountMgr = new();
     public uint lastPing;
     private uint nextServerPing;
+    private Timer pingTimer;
     private uint remaining;
     private ushort opcode;
     private bool removed;
@@ -68,24 +67,36 @@ public class LogonCommServerSocket
     public LogonCommServerSocket()
     {
         socket = null;
-        lastPing = (uint)DateTime.UtcNow.Ticks;
-        nextServerPing = lastPing + 30;
+        lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        nextServerPing = lastPing + 20;
         remaining = opcode = 0;
         useCrypto = false;
         authenticated = 0;
-        InitializeHandlers(); // Appel de la méthode pour initialiser les gestionnaires
+        InitializeHandlers();
+        pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
     }
 
     public LogonCommServerSocket(Socket fd)
     {
         socket = fd;
-        lastPing = (uint)DateTime.UtcNow.Ticks;
-        nextServerPing = lastPing + 30;
+        lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        nextServerPing = lastPing + 20;
         remaining = opcode = 0;
         removed = true;
         useCrypto = false;
         authenticated = 0;
-        InitializeHandlers(); // Appel de la méthode pour initialiser les gestionnaires
+        InitializeHandlers();
+        pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
+    }
+
+    private void PingTimerCallback(object state)
+    {
+        uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (now >= nextServerPing && Socket.IsConnected())
+        {
+            SendPing();
+            nextServerPing = now + 20;
+        }
     }
 
     public void OnConnect()
@@ -103,6 +114,9 @@ public class LogonCommServerSocket
 
     public void OnDisconnect()
     {
+        // Arrêt du timer de ping pour éviter les fuites de ressources
+        pingTimer?.Dispose();
+        pingTimer = null;
         if (!removed)
         {
             foreach (var id in serverIds)
@@ -337,10 +351,9 @@ public class LogonCommServerSocket
 
     public void SendPing()
     {
-        nextServerPing = (uint)DateTime.UtcNow.Ticks + 20;
-        WorldPacket data = new((ushort)RSMSG_SERVER_PING, 4);
-        data.WriteUInt32(0);
-        SendPacket(data);
+    WorldPacket data = new((ushort)RSMSG_SERVER_PING, 4);
+    data.WriteUInt32(0);
+    SendPacket(data);
     }
 
     public static void HandleServerPong(WorldPacket recvData)

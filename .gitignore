@@ -7,6 +7,8 @@ binaries/logon/obj/**
 binaries/logon/git*.*
 binaries/realm/obj/**
 binaries/realm/bin/**
+binaries/realm/git*.*
 extras/GitExtractor/obj/**
 extras/GitExtractor/bin/**
+.continue/**
 .vscode/**

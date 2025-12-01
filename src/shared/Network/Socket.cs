@@ -34,7 +34,9 @@ public class Socket
     private readonly System.Net.Sockets.Socket _socket;
     private bool m_connected;
     private bool m_deleted;
+#if CONFIG_USE_IOCP    
     private int m_writeLock;
+#endif
     private IPEndPoint m_clientEndPoint;
     private readonly CircularBuffer readBuffer;
     private readonly CircularBuffer writeBuffer;
@@ -46,7 +48,9 @@ public class Socket
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
         m_connected = false;
         m_deleted = false;
+#if CONFIG_USE_IOCP
         m_writeLock = 0;
+#endif
         readBuffer = new CircularBuffer();
         writeBuffer = new CircularBuffer();
         readBuffer.Allocate(recvbuffersize);
@@ -65,7 +69,9 @@ public class Socket
         _socket = new System.Net.Sockets.Socket(addressFamily, socketType, protocolType);
         m_connected = false;
         m_deleted = false;
+#if CONFIG_USE_IOCP
         m_writeLock = 0;
+#endif
         readBuffer = new CircularBuffer();
         writeBuffer = new CircularBuffer();
         readBuffer.Allocate(ByteBuffer.DEFAULT_SIZE);
@@ -78,7 +84,9 @@ public class Socket
         _socket = new System.Net.Sockets.Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         m_connected = false;
         m_deleted = false;
+#if CONFIG_USE_IOCP
         m_writeLock = 0;
+#endif
         readBuffer = new CircularBuffer();
         writeBuffer = new CircularBuffer();
         readBuffer.Allocate(ByteBuffer.DEFAULT_SIZE);
@@ -138,8 +146,12 @@ public class Socket
 #if CONFIG_USE_IOCP
         CLog.Notice("[SOCKET]", "Initializing IOCP Read Event for socket.");
         ThreadPool.QueueUserWorkItem(_ => SocketExtensions.SetupReadEvent(this));
-#endif
+
         SocketManager.Instance.AddSocket(this);
+#endif
+#if CONFIG_USE_EPOLL
+        SocketMgr.AddSocket(_socket);
+#endif
         OnConnectVirtual();
     }
 
@@ -216,7 +228,12 @@ public class Socket
     public void Disconnect()
     {
         m_connected = false;
+    #if CONFIG_USE_IOCP
         SocketManager.Instance.RemoveSocket(this);
+    #endif
+    #if CONFIG_USE_EPOLL
+        SocketMgr.RemoveSocket(_socket);
+    #endif
         SocketOps.CloseSocket(_socket);
         OnDisconnect();
         if (!m_deleted) Delete();
@@ -269,11 +286,6 @@ public class Socket
         socketInstance.OnConnect();
     }
 
-    public static IPAddress GetRemoteAddress(Socket socket)
-    {
-        return socket?.m_clientEndPoint?.Address;
-    }
-    
     internal static void Close()
     {
         Close();
@@ -437,6 +449,10 @@ public class Socket
             Console.WriteLine($"SetToConnected Exception: {ex.Message}");
             m_connected = false;
         }
+    }
+    public static IPAddress GetRemoteAddress(Socket socket)
+    {
+        return socket?.m_clientEndPoint?.Address;
     }
 }
 

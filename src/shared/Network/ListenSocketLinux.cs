@@ -20,12 +20,13 @@
  */
 
 #if CONFIG_USE_EPOLL
-
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Linq;
 
-namespace WaadShared.Network
+
+namespace WaadShared
 {
     public abstract class ListenSocketBase
     {
@@ -35,37 +36,65 @@ namespace WaadShared.Network
 
     public class ListenSocket<T> : ListenSocketBase where T : class
     {
-        private Socket m_socket;
+        private readonly Socket m_socket;
         private Socket aSocket;
-        private IPEndPoint m_address;
-        private IPEndPoint m_tempAddress;
+        private readonly IPEndPoint m_address;
+        private EndPoint m_tempAddress;
         private bool m_opened;
-        private int len;
+        private readonly int len;
         private T dsocket;
+        private readonly Func<Socket, T> _factory;
 
-        public ListenSocket(string ListenAddress, uint Port)
+        public ListenSocket(string ListenAddress, uint Port, Func<Socket, T> factory)
         {
+            _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             m_socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             m_socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            m_socket.Blocking = false;
+            SocketOps.Blocking(m_socket);
 
-            m_address = new IPEndPoint(IPAddress.Any, (int)Port);
-            m_opened = false;
-
-            if (ListenAddress != "0.0.0.0")
+            // Initialisation de m_address
+            if (ListenAddress == "0.0.0.0")
             {
-                IPHostEntry hostname = Dns.GetHostEntry(ListenAddress);
-                if (hostname != null)
-                    m_address.Address = hostname.AddressList[0];
+                m_address = new IPEndPoint(IPAddress.Any, (int)Port);
             }
+            else if (ListenAddress == "127.0.0.1")
+            {
+                m_address = new IPEndPoint(IPAddress.Loopback, (int)Port);
+            }
+            else
+            {
+                try
+                {
+                    IPHostEntry hostname = Dns.GetHostEntry(ListenAddress);
+                    if (hostname != null && hostname.AddressList.Length > 0)
+                    {
+                        var ip = hostname.AddressList.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork);
+                        if (ip == null)
+                            throw new Exception($"No valid IPv4 address found for {ListenAddress}.");
+                        m_address = new IPEndPoint(ip, (int)Port);
+                    }
+                    else
+                    {
+                        throw new Exception($"Failed to resolve ListenAddress '{ListenAddress}'.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to resolve ListenAddress '{ListenAddress}': {ex.Message}");
+                    return;
+                }
+            }
+
+            // Initialisation de m_tempAddress
+            m_tempAddress = new IPEndPoint(IPAddress.Any, 0);
 
             try
             {
                 m_socket.Bind(m_address);
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                Console.WriteLine($"Bind unsuccessful on port {Port}.");
+                Console.WriteLine($"Bind unsuccessful on port {Port}: {ex.Message}");
                 return;
             }
 
@@ -73,21 +102,47 @@ namespace WaadShared.Network
             {
                 m_socket.Listen(5);
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                Console.WriteLine($"Unable to listen on port {Port}.");
+                Console.WriteLine($"Unable to listen on port {Port}: {ex.Message}");
                 return;
             }
 
             len = m_address.Serialize().Size;
             m_opened = true;
-            sSocketMgr.AddListenSocket(this);
+            SocketMgr.AddListenSocket(m_socket);
         }
 
         ~ListenSocket()
         {
             if (m_opened)
                 m_socket.Close();
+        }
+
+        public override void OnAccept()
+        {
+            aSocket = m_socket.Accept();
+            if (aSocket == null)
+                return;
+
+            if (_factory != null)
+                dsocket = _factory(aSocket);
+            else
+                throw new InvalidOperationException("No factory provided to create socket instance.");
+
+            if (dsocket == null)
+            {
+                Console.WriteLine("Failed to create a new socket instance.");
+                return;
+            }
+
+            // Utilisation de m_tempAddress pour stocker l'adresse du client
+            if (aSocket.RemoteEndPoint is IPEndPoint remoteEndPoint)
+            {
+                m_tempAddress = new IPEndPoint(remoteEndPoint.Address, remoteEndPoint.Port);
+            }
+
+            (dsocket as dynamic).Accept(m_tempAddress);
         }
 
         public void Close()
@@ -97,18 +152,9 @@ namespace WaadShared.Network
             m_opened = false;
         }
 
-        public override void OnAccept()
-        {
-            aSocket = m_socket.Accept();
-            if (aSocket == null)
-                return;
+        public bool IsOpen() => m_opened;
 
-            dsocket = Activator.CreateInstance(typeof(T), aSocket) as T;
-            (dsocket as dynamic).Accept(m_tempAddress);
-        }
-
-        public bool IsOpen() { return m_opened; }
-        public override int GetFd() { return (int)m_socket.Handle; }
+        public override int GetFd() => (int)m_socket.Handle;
     }
 }
 #endif

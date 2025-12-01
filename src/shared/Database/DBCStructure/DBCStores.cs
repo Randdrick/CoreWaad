@@ -375,4 +375,5 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "WorldSafeLocs.dbc", WorldSafeLocsStoreFormat, true, ref dbcWorldSafeLocsStore, true)) return false;
         return true;
     }
+    public static string DbcPath { get; set; } = "dbc";
 }

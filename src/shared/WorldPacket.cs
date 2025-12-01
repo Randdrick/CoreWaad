@@ -1,3 +1,4 @@
+
 /*
  * Wow Arbonne Ascent Development MMORPG Server
  * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
@@ -107,10 +108,22 @@ public class WorldPacket : ByteBuffer
         Size = size;
     }
 
-    public void WriteUInt32(uint value)
+    public void WriteUInt16(ushort value)
+    {
+        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 2);
+        Size += 2;
+    }
+
+    public new void WriteUInt32(uint value)
     {
         BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 4);
         Size += 4;
+    }
+
+    public void WriteUInt64(ulong value)
+    {
+        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 8);
+        Size += 8;
     }
 
     public void WriteString(string value)
@@ -132,10 +145,49 @@ public class WorldPacket : ByteBuffer
         Size += count;
     }
 
+    public void WriteInt32(int value)
+    {
+        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 4);
+        Size += 4;
+    }
+    
+    public int ReadInt32()
+    {
+        if (Size + 4 > Contents.Length)
+            throw new InvalidOperationException("Not enough data to read Int32");
+        int value = BitConverter.ToInt32(Contents, Size);
+        Size += 4;
+        return value;
+    }
+
+    public ushort ReadUInt16()
+    {
+        if (Size + 2 > Contents.Length)
+            throw new InvalidOperationException("Not enough data to read UInt16");
+        ushort value = BitConverter.ToUInt16(Contents, Size);
+        Size += 2;
+        return value;
+    }
+
     public uint ReadUInt32()
     {
+        if (Size + 4 > Contents.Length)
+        {
+            throw new InvalidOperationException("Not enough data to read UInt32");
+        }
         uint value = BitConverter.ToUInt32(Contents, Size);
         Size += 4;
+        return value;
+    }
+
+    public ulong ReadUInt64()
+    {
+        if (Size + 8 > Contents.Length)
+        {
+            throw new InvalidOperationException("Not enough data to read UInt64");
+        }
+        ulong value = BitConverter.ToUInt64(Contents, Size);
+        Size += 8;
         return value;
     }
 
@@ -185,4 +237,50 @@ public class WorldPacket : ByteBuffer
         Size++;
         return value;
     }
+
+    public void WriteFloat(float value)
+    {
+        var bytes = BitConverter.GetBytes(value);
+        if (BitConverter.IsLittleEndian)
+            Array.Reverse(bytes); // Optionnel : adapte l'endianess si nécessaire
+        Write(bytes, 0, bytes.Length);
+    }
+
+    public void WriteBytes(byte[] bytes)
+    {
+        if (bytes == null)
+        {
+            throw new ArgumentNullException(nameof(bytes), "Bytes array cannot be null");
+        }
+        if (bytes.Length == 0)
+        {
+            return; // Rien à écrire si le tableau est vide
+        }
+        if (Size + bytes.Length > Contents.Length)
+        {
+            Array.Resize(ref Contents, Math.Max(Contents.Length * 2, Size + bytes.Length));
+        }
+        BlockCopy(bytes, 0, Contents, Size, bytes.Length);
+        Size += bytes.Length;
+    }
+
+    public void ReadBytes(byte[] key, int v1, int v2)
+    {
+        if (key == null)
+        {
+            throw new ArgumentNullException(nameof(key), "Key array cannot be null");
+        }
+        if (v1 < 0 || v2 < 0 || v1 + v2 > key.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(v1), "v1 and v2 must be within the bounds of the key array");
+        }
+        if (Size + v2 > Contents.Length)
+        {
+            throw new InvalidOperationException("Not enough data to read the requested number of bytes");
+        }
+        BlockCopy(Contents, Size, key, v1, v2);
+        Size += v2;
+    }
+
+
 }

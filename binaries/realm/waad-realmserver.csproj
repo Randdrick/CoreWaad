@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>waad_realmserver</RootNamespace>
     <AssemblyName>waad-realmserver</AssemblyName>
+    <StartupObject>WaadRealmServer.Master</StartupObject>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -39,36 +40,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="**\*.cs" />
-    <EmbeddedResource Include="**\*.resx" />
+    <ProjectReference Include="..\..\binaries\shared\waad-shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
-    <PackageReference Include="MSTest.TestAdapter" Version="2.2.10" />
-    <PackageReference Include="MSTest.TestFramework" Version="2.2.10" />
-    <!-- <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.0" /> -->
-    <PackageReference Include="IniParser" Version="1.0.1" />
-    <PackageReference Include="MySql.Data" Version="8.0.33" />
-    <PackageReference Include="Npgsql" Version="7.0.7" />
-    <PackageReference Include="System.Data.SQLite" Version="1.0.116" />
+    <Compile Include="..\..\..\CoreWaad\src\realm\**\*.cs" Exclude="obj\**\*.cs" />
+    <Content Include="..\..\..\CoreWaad\src\realm\**\*" Exclude="obj\**\*.cs" />
   </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include=".\waad-shared.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-    <AdditionalIncludeDirectories Include="..\..\lib\win\VC\;..\..\include;..\..\src\waad-shared;%(AdditionalIncludeDirectories)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
-    <AdditionalIncludeDirectories Include="../../lib/linux;../../include;../../src/waad-shared;%(AdditionalIncludeDirectories)" />
-  </ItemGroup>
-
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(OS)' == 'Windows_NT'">
-    <Message Text="Extracting Git revision..." />
-    <Exec Command="cd $(SolutionDir)..\..\..\src\waad-shared &amp;&amp; GitExtractor.exe" />
-  </Target>
 
 </Project>

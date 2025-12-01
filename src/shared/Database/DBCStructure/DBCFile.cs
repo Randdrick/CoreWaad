@@ -117,8 +117,8 @@ public class DBCFile(int fieldCount, int stringSize, IntPtr stringTable)
 
         public Record Assign(Record src)
         {
-            this.file = src.file;
-            this.offset = src.offset;
+            file = src.file;
+            offset = src.offset;
             return this;
         }
     }

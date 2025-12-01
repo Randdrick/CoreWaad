@@ -182,6 +182,26 @@ public class ConfigFile : IDisposable
         return def; // Retourne la valeur par défaut si la conversion échoue
     }
 
+    public uint GetUInt32(string section, string name, uint def = 0)
+    {
+        if (_iniData == null || string.IsNullOrEmpty(section) || string.IsNullOrEmpty(name))
+        {
+            return def;
+        }
+
+        if (!_iniData.Sections.ContainsKey(section) || !_iniData[section].TryGetValue(name, out string value))
+        {
+            return def; // Retourne la valeur par défaut si la section ou la clé n'existe pas
+        }
+
+        if (uint.TryParse(value, out uint result))
+        {
+            return result;
+        }
+
+        return def; // Retourne la valeur par défaut si la conversion échoue
+    }
+
     public float GetFloat(string section, string name, float def = 0)
     {
         if (_iniData == null || string.IsNullOrEmpty(section) || string.IsNullOrEmpty(name))
@@ -233,6 +253,21 @@ public class ConfigFile : IDisposable
     {
         Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    public uint GetInt(string v1, string v2)
+    {
+        // Utilise la même logique que GetInt32 mais retourne un uint
+        if (_iniData == null || string.IsNullOrEmpty(v1) || string.IsNullOrEmpty(v2))
+            return 0;
+
+        if (!_iniData.Sections.ContainsKey(v1) || !_iniData[v1].TryGetValue(v2, out string value))
+            return 0;
+
+        if (uint.TryParse(value, out uint result))
+            return result;
+
+        return 0;
     }
 }
 

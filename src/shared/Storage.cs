@@ -72,11 +72,10 @@ public abstract class StorageContainerIterator<T>
     public abstract bool Inc();
 }
 
-public class ArrayStorageContainer<T> where T : class, new()
+public class ArrayStorageContainer<T> : IStorageContainer<T> where T : class, new()
 {
     private T[][] _array;
     internal int _max;
-    // Propriété publique pour accéder à _array
     public T[][] Array => _array;
     private StorageAllocationPool<T> _pool;
 
@@ -101,9 +100,8 @@ public class ArrayStorageContainer<T> where T : class, new()
     {
         if (max < _max)
             return;
-
         var newArray = new T[max][];
-        
+
         System.Array.Copy(_array, newArray, _max);
         _array = newArray;
         _max = max;
@@ -113,7 +111,6 @@ public class ArrayStorageContainer<T> where T : class, new()
     {
         if (entry >= _max || _array[entry] != null)
             return default;
-
         _array[entry] = _pool.Get();
         return _array[entry][0];
     }
@@ -122,7 +119,6 @@ public class ArrayStorageContainer<T> where T : class, new()
     {
         if (entry >= _max || _array[entry] == null)
             return false;
-
         _array[entry] = null;
         return true;
     }
@@ -138,7 +134,6 @@ public class ArrayStorageContainer<T> where T : class, new()
     {
         if (entry > _max)
             return false;
-
         _array[entry] = [pointer];
         return true;
     }
@@ -157,11 +152,23 @@ public class ArrayStorageContainer<T> where T : class, new()
             _array[i] = null;
         }
     }
+
+    public bool NeedsMax()
+    {
+        // Logique à définir selon ton besoin (exemple : retourne toujours true)
+        return true;
+    }
+
+    public T LookupEntry(uint entry)
+    {
+        throw new NotImplementedException();
+    }
 }
 
-public class HashMapStorageContainer<T> where T : new()
+public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
 {
     internal Dictionary<int, T> _map = [];
+    internal Dictionary<uint, T> map = [];
     private StorageAllocationPool<T> _pool;
 
     public void InitPool(int cnt)
@@ -179,18 +186,27 @@ public class HashMapStorageContainer<T> where T : new()
     {
         if (_map.ContainsKey(entry))
             return default;
-
         T[] nArray = _pool.Get();
-        T n = nArray != null ? nArray[0] : default;
+        T n = nArray != null ? nArray[0] : new T();
         _map[entry] = n;
         return n;
     }
+
+    public T AllocateEntry(uint entry)
+    {
+        if (map.ContainsKey(entry))
+            return default;
+        T[] nArray = _pool.Get();
+        T n = nArray != null ? nArray[0] : new T();
+        map[entry] = n;
+        return n;
+    }
+
 
     public bool DeallocateEntry(int entry)
     {
         if (!_map.ContainsKey(entry))
             return false;
-
         _map.Remove(entry);
         return true;
     }
@@ -204,20 +220,13 @@ public class HashMapStorageContainer<T> where T : new()
 
     public bool SetEntry(int entry, T pointer)
     {
-        if (!_map.ContainsKey(entry))
-        {
-            _map[entry] = pointer;
-            return true;
-        }
-
         _map[entry] = pointer;
         return true;
     }
 
     public T LookupEntryAllocate(int entry)
     {
-        T ret = LookupEntry(entry);
-        ret ??= AllocateEntry(entry);
+        T ret = LookupEntry(entry) ?? AllocateEntry(entry);
         return ret;
     }
 
@@ -225,7 +234,35 @@ public class HashMapStorageContainer<T> where T : new()
     {
         _map.Clear();
     }
+
+    public bool NeedsMax()
+    {
+        // Un HashMap n'a pas besoin d'une taille maximale fixe
+        return false;
+    }
+
+    public void Setup(int max)
+    {
+        // Pour un HashMap, Setup peut initialiser la capacité si nécessaire
+        _map = new Dictionary<int, T>(max);
+    }
+
+    public void Resetup(int max)
+    {
+        // Pour un HashMap, Resetup peut réinitialiser la capacité si nécessaire
+        var newMap = new Dictionary<int, T>(max);
+        foreach (var kvp in _map)
+            newMap.Add(kvp.Key, kvp.Value);
+        _map = newMap;
+    }
+
+    public T LookupEntry(uint entry)
+    {
+        T ret = LookupEntry(entry) ?? AllocateEntry(entry);
+        return ret;
+    }
 }
+
 
 public class ArrayStorageIterator<T> : StorageContainerIterator<T> where T : class, new()
 {
@@ -298,6 +335,7 @@ public interface IStorageContainer<T>
 {
     StorageContainerIterator<T> MakeIterator();
     T LookupEntry(int entry);
+    T LookupEntry(uint entry);    
     void Clear();
     bool NeedsMax();
     void Setup(int max);
@@ -326,6 +364,11 @@ public abstract class Storage<T, StorageType> where StorageType : IStorageContai
     }
 
     public T LookupEntry(int entry)
+    {
+        return _storage.LookupEntry(entry);
+    }
+
+    public T LookupEntry(uint entry)
     {
         return _storage.LookupEntry(entry);
     }

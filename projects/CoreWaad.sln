@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-shared", "..\binaries\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-logonserver", "..\binaries\logon\waad-logonserver.csproj", "{33229C50-2528-4810-B5F1-6D8F0323566B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-realmserver", "..\binaries\realm\waad-realmserver.csproj", "{1505C5FB-2089-4DEB-8048-58FE300FA106}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{33229C50-2528-4810-B5F1-6D8F0323566B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{33229C50-2528-4810-B5F1-6D8F0323566B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{33229C50-2528-4810-B5F1-6D8F0323566B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

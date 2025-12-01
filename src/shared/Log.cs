@@ -108,7 +108,25 @@ public class Logger : Singleton<Logger>
             m_file.WriteLine(message);
         }
     }
+    public void OutWarning(string str, params object[] args)
+    {
+        if (m_fileLogLevel < 2 && m_screenLogLevel < 2)
+            return;
 
+        string message = string.Format(str, args);
+
+        if (m_screenLogLevel >= 2)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine(message);
+            Console.ResetColor();
+        }
+        if (m_fileLogLevel >= 2 && m_file != null)
+        {
+            OutTime();
+            m_file.WriteLine(message);
+        }
+    }
     public void OutDetail(string str, params object[] args)
     {
         if (m_fileLogLevel < 2 && m_screenLogLevel < 2)

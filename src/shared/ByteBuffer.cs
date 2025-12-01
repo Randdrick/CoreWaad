@@ -33,6 +33,11 @@ public class ByteBufferException(bool add, uint pos, uint esize, uint size) : Ex
 
 public class ByteBuffer
 {
+    // Added for compatibility with C++ style WriteUInt32 usage
+    public ByteBuffer WriteUInt32(uint value)
+    {
+        return Write(value);
+    }
     protected List<byte> buffer;
     private readonly List<byte> _storage;
     private int _rpos;

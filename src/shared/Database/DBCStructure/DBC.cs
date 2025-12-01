@@ -148,7 +148,7 @@ public class DBC : IDisposable
             outWriter.WriteLine($"Rows:{rows}");
             outWriter.WriteLine($"Cols:{cols}");
             outWriter.WriteLine($"Weird:{weird2}");
-            outWriter.WriteLine($"Theory:{(weird2 == cols * 4)}");
+            outWriter.WriteLine($"Theory:{weird2 == cols * 4}");
             outWriter.WriteLine($"DBlength:{dblength}");
             outWriter.WriteLine();
 

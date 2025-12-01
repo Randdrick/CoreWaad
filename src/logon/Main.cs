@@ -211,7 +211,7 @@ public class LogonServer
         AppDomain.CurrentDomain.ProcessExit += (sender, e) => OnSignal();
 
 #if !WIN32
-        File.WriteAllText("waad-logonserver.pid", Process.GetCurrentProcess().Id.ToString());
+        File.WriteAllText("waad-logonserver.pid", Environment.ProcessId.ToString());
 #endif
 
         byte[] HashNameShaMagicNumber = [0x57, 0x61, 0x61, 0x64, 0x00, 0x00, 0x00];
@@ -243,8 +243,12 @@ public class LogonServer
 
         pfc.Kill();
 
-        Instance.CloseAll();
+#if LINUX
+        SocketMgr.CloseAll();
+#endif
+
 #if WIN32
+        Instance.CloseAll();
         Instance.ShutdownThreads();
 #endif
 
@@ -437,7 +441,7 @@ public class LogonServer
         {
 #if !WIN32
             case (int)Signum.SIGHUP:
-                sLog.OutString("Recu signal SIGHUP, rechargement des comptes.");
+                CLog.Notice("[Main]","Recu signal SIGHUP, rechargement des comptes.");
                 AccountMgr.Instance.ReloadAccounts(true);
                 break;
 #endif

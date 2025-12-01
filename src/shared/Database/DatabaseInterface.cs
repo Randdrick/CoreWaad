@@ -67,6 +67,14 @@ public abstract class QueryResult(uint fieldCount, uint rowCount)
     protected Field[] mCurrentRow;
 
     public abstract bool NextRow();
+
+    // Accès sécurisé à la valeur d'un champ de la ligne courante
+    public object GetValue(int index)
+    {
+        if (mCurrentRow == null || index < 0 || index >= mCurrentRow.Length)
+            throw new IndexOutOfRangeException();
+        return mCurrentRow[index].GetValue();
+    }
 }
 
 public static class Log

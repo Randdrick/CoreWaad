@@ -47,6 +47,7 @@ public class SocketManager
     {
     }
 
+#if CONFIG_USE_IOCP
     private static IntPtr _completionPort = IntPtr.Zero;
 
     public static IntPtr GetCompletionPort()
@@ -91,13 +92,14 @@ public class SocketManager
         // Associate the socket with the completion port
         SocketMgr.AssociateSocketWithCompletionPort(isSocketValid, completionPort);
     }
+#endif
 
     public static SocketManager Instance
     {
         get { return instance; }
     }
 
-
+#if CONFIG_USE_IOCP
     public void AddSocket(Socket s)
     {
         if (socket_count >= 64 || fds.ContainsKey(s.Handle))
@@ -125,7 +127,8 @@ public class SocketManager
             socket_count--;
         }
     }
-        public void CloseAll()
+#endif
+    public void CloseAll()
     {
         List<SocketManager> toKill = [];
 
@@ -211,7 +214,7 @@ public class SocketManager
     }
 
     public static void Close()
-    {        
+    {
         SocketExtensions.Disconnect();
     }
 

@@ -108,13 +108,17 @@ public class LogonConsole
 
     public void TranslateQuit(string str)
     {
-        int delay = string.IsNullOrEmpty(str) ? 5000 : int.Parse(str) * 1000;
+        int delay = string.IsNullOrEmpty(str) ? 5000 : int.TryParse(str, out var d) && d > 0 ? d * 1000 : 5000;
         ProcessQuit(delay);
     }
 
     public void ProcessQuit(int delay)
     {
         mrunning = false;
+        Task.Run(async () => {
+            await Task.Delay(delay);
+            CLog.Notice("[LogonConsole]", $"Arrêt du serveur dans {delay / 1000} secondes...");
+        });
     }
 
     public static void TranslateHelp(string str)

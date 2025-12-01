@@ -60,17 +60,24 @@ public static class SocketManager
 
         ThreadPool.ExecuteTask(new LogonConsoleThread());
 
+#if WIN32
         var Instance = new SocketMgr();
         Instance.SpawnWorkerThreads();
-
         var authSocket = new ListenSocket<AuthSocket>(host, cport);
         var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport);
+#endif
 
+#if !WIN32
+        SocketMgr.SpawnWorkerThreads();
+        var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket());
+        var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport, (sock) => new LogonCommServerSocket());
+#endif
         if (!authSocket.IsOpen() || !serverSocket.IsOpen())
         {
             sLog.OutError("Failed to open sockets.");
             return false;
         }
+
 #if WIN32
         ThreadPool.ExecuteTask(authSocket);
         ThreadPool.ExecuteTask(serverSocket);

@@ -45,62 +45,67 @@ public class CircularBuffer
         m_buffer = null;
     }
 
+    // Alloue le buffer avec une taille donnée
+    public void Allocate(int size)
+    {
+        m_buffer = new byte[size];
+        m_bufferEnd = size;
+        m_regionAPointer = 0;
+        m_regionBPointer = 0;
+        m_regionASize = 0;
+        m_regionBSize = 0;
+    }
+
+    // Lit des octets depuis le buffer circulaire
     public bool Read(byte[] destination, int bytes)
     {
-        int cnt = bytes;
-        int aRead = 0, bRead = 0;
         if ((m_regionASize + m_regionBSize) < bytes)
             return false;
 
+        int remaining = bytes;
+        int offset = 0;
+
+        // Lit depuis la région A
         if (m_regionASize > 0)
         {
-            aRead = (cnt > m_regionASize) ? m_regionASize : cnt;
-            Array.Copy(m_buffer, m_regionAPointer, destination, 0, aRead);
-            m_regionASize -= aRead;
-            m_regionAPointer += aRead;
-            cnt -= aRead;
+            int toRead = Math.Min(remaining, m_regionASize);
+            Array.Copy(m_buffer, m_regionAPointer, destination, offset, toRead);
+            m_regionAPointer += toRead;
+            m_regionASize -= toRead;
+            offset += toRead;
+            remaining -= toRead;
         }
 
-        if (cnt > 0 && m_regionBSize > 0)
+        // Lit depuis la région B si nécessaire
+        if (remaining > 0 && m_regionBSize > 0)
         {
-            bRead = (cnt > m_regionBSize) ? m_regionBSize : cnt;
-            Array.Copy(m_buffer, m_regionBPointer, destination, aRead, bRead);
-            m_regionBSize -= bRead;
-            m_regionBPointer += bRead;
-            cnt -= bRead;
+            int toRead = Math.Min(remaining, m_regionBSize);
+            Array.Copy(m_buffer, m_regionBPointer, destination, offset, toRead);
+            m_regionBPointer += toRead;
+            m_regionBSize -= toRead;
+            remaining -= toRead;
         }
 
-        if (m_regionASize == 0)
+        // Réorganise les régions si la région A est vide
+        if (m_regionASize == 0 && m_regionBSize > 0)
         {
-            if (m_regionBSize > 0)
-            {
-                if (m_regionBPointer != 0)
-                    Array.Copy(m_buffer, m_regionBPointer, m_buffer, 0, m_regionBSize);
-
-                m_regionAPointer = 0;
-                m_regionASize = m_regionBSize;
-                m_regionBPointer = 0;
-                m_regionBSize = 0;
-            }
-            else
-            {
-                m_regionBPointer = 0;
-                m_regionBSize = 0;
-                m_regionAPointer = 0;
-                m_regionASize = 0;
-            }
+            Array.Copy(m_buffer, m_regionBPointer, m_buffer, 0, m_regionBSize);
+            m_regionAPointer = 0;
+            m_regionASize = m_regionBSize;
+            m_regionBPointer = 0;
+            m_regionBSize = 0;
         }
 
         return true;
     }
 
+    // Écrit des octets dans le buffer circulaire
     public bool Write(byte[] data, int bytes)
     {
         if (m_regionBPointer != 0)
         {
             if (GetBFreeSpace() < bytes)
                 return false;
-
             Array.Copy(data, 0, m_buffer, m_regionBPointer + m_regionBSize, bytes);
             m_regionBSize += bytes;
             return true;
@@ -111,7 +116,6 @@ public class CircularBuffer
             AllocateB();
             if (GetBFreeSpace() < bytes)
                 return false;
-
             Array.Copy(data, 0, m_buffer, m_regionBPointer + m_regionBSize, bytes);
             m_regionBSize += bytes;
             return true;
@@ -127,126 +131,141 @@ public class CircularBuffer
         }
     }
 
-    public int GetSpace()
+    // Lit un UInt16 depuis le buffer
+    public ushort ReadUInt16()
     {
-        if (m_regionBPointer != 0)
-            return GetBFreeSpace();
-        else
-        {
-            if (GetAFreeSpace() < GetSpaceBeforeA())
-            {
-                AllocateB();
-                return GetBFreeSpace();
-            }
+        byte[] temp = new byte[2];
+        if (!Read(temp, 2))
+            throw new InvalidOperationException("Not enough data to read UInt16");
+        return BitConverter.ToUInt16(temp, 0);
+    }
 
-            return GetAFreeSpace();
+    // Lit un UInt32 depuis le buffer
+    public uint ReadUInt32()
+    {
+        byte[] temp = new byte[4];
+        if (!Read(temp, 4))
+            throw new InvalidOperationException("Not enough data to read UInt32");
+        return BitConverter.ToUInt32(temp, 0);
+    }
+
+    // Lit un Int32 depuis le buffer
+    public int ReadInt32()
+    {
+        byte[] temp = new byte[4];
+        if (!Read(temp, 4))
+            throw new InvalidOperationException("Not enough data to read Int32");
+        return BitConverter.ToInt32(temp, 0);
+    }
+
+    // Lit un tableau d'octets depuis le buffer
+    public byte[] ReadBytes(uint size)
+    {
+        byte[] value = new byte[size];
+        if (!Read(value, (int)size))
+            throw new InvalidOperationException("Not enough data to read bytes");
+        return value;
+    }
+
+    // Supprime des octets du buffer
+    public void Remove(int len)
+    {
+        int remaining = len;
+
+        if (m_regionASize > 0)
+        {
+            int toRemove = Math.Min(remaining, m_regionASize);
+            m_regionAPointer += toRemove;
+            m_regionASize -= toRemove;
+            remaining -= toRemove;
+        }
+
+        if (remaining > 0 && m_regionBSize > 0)
+        {
+            int toRemove = Math.Min(remaining, m_regionBSize);
+            m_regionBPointer += toRemove;
+            m_regionBSize -= toRemove;
+            remaining -= toRemove;
+        }
+
+        if (m_regionASize == 0 && m_regionBSize > 0)
+        {
+            Array.Copy(m_buffer, m_regionBPointer, m_buffer, 0, m_regionBSize);
+            m_regionAPointer = 0;
+            m_regionASize = m_regionBSize;
+            m_regionBPointer = 0;
+            m_regionBSize = 0;
         }
     }
 
+    // Retourne l'espace libre dans la région A
+    private int GetAFreeSpace()
+    {
+        return m_bufferEnd - m_regionAPointer - m_regionASize;
+    }
+
+    // Retourne l'espace libre dans la région B
+    private int GetBFreeSpace()
+    {
+        return (m_regionBPointer == 0) ? 0 : (m_regionAPointer - m_regionBPointer - m_regionBSize);
+    }
+
+    // Retourne l'espace avant la région A
+    private int GetSpaceBeforeA()
+    {
+        return m_regionAPointer;
+    }
+
+    // Alloue la région B si nécessaire
+    private void AllocateB()
+    {
+        if (m_regionBPointer == 0 && m_regionASize > 0)
+        {
+            m_regionBPointer = m_regionAPointer + m_regionASize;
+        }
+    }
+
+    // Retourne la taille totale des données dans le buffer
     public int GetSize()
     {
         return m_regionASize + m_regionBSize;
     }
 
-    public int GetContiguousBytes()
-    {
-        if (m_regionASize > 0)
-            return m_regionASize;
-        else
-            return m_regionBSize;
-    }
-
-    public void Remove(int len)
-    {
-        int cnt = len;
-        int aRem, bRem;
-
-        if (m_regionASize > 0)
-        {
-            aRem = (cnt > m_regionASize) ? m_regionASize : cnt;
-            m_regionASize -= aRem;
-            m_regionAPointer += aRem;
-            cnt -= aRem;
-        }
-
-        if (cnt > 0 && m_regionBSize > 0)
-        {
-            bRem = (cnt > m_regionBSize) ? m_regionBSize : cnt;
-            m_regionBSize -= bRem;
-            m_regionBPointer += bRem;
-            cnt -= bRem;
-        }
-
-        if (m_regionASize == 0)
-        {
-            if (m_regionBSize > 0)
-            {
-                if (m_regionBPointer != 0)
-                    Array.Copy(m_buffer, m_regionBPointer, m_buffer, 0, m_regionBSize);
-
-                m_regionAPointer = 0;
-                m_regionASize = m_regionBSize;
-                m_regionBPointer = 0;
-                m_regionBSize = 0;
-            }
-            else
-            {
-                m_regionBPointer = 0;
-                m_regionBSize = 0;
-                m_regionAPointer = 0;
-                m_regionASize = 0;
-            }
-        }
-    }
-
-    public IntPtr GetBuffer()
+    // Retourne l'espace libre total dans le buffer
+    public int GetSpace()
     {
         if (m_regionBPointer != 0)
-            return (IntPtr)(m_regionBPointer + m_regionBSize);
+            return GetBFreeSpace();
         else
-            return (IntPtr)(m_regionAPointer + m_regionASize);
+            return GetAFreeSpace();
     }
 
-    public void Allocate(int size)
+    // Retourne le nombre d'octets contigus disponibles
+    public int GetContiguousBytes()
     {
-        m_buffer = new byte[size];
-        m_bufferEnd = size;
-        m_regionAPointer = 0;
+        return m_regionASize > 0 ? m_regionASize : m_regionBSize;
     }
 
+    // Retourne un pointeur vers la fin du buffer
+    public IntPtr GetBuffer()
+    {
+        return m_regionBPointer != 0
+            ? (IntPtr)(m_regionBPointer + m_regionBSize)
+            : (IntPtr)(m_regionAPointer + m_regionASize);
+    }
+
+    // Retourne un pointeur vers le début des données
+    public IntPtr GetBufferStart()
+    {
+        return m_regionASize > 0 ? (IntPtr)m_regionAPointer : (IntPtr)m_regionBPointer;
+    }
+
+    // Incrémente la taille écrite dans la région active
     public void IncrementWritten(int len)
     {
         if (m_regionBPointer != 0)
             m_regionBSize += len;
         else
             m_regionASize += len;
-    }
-
-    public IntPtr GetBufferStart()
-    {
-        if (m_regionASize > 0)
-            return (IntPtr)m_regionAPointer;
-        else
-            return (IntPtr)m_regionBPointer;
-    }
-
-    private int GetBFreeSpace()
-    {
-        return (m_regionBPointer == 0) ? 0 : (m_regionAPointer - m_regionBPointer - m_regionBSize);
-    }
-
-    private int GetAFreeSpace()
-    {
-        return m_bufferEnd - m_regionAPointer - m_regionASize;
-    }
-
-    private int GetSpaceBeforeA()
-    {
-        return m_regionAPointer - 0;
-    }
-
-    private void AllocateB()
-    {
-        // Implémentez cette méthode selon vos besoins
     }
 }
