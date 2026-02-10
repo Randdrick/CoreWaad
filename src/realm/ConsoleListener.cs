@@ -175,7 +175,7 @@ public class ConsoleAuthManager
 {
     private static readonly ConsoleAuthManager instance = new();
     private int highRequestId = 1;
-    private readonly Dictionary<int, ConsoleSession> requestMap = new();
+    private readonly Dictionary<int, ConsoleSession> requestMap = [];
     private readonly object lockObj = new();
     public static ConsoleAuthManager Instance => instance;
     public int GenerateRequestId()
@@ -210,7 +210,7 @@ public static class ConsoleListener
         var configMgr = new WaadShared.Config.ConfigMgr();
         if (!configMgr.MainConfig.SetSource(configPath))
         {
-            CLog.Notice("[ConsoleListener]", $"Config file not found: {configPath}");
+            CLog.Warning("[ConsoleListener]", $"Fichier de configuration non trouvé: {configPath}");
             return;
         }
 

@@ -28,7 +28,6 @@ using WaadShared;
 using static WaadShared.LogonCommClient;
 using static WaadShared.LogonCommServer;
 using static WaadShared.RealmListOpcode;
-using Socket = System.Net.Sockets.Socket;
 
 namespace WaadRealmServer;
 
@@ -50,7 +49,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     
 
     // Constructeur sans paramètre pour compatibilité avec ConnectTCPSocket<T>
-    public LogonCommClientSocket() : base(new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp), 724288, 262444)
+    public LogonCommClientSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp, 724288, 262444)
     {
         var now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         last_ping = last_pong = pingtime = now;
@@ -241,10 +240,10 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
         Logger.OutColor(LogColor.TNORMAL, L_N_LOGCOMSE_6);
 
-        for (int i = 0; i < key.Length; ++i)
+        for (int i = 0; i < 20; ++i)
             Logger.OutColor(LogColor.TGREEN, $"{key[i]:X2} ");
 
-        Console.WriteLine();
+        Logger.OutColor(LogColor.TNORMAL, "\n");
 
         /* initialize rc4 keys */
         _recvCrypto.Setup(key);
@@ -254,7 +253,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         use_crypto = true;
 
         var packet = new WorldPacket((ushort)RCMSG_AUTH_CHALLENGE, 20);
-        packet.Write(key, 0, 20);
+        packet.Append(key, 20);
         SendPacket(packet, true); // true = pas de chiffrement sur le challenge
     }
 
@@ -262,6 +261,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     {
         // Lecture du résultat d'authentification
         byte result = recvData.Contents[0];
+        CLog.Notice("[LogonCommClient]", $"Auth response result: {result}");
         if (result != 1)
         {
             authenticated = 0xFFFFFFFF;
@@ -270,6 +270,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         else
         {
             authenticated = 1;
+            LogonCommHandler.Instance.RequestAddition(this);
         }
         use_crypto = true;
     }

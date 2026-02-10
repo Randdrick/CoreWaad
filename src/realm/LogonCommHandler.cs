@@ -21,15 +21,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Threading;
+using System.Net;
 
 using WaadShared;
 using WaadShared.Auth;
 using WaadShared.Config;
 using WaadShared.Network;
 
-using static WaadShared.Network.Socket;
 using static WaadShared.RealmListOpcode;
+using static WaadShared.LogonCommHandler;
+using System.Data.SQLite;
 
 namespace WaadRealmServer;
 
@@ -74,32 +77,29 @@ public class LogonCommHandler : IDisposable
     private readonly object mapLock = new();
     private readonly object pendingLock = new();
     private readonly bool pings;
-    private uint realmType;
     public byte[] SqlPassHash = new byte[20];
     public byte[] Key = new byte[20];
     private bool _disposed = false;
 
     public LogonCommHandler()
     {
-        var configPath = System.IO.Path.Combine(AppContext.BaseDirectory, "waad-logonserver.ini");
-        var configMgr = new ConfigMgr();
-        if (!configMgr.MainConfig.SetSource(configPath))
-        {
-            CLog.Error("[ConsoleListener]", $"Config file not found: {configPath}");
-            return;
-        }
         idHigh = 1;
         nextRequest = 1;
-        realmType = 0;
-        
-        string logonPass = configMgr.MainConfig.GetString("LogonServer:RemotePassword", "");
-        pings = !configMgr.MainConfig.GetBoolean("LogonServer:DisablePings", "false");
+        var configMgr = new ConfigMgr();
+
+        string logonPass = configMgr.MainConfig.GetString("LogonServer", "RemotePassword", "r3m0t3b4d");
+        pings = !configMgr.MainConfig.GetBoolean("LogonServer","DisablePings", false);
+
+        var sLog = new Logger();
+        sLog.OutDebug("[LogonCommHandler]", "logonPass: {0}", logonPass);
 
         // SHA3 hash
         var hash = new Sha3Hash();
         hash.UpdateData(logonPass);
         hash.FinalizeHash();
         SqlPassHash = hash.GetDigest();
+
+        sLog.OutDebug("[LogonCommHandler]", "SqlPassHash first 20: {0}", BitConverter.ToString(SqlPassHash, 0, 20).Replace("-", " "));
     }
 
     public void OnSessionInfo(WorldPacket recvData, uint requestId)
@@ -122,14 +122,15 @@ public class LogonCommHandler : IDisposable
 
     public static LogonCommClientSocket ConnectToLogon(string address, uint port)
     {
-        LogonCommClientSocket conn = ConnectTCPSocket<LogonCommClientSocket>(address, (ushort)port);
+        LogonCommClientSocket conn = Socket.ConnectTCPSocket<LogonCommClientSocket>(address, (ushort)port);
         return conn;
     }
     public void RequestAddition(LogonCommClientSocket socket)
     {
+        CLog.Notice("[LogonCommHandler]", $"RequestAddition: sending register for {realms.Count} realms");
+        var data = new WorldPacket((ushort)RCMSG_REGISTER_REALM, 100);
         foreach (var realm in realms)
         {
-            var data = new WorldPacket((ushort)RCMSG_REGISTER_REALM, 100);
             data.WriteString(realm.Name);
             data.WriteString(realm.Address);
             data.WriteUInt32(realm.Colour);
@@ -233,40 +234,59 @@ public class LogonCommHandler : IDisposable
     }
     public void Connect(LogonServer server)
     {
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_2, server.Name, server.Address, server.Port);
         server.RetryTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
         server.Registered = false;
         var conn = ConnectToLogon(server.Address, server.Port);
         logons[server] = conn;
         if (conn == null)
         {
+            Logger.OutColor(LogColor.TRED, R_E_LOGCOMHAN, server.Address, server.Port);
+            Logger.OutColor(LogColor.TNORMAL, "\n");
             return;
         }
+
+        Logger.OutColor(LogColor.TGREEN, " Ok !\n");
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_3);
+        Logger.OutColor(LogColor.TNORMAL, "        >> ");
+
+        uint tt = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
         conn.SendChallenge();
-        var tt = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_4);
+
         while (conn.authenticated == 0)
         {
             if ((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= tt)
             {
+                Logger.OutColor(LogColor.TYELLOW, R_Y_LOGCOMHAN);
                 conn.Disconnect();
                 logons[server] = null;
                 return;
             }
             Thread.Sleep(10);
         }
-        if (conn.authenticated == 0)
+
+        if (conn.authenticated != 1)
         {
+            Logger.OutColor(LogColor.TRED, R_E_LOGCOMHAN_1);
             logons[server] = null;
             conn.Disconnect();
             return;
         }
+        else
+            Logger.OutColor(LogColor.TGREEN, " Ok !\n");
+
         conn.SendPing();
+
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_5);
         conn._id = server.ID;
-        RequestAddition(conn);
+        // RequestAddition(conn); removed, now called in HandleAuthResponse
         var st = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
         while (!server.Registered)
         {
             if ((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= st)
             {
+                CLog.Warning("[LogonCommHandler]", R_Y_LOGCOMHAN_1);
                 logons[server] = null;
                 conn.Disconnect();
                 break;
@@ -276,6 +296,10 @@ public class LogonCommHandler : IDisposable
         if (!server.Registered)
             return;
         Thread.Sleep(200);
+
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_6);
+        Logger.OutColor(LogColor.TYELLOW, "%ums", conn.latency);
+        Logger.OutColor(LogColor.TNORMAL, "\n");
     }
     //public void LogonDatabaseSQLExecute(string str, params object[] args) { /* ... */ }
     //public void LogonDatabaseReloadAccounts() { /* ... */ }
@@ -308,43 +332,103 @@ public class LogonCommHandler : IDisposable
     {
         lock (pendingLock)
         {
-            pendingLogons.Remove(id);
+            _ = pendingLogons.Remove(id);
         }
     }
 
     public void RemoveUnauthedSocket(uint id)
     {
-        pendingLogons.Remove(id);
+        _ = pendingLogons.Remove(id);
     }
     public void LoadRealmConfiguration()
     {
-        var configPath = System.IO.Path.Combine(AppContext.BaseDirectory, "waad-realms.ini");
+        var configPath = Path.Combine(AppContext.BaseDirectory, "waad-realms.ini");
         var configMgr = new ConfigMgr();
         if (!configMgr.RealmConfig.SetSource(configPath))
         {
             CLog.Error("[ConsoleListener]", $"Config file not found: {configPath}");
             return;
         }
+        CLog.Debug("[LogonCommHandler]", $"Loading config from: {configPath}");
+        // Normalize LogonServer address to IPv4 when possible
+        string rawLogonAddr = configMgr.RealmConfig.GetString("LogonServer", "IpOrHost", "127.0.0.1");
+        CLog.Debug("[LogonCommHandler]", $"Raw logon address: {rawLogonAddr}");
+        string normalizedLogonAddr = rawLogonAddr;
+        if (!IPAddress.TryParse(rawLogonAddr, out var parsedIp) || parsedIp.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            try
+            {
+                // Try to resolve and pick an IPv4 address
+                var he = Dns.GetHostEntry(rawLogonAddr);
+                var ipv4 = he.AddressList.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                if (ipv4 != null)
+                    normalizedLogonAddr = ipv4.ToString();
+            }
+            catch { /* keep raw if resolution fails */ }
+        }
+        CLog.Debug("[LogonCommHandler]", $"Normalized logon address: {normalizedLogonAddr}");
+
         var ls = new LogonServer
         {
             ID = idHigh++,
-            Address = configMgr.RealmConfig.GetString("LogonServer:IpOrHost", "127.0.0.1"),
-            Port    = configMgr.RealmConfig.GetInt("LogonServer:Port", "8093"),
-            Name    = configMgr.RealmConfig.GetString("LogonServer:Name", "UnkLogon")
+            Address = normalizedLogonAddr,
+            Port    = (uint)configMgr.RealmConfig.GetInt32("LogonServer", "Port", 8093),
+            Name    = configMgr.RealmConfig.GetString("LogonServer", "Name", "UnkLogon")
         };
-        servers.Add(ls);
-        uint realmCount = (uint)configMgr.RealmConfig.GetInt32("LogonServer:RealmCount", "1");
+        _ = servers.Add(ls);
+        uint realmCount = (uint)configMgr.RealmConfig.GetInt32("LogonServer", "RealmCount", 1);
         for (uint i = 1; i <= realmCount; ++i)
         {
+            // Normalize realm address (may be host:port or literal IP). Prefer IPv4.
+            string rawRealmAddr = configMgr.RealmConfig.GetString($"Realm{i}", "Address", "127.0.0.1:8129");
+            string realmHost = rawRealmAddr;
+            int realmPort = 8129;
+
+            // Parse host[:port], handling bracketed IPv6 if present
+            if (rawRealmAddr.StartsWith('['))
+            {
+                int end = rawRealmAddr.IndexOf(']');
+                if (end > 1)
+                {
+                    realmHost = rawRealmAddr[1..end];
+                    if (rawRealmAddr.Length > end + 1 && rawRealmAddr[end + 1] == ':')
+                        _ = int.TryParse(rawRealmAddr.AsSpan(end + 2), out realmPort);
+                }
+            }
+            else
+            {
+                int lastColon = rawRealmAddr.LastIndexOf(':');
+                if (lastColon > 0 && rawRealmAddr.Count(c => c == ':') == 1)
+                {
+                    realmHost = rawRealmAddr[..lastColon];
+                    _ = int.TryParse(rawRealmAddr.AsSpan(lastColon + 1), out realmPort);
+                }
+                else if (lastColon > 0 && rawRealmAddr.Count(c => c == ':') > 1)
+                {
+                    // IPv6 literal without brackets; treat host as full literal
+                    realmHost = rawRealmAddr;
+                }
+            }
+
+            // Resolve and prefer IPv4
+            try
+            {
+                var he = Dns.GetHostEntry(realmHost);
+                var ipv4 = he.AddressList.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                if (ipv4 != null)
+                    realmHost = ipv4.ToString();
+            }
+            catch { /* keep original host if resolution fails */ }
+
             var realm = new Realm
             {
-                Name       = configMgr.RealmConfig.GetString($"Realm{i}:Name", "SomeRealm"),
-                Address    = configMgr.RealmConfig.GetString($"Realm{i}:Address", "127.0.0.1:8129"),
-                Colour     = configMgr.RealmConfig.GetInt($"Realm{i}:Colour", "1"),
-                TimeZone   = configMgr.RealmConfig.GetInt($"Realm{i}:TimeZone", "10"),
-                Population = configMgr.RealmConfig.GetFloat($"Realm{i}:Population", "0"),
+                Name       = configMgr.RealmConfig.GetString($"Realm{i}", "Name", "SomeRealm"),
+                Address    = realmHost + ":" + realmPort,
+                Colour     = (uint)configMgr.RealmConfig.GetInt32($"Realm{i}", "Colour", 1),
+                TimeZone   = (uint)configMgr.RealmConfig.GetInt32($"Realm{i}", "TimeZone", 10),
+                Population = configMgr.RealmConfig.GetFloat($"Realm{i}", "Population", 0),
             };
-            string rt = configMgr.RealmConfig.GetString($"Realm{i}:Icon", "Normal");
+            string rt = configMgr.RealmConfig.GetString($"Realm{i}", "Icon", "Normal");
             uint type = rt.ToLowerInvariant() switch
             {
                 "pvp" => (uint)RealmType.Pvp,
@@ -353,8 +437,7 @@ public class LogonCommHandler : IDisposable
                 _ => (uint)RealmType.Normal
             };
             realm.Icon = type;
-            realmType = type;
-            realms.Add(realm);
+            _ = realms.Add(realm);
         }
     }
     public void UpdateAccountCount(uint accountId, byte add)
@@ -374,7 +457,7 @@ public class LogonCommHandler : IDisposable
     public object GetPendingLock() => pendingLock;
     public string GetForcedPermissions(string username)
     {
-        forcedPermissions.TryGetValue(username, out var perm);
+        _ = forcedPermissions.TryGetValue(username, out var perm);
         return perm;
     }
 

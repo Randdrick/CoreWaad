@@ -53,31 +53,33 @@ public static class SocketManager
         MinBuild = (uint)configMgr.MainConfig.GetInt32("Client", "MinBuild", 12340);
         MaxBuild = (uint)configMgr.MainConfig.GetInt32("Client", "MaxBuild", 12340);
         string logonPass = configMgr.MainConfig.GetString("LogonServer", "RemotePassword", "r3m0t3b4d");
+        sLog.OutDebug("Logon logonPass: " + logonPass);
         var hash = new Sha3Hash();
         hash.UpdateData(logonPass);
         hash.FinalizeHash();
         Array.Copy(hash.GetDigest(), sql_hash, 20);
+
+        sLog.OutDebug("Logon sql_hash: " + BitConverter.ToString(sql_hash).Replace("-", " "));
 
         ThreadPool.ExecuteTask(new LogonConsoleThread());
 
 #if WIN32
         var Instance = new SocketMgr();
         Instance.SpawnWorkerThreads();
-        var authSocket = new ListenSocket<AuthSocket>(host, cport);
-        var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport);
+        var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket());
+        var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport, (sock) => new LogonCommServerSocket(sock));
 #endif
 
 #if !WIN32
         SocketMgr.SpawnWorkerThreads();
         var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket());
-        var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport, (sock) => new LogonCommServerSocket());
+        var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport, (sock) => new LogonCommServerSocket(sock));
 #endif
         if (!authSocket.IsOpen() || !serverSocket.IsOpen())
         {
             sLog.OutError("Failed to open sockets.");
             return false;
         }
-
 #if WIN32
         ThreadPool.ExecuteTask(authSocket);
         ThreadPool.ExecuteTask(serverSocket);

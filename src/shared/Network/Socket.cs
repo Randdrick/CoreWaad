@@ -32,12 +32,13 @@ namespace WaadShared.Network;
 public class Socket
 {
     private readonly System.Net.Sockets.Socket _socket;
+    public System.Net.Sockets.Socket GetSocket() => _socket;
     private bool m_connected;
     private bool m_deleted;
 #if CONFIG_USE_IOCP    
     private int m_writeLock;
 #endif
-    private IPEndPoint m_clientEndPoint;
+    protected IPEndPoint m_clientEndPoint;
     private readonly CircularBuffer readBuffer;
     private readonly CircularBuffer writeBuffer;
     private readonly object m_writeMutex = new();
@@ -55,7 +56,7 @@ public class Socket
         writeBuffer = new CircularBuffer();
         readBuffer.Allocate(recvbuffersize);
         writeBuffer.Allocate(sendbuffersize);
-        m_clientEndPoint = null;
+        m_clientEndPoint = socket.RemoteEndPoint as IPEndPoint;
 
 #if CONFIG_USE_IOCP
         m_writeLock = 0;
@@ -76,6 +77,22 @@ public class Socket
         writeBuffer = new CircularBuffer();
         readBuffer.Allocate(ByteBuffer.DEFAULT_SIZE);
         writeBuffer.Allocate(ByteBuffer.DEFAULT_SIZE);
+        m_clientEndPoint = null;
+    }
+
+    // New constructor: create internal System.Net.Sockets.Socket with custom buffer sizes
+    public Socket(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType, int sendBufferSize, int recvBufferSize)
+    {
+        _socket = new System.Net.Sockets.Socket(addressFamily, socketType, protocolType);
+        m_connected = false;
+        m_deleted = false;
+#if CONFIG_USE_IOCP
+        m_writeLock = 0;
+#endif
+        readBuffer = new CircularBuffer();
+        writeBuffer = new CircularBuffer();
+        readBuffer.Allocate(recvBufferSize);
+        writeBuffer.Allocate(sendBufferSize);
         m_clientEndPoint = null;
     }
 
@@ -104,27 +121,83 @@ public class Socket
     {
         try
         {
-            IPHostEntry hostEntry = Dns.GetHostEntry(address);
-            IPAddress[] addresses = hostEntry.AddressList;
+            IPAddress targetAddress;
+            if (address == "127.0.0.1" || address == "localhost")
+            {
+                targetAddress = IPAddress.Loopback;
+            }
+            else
+            {
+                IPHostEntry hostEntry = Dns.GetHostEntry(address);
+                IPAddress[] addresses = hostEntry.AddressList;
 
-            if (addresses.Length == 0)
+                if (addresses.Length == 0)
+                    return false;
+
+                // Find an IPv4 address that matches the socket's address family
+                targetAddress = null;
+                foreach (var addr in addresses)
+                {
+                    if (addr.AddressFamily == _socket.AddressFamily)
+                    {
+                        targetAddress = addr;
+                        break;
+                    }
+                }
+
+                if (targetAddress == null)
+                {
+                    Console.WriteLine($"No compatible address found for {address} (socket family: {_socket.AddressFamily})");
+                    return false;
+                }
+            }
+
+            m_clientEndPoint = new IPEndPoint(targetAddress, port);
+            
+            // Connect in blocking mode first
+            try
+            {
+                _socket.Connect(m_clientEndPoint);
+            }
+            catch (SocketException ex)
+            {
+                Console.WriteLine($"Blocking connect failed: {ex.Message}");
                 return false;
+            }
 
-            m_clientEndPoint = new IPEndPoint(addresses[0], port);
-            SocketOps.Blocking(_socket);
-            _socket.Connect(m_clientEndPoint);
+            // Now make it non-blocking
+            SocketOps.Nonblocking(_socket);
+            SocketOps.DisableBuffering(_socket);
 
 #if CONFIG_USE_IOCP
-            // IOCP: assign completion port if needed
-            m_completionPort = SocketManager.GetCompletionPort();
+            // IOCP: verify completion port is available
+            if (!m_deleted)
+            {
+                try
+                {
+                    IntPtr completionPort = SocketManager.GetCompletionPort();
+                    if (completionPort == IntPtr.Zero)
+                    {
+                        Console.WriteLine("Failed to get IOCP completion port");
+                        return false;
+                    }
+                    SocketManager.Instance.AddSocket(this);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"IOCP setup failed: {ex.Message}");
+                    return false;
+                }
+            }
 #endif
-
-            // Ensure non-blocking connect is completed before proceeding
-            if (!CheckNonBlockingConnectCompleted())
-                return false;
 
             OnConnect();
             return true;
+        }
+        catch (SocketException ex)
+        {
+            Console.WriteLine($"Connection failed with SocketException: {ex.Message}");
+            return false;
         }
         catch (Exception ex)
         {
@@ -139,12 +212,18 @@ public class Socket
         OnConnect();
     }
 
+    public void SetConnected(IPEndPoint endpoint)
+    {
+        m_clientEndPoint = endpoint;
+        OnConnect();
+    }
+
     protected void OnConnect()
     {
         SetToConnected();
 
 #if CONFIG_USE_IOCP
-        CLog.Notice("[SOCKET]", "Initializing IOCP Read Event for socket.");
+        CLog.Debug("[SOCKET]", "Initializing IOCP Read Event for socket.");
         ThreadPool.QueueUserWorkItem(_ => SocketExtensions.SetupReadEvent(this));
 
         SocketManager.Instance.AddSocket(this);
@@ -254,8 +333,10 @@ public class Socket
     public CircularBuffer GetWriteBuffer() => writeBuffer;
 
 #if CONFIG_USE_IOCP
-    private IntPtr m_completionPort;
-    public void SetCompletionPort(IntPtr cp) { m_completionPort = cp; }
+    public static void SetCompletionPort() 
+    { 
+        // Completion port is managed by SocketManager
+    }
     public void IncSendLock() { Interlocked.Increment(ref m_writeLock); }
     public void DecSendLock() { Interlocked.Decrement(ref m_writeLock); }
     public string RemoteEndPoint { get; set; }
@@ -284,11 +365,6 @@ public class Socket
         };
 
         socketInstance.OnConnect();
-    }
-
-    internal static void Close()
-    {
-        Close();
     }
 #endif
 
@@ -364,27 +440,52 @@ public class Socket
 
     public static T ConnectTCPSocket<T>(string hostname, ushort port) where T : Socket, new()
     {
-        var hostEntry = Dns.GetHostEntry(hostname);
-        if (hostEntry.AddressList.Length == 0)
-            return null;
-
-        var conn = new IPEndPoint(hostEntry.AddressList[0], port);
-        T s = new();
-        if (!s.Connect(hostname, port))
+        T socket = new();
+        // Connect() method will handle DNS resolution and IPv4/IPv6 selection
+        if (!socket.Connect(hostname, port))
         {
-            s.Delete();
+            socket.Delete();
             return null;
         }
-        return s;
+        return socket;
     }
     public static IEnumerable<object> GetSocketList()
     {
-        // Implementation for getting the socket list
+#if CONFIG_USE_IOCP
+        // For IOCP, socket list is managed internally by SocketManager
+        // Return empty collection as sockets are managed by the manager
         return [];
+#endif
+#if CONFIG_USE_EPOLL
+        // Return EPOLL socket manager's socket list
+        return SocketMgr.GetInstance().GetSockets().Cast<object>();
+#endif
+#if CONFIG_USE_KQUEUE
+        // Return KQUEUE socket manager's socket list
+        var instance = SocketMgr.GetInstance();
+        if (instance != null)
+            return instance.GetSockets().Cast<object>();
+        return [];
+#endif
+#if !CONFIG_USE_IOCP && !CONFIG_USE_EPOLL && !CONFIG_USE_KQUEUE
+        // Fallback for other platforms
+        return [];
+#endif
     }
     public static void RemoveSocket(Socket deadSocket)
     {
-        // Implementation for removing a socket
+        if (deadSocket != null)
+        {
+#if CONFIG_USE_IOCP
+            SocketManager.Instance.RemoveSocket(deadSocket);
+#endif
+#if CONFIG_USE_EPOLL
+            SocketMgr.RemoveSocket(deadSocket.GetFd());
+#endif
+#if CONFIG_USE_KQUEUE
+            SocketMgr.GetInstance().RemoveSocket(deadSocket);
+#endif
+        }
     }
     internal static void Select(HashSet<Socket> m_readableSet, HashSet<Socket> writable, HashSet<Socket> m_exceptionSet, int v)
     {

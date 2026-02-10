@@ -39,7 +39,16 @@ public class ClientMgr : IDisposable
     }
 
     private bool _disposed = false;
-    public static ClientMgr Instance { get; } = new ClientMgr();
+    private static readonly Lazy<ClientMgr> _instance = new(() => new ClientMgr());
+    public static ClientMgr Instance => _instance.Value;
+
+    // Reset the singleton instance (used during shutdown)
+    public static void ResetInstance()
+    {
+        // Note: Lazy<T> is readonly, so we cannot directly reset it.
+        // This is intentional - the Lazy instance persists for the application lifetime.
+        // The instance's Dispose() should be called manually before shutdown.
+    }
 
     // Types
     private readonly Dictionary<string, RPlayerInfo> _stringClients = [];
@@ -53,7 +62,8 @@ public class ClientMgr : IDisposable
 
     private ClientMgr()
     {
-        Session.InitHandlers();
+        // Note: Session.InitHandlers() est appelé après l'initialisation de tous les singletons
+        // pour éviter les dépendances circulaires
         CLog.Success("ClientMgr", ClientManager.R_S_CLTMGR);
     }
 

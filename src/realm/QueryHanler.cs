@@ -29,6 +29,7 @@ namespace WaadRealmServer
         private void HandleCreatureQueryOpcode(WorldPacket p)
         {
             var sLog = new Logger();
+            sLog.OutWarning("CREATURE_QUERY", "Traitement de la requête de créature.");
 
             if (!Utils.CheckPacketSize(p, 12, this))
             {
@@ -70,7 +71,7 @@ namespace WaadRealmServer
                 CreatureInfo ci = Storage.CreatureNameStorage.LookupEntry(entry);
                 if (ci == null)
                 {
-                    sLog.OutDebug("CREATURE_QUERY", $"Aucune créature trouvée pour l'entry : {entry}.");
+                    sLog.OutError("CREATURE_QUERY", $"Aucune créature trouvée pour l'entry : {entry}.");
                     return;
                 }
                 sLog.OutDebug("CREATURE_QUERY", $"Requête de créature reçue pour : {ci.Name}");
@@ -202,18 +203,18 @@ namespace WaadRealmServer
 
             var data = new WorldPacket((ushort)Opcodes.SMSG_ITEM_QUERY_SINGLE_RESPONSE, 600 + Encoding.UTF8.GetByteCount(itemProto.Name1) + Encoding.UTF8.GetByteCount(itemProto.Description));
 
+            // Champs simples
             data.WriteUInt32(itemProto.ItemId);
             data.WriteUInt32(itemProto.Class);
             data.WriteUInt32(itemProto.SubClass);
-            data.WriteUInt32(itemProto.UnknownBc);
+            data.WriteUInt32(itemProto.Field4);
             data.WriteString(itemProto.Name1);
-            data.WriteByte(0);
-            data.WriteByte(0);
-            data.WriteByte(0);
+            data.WriteString(itemProto.Name2);
+            data.WriteString(itemProto.Name3);
+            data.WriteString(itemProto.Name4);
             data.WriteUInt32(itemProto.DisplayInfoID);
             data.WriteUInt32(itemProto.Quality);
             data.WriteUInt32(itemProto.Flags);
-            data.WriteUInt32(itemProto.Faction);
             data.WriteUInt32(itemProto.BuyPrice);
             data.WriteUInt32(itemProto.SellPrice);
             data.WriteUInt32(itemProto.InventoryType);
@@ -232,19 +233,40 @@ namespace WaadRealmServer
             data.WriteUInt32(itemProto.MaxCount);
             data.WriteUInt32(itemProto.ContainerSlots);
             data.WriteUInt32(itemProto.StatsCount);
+
+            // Stats
             for (int i = 0; i < itemProto.StatsCount; i++)
             {
-                data.WriteUInt32(itemProto.Stats[i].Type);
-                data.WriteInt32(itemProto.Stats[i].Value);
+                if (i < itemProto.Stats.Length)
+                {
+                    data.WriteUInt32(itemProto.Stats[i].Type);
+                    data.WriteInt32(itemProto.Stats[i].Value);
+                }
+                else
+                {
+                    data.WriteUInt32(0);
+                    data.WriteInt32(0);
+                }
             }
-            data.WriteUInt32(itemProto.ScalingStatsEntry);
-            data.WriteUInt32(itemProto.ScalingStatsFlag);
-            for (int i = 0; i < 2; i++)
+
+            // Damage
+            for (int i = 0; i < 5; i++)
             {
-                data.WriteFloat(itemProto.Damage[i].Min);
-                data.WriteFloat(itemProto.Damage[i].Max);
-                data.WriteUInt32(itemProto.Damage[i].Type);
+                if (i < itemProto.Damage.Length)
+                {
+                    data.WriteFloat(itemProto.Damage[i].Min);
+                    data.WriteFloat(itemProto.Damage[i].Max);
+                    data.WriteUInt32(itemProto.Damage[i].Type);
+                }
+                else
+                {
+                    data.WriteFloat(0);
+                    data.WriteFloat(0);
+                    data.WriteUInt32(0);
+                }
             }
+
+            // Résistances et autres champs simples
             data.WriteUInt32(itemProto.Armor);
             data.WriteUInt32(itemProto.HolyRes);
             data.WriteUInt32(itemProto.FireRes);
@@ -255,15 +277,31 @@ namespace WaadRealmServer
             data.WriteUInt32(itemProto.Delay);
             data.WriteUInt32(itemProto.AmmoType);
             data.WriteFloat(itemProto.Range);
+
+            // Spells
             for (int i = 0; i < 5; i++)
             {
-                data.WriteUInt32(itemProto.Spells[i].Id);
-                data.WriteUInt32(itemProto.Spells[i].Trigger);
-                data.WriteInt32(itemProto.Spells[i].Charges);
-                data.WriteInt32(itemProto.Spells[i].Cooldown);
-                data.WriteUInt32(itemProto.Spells[i].Category);
-                data.WriteInt32(itemProto.Spells[i].CategoryCooldown);
+                if (i < itemProto.Spells.Length)
+                {
+                    data.WriteUInt32(itemProto.Spells[i].Id);
+                    data.WriteUInt32(itemProto.Spells[i].Trigger);
+                    data.WriteInt32(itemProto.Spells[i].Charges);
+                    data.WriteInt32(itemProto.Spells[i].Cooldown);
+                    data.WriteUInt32(itemProto.Spells[i].Category);
+                    data.WriteInt32(itemProto.Spells[i].CategoryCooldown);
+                }
+                else
+                {
+                    data.WriteUInt32(0);
+                    data.WriteUInt32(0);
+                    data.WriteInt32(0);
+                    data.WriteInt32(0);
+                    data.WriteUInt32(0);
+                    data.WriteInt32(0);
+                }
             }
+
+            // Champs simples restants
             data.WriteUInt32(itemProto.Bonding);
             data.WriteString(itemProto.Description);
             data.WriteUInt32(itemProto.PageId);
@@ -272,9 +310,8 @@ namespace WaadRealmServer
             data.WriteUInt32(itemProto.QuestId);
             data.WriteUInt32(itemProto.LockId);
             data.WriteUInt32(itemProto.LockMaterial);
-            data.WriteUInt32(itemProto.Field108);
+            data.WriteUInt32(itemProto.SheathID);
             data.WriteUInt32(itemProto.RandomPropId);
-            data.WriteUInt32(itemProto.RandomSuffixId);
             data.WriteUInt32(itemProto.Block);
             data.WriteUInt32(itemProto.ItemSet);
             data.WriteUInt32(itemProto.MaxDurability);
@@ -282,11 +319,23 @@ namespace WaadRealmServer
             data.WriteUInt32(itemProto.MapID);
             data.WriteUInt32(itemProto.BagFamily);
             data.WriteUInt32(itemProto.TotemCategory);
+
+            // Sockets
             for (int i = 0; i < 3; i++)
             {
-                data.WriteUInt32(itemProto.Sockets[i].SocketColor);
-                data.WriteUInt32(itemProto.Sockets[i].Unk);
+                if (i < itemProto.Sockets.Length)
+                {
+                    data.WriteUInt32(itemProto.Sockets[i].SocketColor);
+                    data.WriteUInt32(itemProto.Sockets[i].Unk);
+                }
+                else
+                {
+                    data.WriteUInt32(0);
+                    data.WriteUInt32(0);
+                }
             }
+
+            // Champs restants
             data.WriteUInt32(itemProto.SocketBonus);
             data.WriteUInt32(itemProto.GemProperties);
             data.WriteInt32(itemProto.DisenchantReqSkill);
@@ -294,6 +343,11 @@ namespace WaadRealmServer
             data.WriteUInt32(itemProto.ExistingDuration);
             data.WriteUInt32(itemProto.ItemLimitCategory);
             data.WriteUInt32(itemProto.HolidayId);
+            data.WriteUInt32(itemProto.Unk203_1);
+            data.WriteUInt32(itemProto.Unk201_3);
+            data.WriteUInt32(itemProto.Unk201_5);
+            data.WriteUInt32(itemProto.Unk201_7);
+            data.WriteUInt32(itemProto.Unk2);
 
             try
             {
@@ -305,6 +359,7 @@ namespace WaadRealmServer
                 sLog.OutError("ITEM_QUERY_SINGLE", $"Erreur lors de l'envoi de la réponse : {ex.Message}");
             }
         }
+
         private void HandleItemNameQueryOpcode(WorldPacket p)
         {
             var sLog = new Logger();

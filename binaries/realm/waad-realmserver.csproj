@@ -3,9 +3,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>waad_realmserver</RootNamespace>
+    <RootNamespace>waad-realmserver</RootNamespace>
     <AssemblyName>waad-realmserver</AssemblyName>
-    <StartupObject>WaadRealmServer.Master</StartupObject>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -45,7 +44,15 @@
 
   <ItemGroup>
     <Compile Include="..\..\..\CoreWaad\src\realm\**\*.cs" Exclude="obj\**\*.cs" />
-    <Content Include="..\..\..\CoreWaad\src\realm\**\*" Exclude="obj\**\*.cs" />
-  </ItemGroup>
+    <Content Include="..\..\..\CoreWaad\src\realm\**\*" Exclude="obj\**\*.cs;**\*.cs" CopyToOutputDirectory="Always" />
 
+  </ItemGroup>
+  
+  <Target Name="GenerateGitInfo" BeforeTargets="BeforeBuild">
+    <Exec Command="dotnet run --project ..\..\extras\GitExtractor\GitExtractor.csproj -- GenerateGitInfo $(MSBuildProjectDirectory)\GitInfo.txt &gt; $(MSBuildProjectDirectory)\GitInfoLog.txt 2&gt;&amp;1" />
+  </Target>
+
+  <ItemGroup>
+    <EmbeddedResource Include="GitInfo.txt" />
+  </ItemGroup>
 </Project>

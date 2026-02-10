@@ -23,11 +23,20 @@ using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Data.SQLite;
+using System.Reflection;
 using MySql.Data.MySqlClient;
 using Npgsql;
+
 using static WaadShared.Common;
 
 namespace WaadShared;
+
+[AttributeUsage(AttributeTargets.Property)]
+public class DbFieldAttribute(string format) : Attribute
+{
+    public string Format { get; } = format;
+    public int Length { get; set; }
+}
 
 public class StorageAllocationPool<T> where T : new()
 {
@@ -38,6 +47,19 @@ public class StorageAllocationPool<T> where T : new()
     public void Init(int count)
     {
         _pool = new T[count + 100][];
+        for (int i = 0; i < count + 100; i++)
+        {
+            _pool[i] = new T[1];
+            try
+            {
+                _pool[i][0] = new T();
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'initialisation du pool à l'index {i} : {ex.Message}");
+                _pool[i][0] = default;
+            }
+        }
         _count = 0;
         _max = count + 100;
     }
@@ -46,8 +68,8 @@ public class StorageAllocationPool<T> where T : new()
     {
         if (_count >= _max)
         {
-            Console.WriteLine("StorageAllocationPool Get() failed!");
-            return default;
+            CLog.Error("Storage", "StorageAllocationPool Get() failed!");
+            return null;
         }
 
         return _pool[_count++];
@@ -101,7 +123,6 @@ public class ArrayStorageContainer<T> : IStorageContainer<T> where T : class, ne
         if (max < _max)
             return;
         var newArray = new T[max][];
-
         System.Array.Copy(_array, newArray, _max);
         _array = newArray;
         _max = max;
@@ -109,10 +130,31 @@ public class ArrayStorageContainer<T> : IStorageContainer<T> where T : class, ne
 
     public T AllocateEntry(int entry)
     {
-        if (entry >= _max || _array[entry] != null)
-            return default;
-        _array[entry] = _pool.Get();
-        return _array[entry][0];
+        if (entry >= _max)
+        {
+            CLog.Error("Storage", $"Index hors limites : {entry}");
+            return null;
+        }
+
+        if (_array[entry] != null)
+        {
+            CLog.Warning("Storage", $"L'entrée {entry} est déjà allouée.");
+            return _array[entry][0];
+        }
+
+        T[] newEntry = new T[1];
+        try
+        {
+            newEntry[0] = new T();
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("Storage", $"Erreur lors de l'instanciation de l'entrée {entry} : {ex.Message}");
+            return null;
+        }
+
+        _array[entry] = newEntry;
+        return newEntry[0];
     }
 
     public bool DeallocateEntry(int entry)
@@ -125,8 +167,8 @@ public class ArrayStorageContainer<T> : IStorageContainer<T> where T : class, ne
 
     public T LookupEntry(int entry)
     {
-        if (entry >= _max)
-            return default;
+        if (entry >= _max || _array[entry] == null)
+            return null;
         return _array[entry][0];
     }
 
@@ -141,7 +183,10 @@ public class ArrayStorageContainer<T> : IStorageContainer<T> where T : class, ne
     public T LookupEntryAllocate(int entry)
     {
         T ret = LookupEntry(entry);
-        ret ??= AllocateEntry(entry);
+        if (ret == null)
+        {
+            ret = AllocateEntry(entry);
+        }
         return ret;
     }
 
@@ -155,15 +200,15 @@ public class ArrayStorageContainer<T> : IStorageContainer<T> where T : class, ne
 
     public bool NeedsMax()
     {
-        // Logique à définir selon ton besoin (exemple : retourne toujours true)
         return true;
     }
 
     public T LookupEntry(uint entry)
     {
-        throw new NotImplementedException();
+        return LookupEntry((int)entry);
     }
 }
+
 
 public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
 {
@@ -186,8 +231,18 @@ public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
     {
         if (_map.ContainsKey(entry))
             return default;
-        T[] nArray = _pool.Get();
-        T n = nArray != null ? nArray[0] : new T();
+
+        T n;
+        if (_pool != null)
+        {
+            T[] nArray = _pool.Get();
+            n = nArray != null ? nArray[0] : new T();
+        }
+        else
+        {
+            n = new T();
+        }
+
         _map[entry] = n;
         return n;
     }
@@ -201,7 +256,6 @@ public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
         map[entry] = n;
         return n;
     }
-
 
     public bool DeallocateEntry(int entry)
     {
@@ -262,7 +316,6 @@ public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
         return ret;
     }
 }
-
 
 public class ArrayStorageIterator<T> : StorageContainerIterator<T> where T : class, new()
 {
@@ -335,7 +388,7 @@ public interface IStorageContainer<T>
 {
     StorageContainerIterator<T> MakeIterator();
     T LookupEntry(int entry);
-    T LookupEntry(uint entry);    
+    T LookupEntry(uint entry);
     void Clear();
     bool NeedsMax();
     void Setup(int max);
@@ -375,7 +428,7 @@ public abstract class Storage<T, StorageType> where StorageType : IStorageContai
 
     public abstract void Reload();
 
-    public virtual void Load(string indexName, string formatString)
+    public virtual void Load(string indexName, string formatString, string connectionString, int dbType)
     {
         _indexName = indexName;
         _formatString = formatString;
@@ -396,93 +449,213 @@ public abstract class Storage<T, StorageType> where StorageType : IStorageContai
 
     public void FreeBlock(T allocated)
     {
-        if (_formatString == null) return;
+        if (_formatString == null || allocated == null)
+            return;
 
-        // Assuming T is a class with fields that match the format string
-        // This is a simplified example and may need adjustment based on the actual structure of T
-        foreach (char formatChar in _formatString)
+        var properties = typeof(T).GetProperties();
+        int fieldIndex = 0;
+
+        foreach (var property in properties)
         {
-            switch (formatChar)
+            var dbFieldAttribute = property.GetCustomAttribute<DbFieldAttribute>();
+            if (dbFieldAttribute == null)
+                continue;
+
+            try
             {
-                case 's': // string
-                    // Assuming the field is a string, set it to null
-                    typeof(T).GetField("StringFieldName")?.SetValue(allocated, null);
-                    break;
-                case 'u':
-                case 'i':
-                case 'f':
-                    // Assuming the fields are value types, set them to default
-                    typeof(T).GetField("UInt32FieldName")?.SetValue(allocated, default(uint));
-                    typeof(T).GetField("Int32FieldName")?.SetValue(allocated, default(int));
-                    typeof(T).GetField("FloatFieldName")?.SetValue(allocated, default(float));
-                    break;
-                case 'h':
-                    typeof(T).GetField("UInt16FieldName")?.SetValue(allocated, default(ushort));
-                    break;
-                case 'c':
-                    typeof(T).GetField("UInt8FieldName")?.SetValue(allocated, default(byte));
-                    break;
+                switch (dbFieldAttribute.Format)
+                {
+                    case "s": // string
+                        property.SetValue(allocated, string.Empty);
+                        break;
+                    case "u":
+                        if (property.PropertyType == typeof(uint))
+                        {
+                            property.SetValue(allocated, 0u);
+                        }
+                        else if (property.PropertyType == typeof(uint[]))
+                        {
+                            uint[] array = new uint[dbFieldAttribute.Length];
+                            property.SetValue(allocated, array);
+                        }
+                        break;
+                    case "i":
+                        property.SetValue(allocated, 0);
+                        break;
+                    case "f":
+                        if (property.PropertyType == typeof(float))
+                        {
+                            property.SetValue(allocated, 0f);
+                        }
+                        break;
+                    case "c":
+                        property.SetValue(allocated, (byte)0);
+                        break;
+                }
             }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de la libération de la propriété {property.Name} : {ex.Message}");
+            }
+
+            fieldIndex++;
         }
     }
 }
 
 public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new() where StorageType : IStorageContainer<T>
 {
-    public SQLStorage() : base() { }
+    public SQLStorage() : base()
+    {
+        _storage = Activator.CreateInstance<StorageType>();
+    }
     private const int STORAGE_ARRAY_MAX = 200000;
 
     public void LoadBlock(Field[] fields, T allocated)
     {
-        if (_formatString == null) return;
-
-        int offset = 0;
-        int fieldIndex = 0;
-        var typeFields = typeof(T).GetFields();
-
-        foreach (char formatChar in _formatString)
+        if (fields == null)
         {
-            if (fieldIndex >= fields.Length) break;
+            CLog.Error("Storage", "Fields est null.");
+            return;
+        }
 
-            Field field = fields[fieldIndex];
+        if (allocated == null)
+        {
+            CLog.Error("Storage", "Allocated est null.");
+            return;
+        }
 
-            switch (formatChar)
+        var properties = typeof(T).GetProperties();
+        int fieldIndex = 0;
+
+        foreach (var property in properties)
+        {
+            var dbFieldAttribute = property.GetCustomAttribute<DbFieldAttribute>();
+            if (dbFieldAttribute == null)
+                continue;
+
+            try
             {
-                case 'b': // Boolean
-                    typeFields[offset].SetValue(allocated, field.GetBool());
-                    offset++;
+                if (fieldIndex >= fields.Length)
+                {
+                    CLog.Error("Storage", $"Index de champ hors limites : {fieldIndex}");
                     break;
-                case 'c': // Byte
-                    typeFields[offset].SetValue(allocated, field.GetUInt8());
-                    offset++;
-                    break;
-                case 'h': // UInt16
-                    typeFields[offset].SetValue(allocated, field.GetUInt16());
-                    offset++;
-                    break;
-                case 'u': // UInt32
-                    typeFields[offset].SetValue(allocated, field.GetUInt32());
-                    offset++;
-                    break;
-                case 'i': // Int32
-                    typeFields[offset].SetValue(allocated, field.GetInt32());
-                    offset++;
-                    break;
-                case 'f': // Float
-                    typeFields[offset].SetValue(allocated, field.GetFloat());
-                    offset++;
-                    break;
-                case 's': // String
-                    string strValue = field.GetString() ?? string.Empty;
-                    typeFields[offset].SetValue(allocated, strValue);
-                    offset++;
-                    break;
-                case 'x': // Skip
-                    break;
-                default:
-                    Console.WriteLine($"Unknown field type in string: `{formatChar}`");
-                    break;
+                }
+
+                Field field = fields[fieldIndex];
+                if (field.Equals(null))
+                {
+                    CLog.Debug("Storage", $"Valeur null pour la propriété {property.Name}");
+                }
+
+                switch (dbFieldAttribute.Format)
+                {
+                    case "u":
+                        if (property.PropertyType == typeof(uint))
+                        {
+                            try
+                            {
+                                property.SetValue(allocated, field.Equals(null) ? 0u : field.GetUInt32());
+                            }
+                            catch (Exception ex)
+                            {
+                                CLog.Error("Storage", $"Erreur lors de la conversion en uint pour {property.Name} : {ex.Message}");
+                                property.SetValue(allocated, 0u);
+                            }
+                        }
+                        else if (property.PropertyType == typeof(uint[]))
+                        {
+                            uint[] array = new uint[dbFieldAttribute.Length];
+                            for (int i = 0; i < dbFieldAttribute.Length; i++)
+                            {
+                                if (fieldIndex + i >= fields.Length)
+                                {
+                                    CLog.Error("Storage", $"Index de tableau hors limites : {fieldIndex + i}");
+                                    break;
+                                }
+                                try
+                                {
+                                    array[i] = fields[fieldIndex + i].Equals(null) ? 0u : fields[fieldIndex + i].GetUInt32();
+                                }
+                                catch (Exception ex)
+                                {
+                                    CLog.Error("Storage", $"Erreur lors de la conversion en uint pour {property.Name}[{i}] : {ex.Message}");
+                                    array[i] = 0u;
+                                }
+                            }
+                            property.SetValue(allocated, array);
+                            fieldIndex += dbFieldAttribute.Length - 1;
+                        }
+                        break;
+
+                    case "i":
+                        try
+                        {
+                            property.SetValue(allocated, field.Equals(null) ? 0 : field.GetInt32());
+                        }
+                        catch (Exception ex)
+                        {
+                            CLog.Error("Storage", $"Erreur lors de la conversion en int pour {property.Name} : {ex.Message}");
+                            property.SetValue(allocated, 0);
+                        }
+                        break;
+
+                    case "s":
+                        try
+                        {
+                            property.SetValue(allocated, field.Equals(null) ? string.Empty : field.GetString());
+                        }
+                        catch (Exception ex)
+                        {
+                            CLog.Error("Storage", $"Erreur lors de la conversion en string pour {property.Name} : {ex.Message}");
+                            property.SetValue(allocated, string.Empty);
+                        }
+                        break;
+
+                    case "f":
+                        if (property.PropertyType == typeof(float))
+                        {
+                            try
+                            {
+                                property.SetValue(allocated, field.Equals(null) ? 0f : field.GetFloat());
+                            }
+                            catch (Exception ex)
+                            {
+                                CLog.Error("Storage", $"Erreur lors de la conversion en float pour {property.Name} : {ex.Message}");
+                                property.SetValue(allocated, 0f);
+                            }
+                        }
+                        break;
+
+                    case "c":
+                        try
+                        {
+                            if (field.Equals(null))
+                            {
+                                property.SetValue(allocated, (byte)0);
+                            }
+                            else
+                            {
+                                property.SetValue(allocated, field.GetUInt8());
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            CLog.Error("Storage", $"Erreur lors de la conversion en byte pour {property.Name} : {ex.Message}");
+                            property.SetValue(allocated, (byte)0);
+                        }
+                        break;
+
+                    default:
+                        CLog.Warning("Storage", $"Format de champ inconnu : {dbFieldAttribute.Format}");
+                        break;
+                }
             }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'affectation de la propriété {property.Name} à l'index {fieldIndex} : {ex.Message}");
+            }
+
             fieldIndex++;
         }
     }
@@ -527,40 +700,59 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         }
     }
 
-    public override void Load(string indexName, string formatString)
+    public override void Load(string indexName, string formatString, string connectionString, int dbType)
     {
-        base.Load(indexName, formatString);
-        var cLog = new CLog();
+        base.Load(indexName, formatString, connectionString, dbType);
 
-        // Vérifiez que le type de base de données est défini
+        CLog.Debug("Storage", $"Début du chargement de la table {indexName}...");
+
+        SLogonSQL.SetConnectionString(connectionString, dbType);
+
         if (SLogonSQL.DatabaseType == 0)
         {
             CLog.Error("Storage", "Database type is not set. Cannot load data.");
             return;
         }
 
-        // Ouvrir une connexion en fonction du type de base de données
         using var connection = SLogonSQL.CreateConnection();
-        connection.Open();
+        try
+        {
+            CLog.Debug("Storage", $"Ouverture de la connexion à la base de données pour {indexName}...");
+            connection.Open();
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("Storage", $"Erreur lors de l'ouverture de la connexion pour {indexName}: {ex.Message}");
+            return;
+        }
 
-        int max = STORAGE_ARRAY_MAX; // Définir cette constante
+        int max = STORAGE_ARRAY_MAX;
         if (_storage.NeedsMax())
         {
-            using var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {indexName}", connection);
-            using var reader = command.ExecuteReader();
-            if (reader.Read())
+            try
             {
-                max = reader.GetInt32(0) + 1;
-                if (max > STORAGE_ARRAY_MAX)
+                using var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {indexName}", connection);
+                using var reader = command.ExecuteReader();
+                if (reader.Read())
                 {
-                    CLog.Warning("Storage", $"The table '{indexName}' has a maximum entry of {max}, which exceeds {STORAGE_ARRAY_MAX}. Entries beyond {STORAGE_ARRAY_MAX} will not be loaded.");
-                    max = STORAGE_ARRAY_MAX;
+                    max = reader.GetInt32(0) + 1;
+                    if (max > STORAGE_ARRAY_MAX)
+                    {
+                        CLog.Warning("Storage", $"La table '{indexName}' a un maximum d'entrée de {max}, qui dépasse {STORAGE_ARRAY_MAX}. Les entrées au-delà de {STORAGE_ARRAY_MAX} ne seront pas chargées.");
+                        max = STORAGE_ARRAY_MAX;
+                    }
                 }
+                _storage.Setup(max);
             }
-            _storage.Setup(max);
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de la récupération du MAX(entry) pour {indexName}: {ex.Message}");
+                return;
+            }
         }
 
         int cols = formatString.Length;
+        int count = 0;
         using (var command = SLogonSQL.CreateCommand($"SELECT * FROM {indexName}", connection))
         {
             using var reader = command.ExecuteReader();
@@ -568,36 +760,116 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             {
                 if (reader.FieldCount > cols)
                 {
-                    CLog.Warning("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), loading anyway because we have enough data.");
+                    CLog.Warning("Storage", $"Format invalide dans {indexName} ({cols}/{reader.FieldCount}), chargement quand même car nous avons assez de données.");
                 }
                 else
                 {
-                    CLog.Error("Storage", $"Invalid format in {indexName} ({cols}/{reader.FieldCount}), not enough data to proceed.");
+                    CLog.Error("Storage", $"Format invalide dans {indexName} ({cols}/{reader.FieldCount}), pas assez de données pour continuer.");
                     return;
                 }
             }
 
             while (reader.Read())
             {
-                int entry = reader.GetInt32(0);
-                T allocated = _storage.AllocateEntry(entry);
-                if (allocated != null)
+                try
                 {
-                    Field[] fields = new Field[reader.FieldCount];
-                    for (int i = 0; i < reader.FieldCount; i++)
+                    int entry = reader.GetInt32(0);
+                    T allocated = _storage.AllocateEntry(entry);
+                    if (allocated != null)
                     {
-                        fields[i] = new Field(reader.GetValue(i));
+                        Field[] fields = new Field[reader.FieldCount];
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            fields[i] = new Field(reader.GetValue(i));
+                        }
+                        LoadBlock(fields, allocated);
+                        CallParseMethods(allocated);
+                        count++;
                     }
-                    LoadBlock(fields, allocated);
+                    else
+                    {
+                        CLog.Warning("Storage", $"Échec de l'allocation de l'entrée {entry} dans {indexName}.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    CLog.Error("Storage", $"Erreur lors du chargement d'une entrée dans {indexName}: {ex.Message}");
+                    CLog.Error("Storage", ex.StackTrace);
                 }
             }
-            CLog.Notice("Storage", $"{reader.RecordsAffected} entries loaded from table {indexName}.");
+            CLog.Notice("Storage", $"{count} entrées chargées depuis la table {indexName}.");
         }
     }
-    public void LoadAdditionalData(string indexName, string formatString)
+
+    private static void CallParseMethods(object obj)
     {
-        base.Load(indexName, formatString);
-        var cLog = new CLog();
+        if (obj == null)
+            return;
+
+        Type type = obj.GetType();
+
+        // Vérifier et appeler ParseStats si la méthode existe
+        var parseStatsMethod = type.GetMethod("ParseStats");
+        if (parseStatsMethod != null)
+        {
+            try
+            {
+                parseStatsMethod.Invoke(obj, null);
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'appel de ParseStats: {ex.Message}");
+            }
+        }
+
+        // Vérifier et appeler ParseDamage si la méthode existe
+        var parseDamageMethod = type.GetMethod("ParseDamage");
+        if (parseDamageMethod != null)
+        {
+            try
+            {
+                parseDamageMethod.Invoke(obj, null);
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'appel de ParseDamage: {ex.Message}");
+            }
+        }
+
+        // Vérifier et appeler ParseSpells si la méthode existe
+        var parseSpellsMethod = type.GetMethod("ParseSpells");
+        if (parseSpellsMethod != null)
+        {
+            try
+            {
+                parseSpellsMethod.Invoke(obj, null);
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'appel de ParseSpells: {ex.Message}");
+            }
+        }
+
+        // Vérifier et appeler ParseSockets si la méthode existe
+        var parseSocketsMethod = type.GetMethod("ParseSockets");
+        if (parseSocketsMethod != null)
+        {
+            try
+            {
+                parseSocketsMethod.Invoke(obj, null);
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'appel de ParseSockets: {ex.Message}");
+            }
+        }
+    }
+
+
+    public void LoadAdditionalData(string indexName, string formatString, string connectionString, int dbType)
+    {
+        base.Load(indexName, formatString, connectionString, dbType);
+        SLogonSQL.SetConnectionString(connectionString, dbType);
 
         // Vérifiez que le type de base de données est défini
         if (SLogonSQL.DatabaseType == 0)

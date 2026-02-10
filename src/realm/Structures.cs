@@ -56,11 +56,11 @@ public enum Races : byte
     RACE_DRAENEI = 11,
     MAX_RACE_NORMAL = 12,
     RACE_NAGA = 13,
-    RACE_BROKEN = 14, // Rou�
+    RACE_BROKEN = 14, // Roué
     RACE_SKELETON = 15,
     RACE_VRYKUL = 16,
     RACE_TUSKAR = 17, // Rohart
-    RACE_FORTESTROLL = 18, // Troll des forets
+    RACE_FORTESTROLL = 18, // Troll des forêts
     RACE_TAUNKA = 19,
     RACE_LK_SQUELETON = 20, // Squelette du Northrend
     RACE_ICE_TROLL = 21,  // Troll des glaces
@@ -98,117 +98,464 @@ public class ItemStat
 
 public class ItemPrototype
 {
+    [DbField("u")]
     public uint ItemId { get; set; }
+
+    [DbField("u")]
     public uint Class { get; set; }
+
+    [DbField("u")]
     public uint SubClass { get; set; }
-    public uint UnknownBc { get; set; }
-    public string Name1 { get; set; }
-    public string Name2 { get; set; }
-    public string Name3 { get; set; }
-    public string Name4 { get; set; }
+
+    [DbField("u")]
+    public uint Field4 { get; set; }
+
+    [DbField("s")]
+    public string Name1 { get; set; } = string.Empty;
+
+    [DbField("s")]
+    public string Name2 { get; set; } = string.Empty;
+
+    [DbField("s")]
+    public string Name3 { get; set; } = string.Empty;
+
+    [DbField("s")]
+    public string Name4 { get; set; } = string.Empty;
+
+    [DbField("u")]
     public uint DisplayInfoID { get; set; }
+
+    [DbField("u")]
     public uint Quality { get; set; }
+
+    [DbField("u")]
     public uint Flags { get; set; }
-    public uint Faction { get; set; }
+
+    [DbField("u")]
     public uint BuyPrice { get; set; }
+
+    [DbField("u")]
     public uint SellPrice { get; set; }
+
+    [DbField("u")]
     public uint InventoryType { get; set; }
+
+    [DbField("u")]
     public uint AllowableClass { get; set; }
+
+    [DbField("u")]
     public uint AllowableRace { get; set; }
+
+    [DbField("u")]
     public uint ItemLevel { get; set; }
+
+    [DbField("u")]
     public uint RequiredLevel { get; set; }
+
+    [DbField("u")]
     public uint RequiredSkill { get; set; }
+
+    [DbField("u")]
     public uint RequiredSkillRank { get; set; }
+
+    [DbField("u")]
     public uint RequiredSkillSubRank { get; set; }
+
+    [DbField("u")]
     public uint RequiredPlayerRank1 { get; set; }
+
+    [DbField("u")]
     public uint RequiredPlayerRank2 { get; set; }
+
+    [DbField("u")]
     public uint RequiredFaction { get; set; }
+
+    [DbField("u")]
     public uint RequiredFactionStanding { get; set; }
+
+    [DbField("u")]
     public uint Unique { get; set; }
+
+    [DbField("u")]
     public uint MaxCount { get; set; }
+
+    [DbField("u")]
     public uint ContainerSlots { get; set; }
+
+    [DbField("u")]
     public uint StatsCount { get; set; }
+
+    [DbField("u", Length = 20)]
+    public uint[] StatsData { get; set; } = new uint[20];
+
     public ItemStat[] Stats { get; set; } = new ItemStat[10];
-    public uint ScalingStatsEntry { get; set; }
-    public uint ScalingStatsFlag { get; set; }
-    public ItemDamage[] Damage { get; set; } = new ItemDamage[2];
+
+    [DbField("f", Length = 15)]
+    public float[] DamageData { get; set; } = new float[15];
+
+    public ItemDamage[] Damage { get; set; } = new ItemDamage[5];
+
+    [DbField("u")]
     public uint Armor { get; set; }
+
+    [DbField("u")]
     public uint HolyRes { get; set; }
+
+    [DbField("u")]
     public uint FireRes { get; set; }
+
+    [DbField("u")]
     public uint NatureRes { get; set; }
+
+    [DbField("u")]
     public uint FrostRes { get; set; }
+
+    [DbField("u")]
     public uint ShadowRes { get; set; }
+
+    [DbField("u")]
     public uint ArcaneRes { get; set; }
+
+    [DbField("u")]
     public uint Delay { get; set; }
+
+    [DbField("u")]
     public uint AmmoType { get; set; }
+
+    [DbField("f")]
     public float Range { get; set; }
+
+    [DbField("u", Length = 30)]
+    public uint[] SpellsData { get; set; } = new uint[30];
+
     public ItemSpell[] Spells { get; set; } = new ItemSpell[5];
+
+    [DbField("u")]
     public uint Bonding { get; set; }
-    public string Description { get; set; }
+
+    [DbField("s")]
+    public string Description { get; set; } = string.Empty;
+
+    [DbField("u")]
     public uint PageId { get; set; }
+
+    [DbField("u")]
     public uint PageLanguage { get; set; }
+
+    [DbField("u")]
     public uint PageMaterial { get; set; }
+
+    [DbField("u")]
     public uint QuestId { get; set; }
+
+    [DbField("u")]
     public uint LockId { get; set; }
+
+    [DbField("u")]
     public uint LockMaterial { get; set; }
-    public uint Field108 { get; set; }
+
+    [DbField("u")]
+    public uint SheathID { get; set; }
+
+    [DbField("u")]
     public uint RandomPropId { get; set; }
-    public uint RandomSuffixId { get; set; }
+
+    [DbField("u")]
     public uint Block { get; set; }
+
+    [DbField("u")]
     public uint ItemSet { get; set; }
+
+    [DbField("u")]
     public uint MaxDurability { get; set; }
+
+    [DbField("u")]
     public uint ZoneNameID { get; set; }
+
+    [DbField("u")]
     public uint MapID { get; set; }
+
+    [DbField("u")]
     public uint BagFamily { get; set; }
+
+    [DbField("u")]
     public uint TotemCategory { get; set; }
+
+    [DbField("u", Length = 9)]
+    public uint[] SocketsData { get; set; } = new uint[9];
+
     public SocketInfo[] Sockets { get; set; } = new SocketInfo[3];
+
+    [DbField("u")]
     public uint SocketBonus { get; set; }
+
+    [DbField("u")]
     public uint GemProperties { get; set; }
+
+    [DbField("i")]
     public int DisenchantReqSkill { get; set; }
+
+    [DbField("u")]
     public uint ArmorDamageModifier { get; set; }
+
+    [DbField("u")]
     public uint ExistingDuration { get; set; }
+
+    [DbField("u")]
     public uint ItemLimitCategory { get; set; }
+
+    [DbField("u")]
     public uint HolidayId { get; set; }
+
+    [DbField("u")]
+    public uint Unk203_1 { get; set; }
+
+    [DbField("u")]
+    public uint Unk201_3 { get; set; }
+
+    [DbField("u")]
+    public uint Unk201_5 { get; set; }
+
+    [DbField("u")]
+    public uint Unk201_7 { get; set; }
+
+    [DbField("u")]
+    public uint Unk2 { get; set; }
+
+    public ItemPrototype()
+    {
+        for (int i = 0; i < 10; i++)
+            Stats[i] = new ItemStat();
+
+        for (int i = 0; i < 5; i++)
+            Damage[i] = new ItemDamage();
+
+        for (int i = 0; i < 5; i++)
+            Spells[i] = new ItemSpell();
+
+        for (int i = 0; i < 3; i++)
+            Sockets[i] = new SocketInfo();
+    }
+
+    public void ParseStats()
+    {
+        if (StatsData == null)
+        {
+            CLog.Error("ItemPrototype", "StatsData est null.");
+            StatsData = new uint[20];
+        }
+
+        if (Stats == null)
+        {
+            CLog.Error("ItemPrototype", "Stats est null.");
+            Stats = new ItemStat[10];
+        }
+
+        for (int i = 0; i < 10; i++)
+        {
+            if (Stats[i] == null)
+                Stats[i] = new ItemStat();
+
+            if (i * 2 + 1 >= StatsData.Length)
+            {
+                CLog.Error("ItemPrototype", "StatsData n'a pas assez d'éléments.");
+                break;
+            }
+
+            Stats[i].Type = StatsData[i * 2];
+            Stats[i].Value = (int)StatsData[i * 2 + 1];
+        }
+    }
+
+    public void ParseDamage()
+    {
+        if (DamageData == null)
+        {
+            CLog.Error("ItemPrototype", "DamageData est null.");
+            DamageData = new float[15];
+        }
+
+        if (Damage == null)
+        {
+            CLog.Error("ItemPrototype", "Damage est null.");
+            Damage = new ItemDamage[5];
+        }
+
+        for (int i = 0; i < 5; i++)
+        {
+            if (Damage[i] == null)
+                Damage[i] = new ItemDamage();
+
+            if (i * 3 + 2 >= DamageData.Length)
+            {
+                CLog.Error("ItemPrototype", "DamageData n'a pas assez d'éléments.");
+                break;
+            }
+
+            Damage[i].Min = DamageData[i * 3];
+            Damage[i].Max = DamageData[i * 3 + 1];
+            Damage[i].Type = (uint)DamageData[i * 3 + 2];
+        }
+    }
+
+    public void ParseSpells()
+    {
+        if (SpellsData == null)
+        {
+            CLog.Error("ItemPrototype", "SpellsData est null.");
+            SpellsData = new uint[30];
+        }
+
+        if (Spells == null)
+        {
+            CLog.Error("ItemPrototype", "Spells est null.");
+            Spells = new ItemSpell[5];
+        }
+
+        for (int i = 0; i < 5; i++)
+        {
+            if (Spells[i] == null)
+                Spells[i] = new ItemSpell();
+
+            if (i * 6 + 5 >= SpellsData.Length)
+            {
+                CLog.Error("ItemPrototype", "SpellsData n'a pas assez d'éléments.");
+                break;
+            }
+
+            Spells[i].Id = SpellsData[i * 6];
+            Spells[i].Trigger = SpellsData[i * 6 + 1];
+            Spells[i].Charges = (int)SpellsData[i * 6 + 2];
+            Spells[i].Cooldown = (int)SpellsData[i * 6 + 3];
+            Spells[i].Category = SpellsData[i * 6 + 4];
+            Spells[i].CategoryCooldown = (int)SpellsData[i * 6 + 5];
+        }
+    }
+
+    public void ParseSockets()
+    {
+        if (SocketsData == null)
+        {
+            CLog.Error("ItemPrototype", "SocketsData est null.");
+            SocketsData = new uint[9];
+        }
+
+        if (Sockets == null)
+        {
+            CLog.Error("ItemPrototype", "Sockets est null.");
+            Sockets = new SocketInfo[3];
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (Sockets[i] == null)
+                Sockets[i] = new SocketInfo();
+
+            if (i * 3 + 1 >= SocketsData.Length)
+            {
+                CLog.Error("ItemPrototype", "SocketsData n'a pas assez d'éléments.");
+                break;
+            }
+
+            Sockets[i].SocketColor = SocketsData[i * 3];
+            Sockets[i].Unk = SocketsData[i * 3 + 1];
+        }
+    }
 }
 
 public class CreatureInfo
 {
+    [DbField("u")]
     public uint Id { get; set; }
-    public string Name { get; set; }
-    public string SubName { get; set; }
-    public string InfoStr { get; set; }
+
+    [DbField("s")]
+    public string Name { get; set; } = string.Empty;
+
+    [DbField("s")]
+    public string SubName { get; set; } = string.Empty;
+
+    [DbField("s")]
+    public string InfoStr { get; set; } = string.Empty;
+
+    [DbField("u")]
     public uint Flags1 { get; set; }
+
+    [DbField("u")]
     public uint Type { get; set; }
+
+    [DbField("u")]
     public uint Family { get; set; }
+
+    [DbField("u")]
     public uint Rank { get; set; }
+
+    [DbField("u")]
     public uint Unknown1 { get; set; }
+
+    [DbField("u")]
     public uint SpellDataID { get; set; }
+
+    [DbField("u")]
     public uint Male_DisplayID { get; set; }
+
+    [DbField("u")]
     public uint Female_DisplayID { get; set; }
+
+    [DbField("u")]
     public uint Male_DisplayID2 { get; set; }
+
+    [DbField("u")]
     public uint Female_DisplayID2 { get; set; }
+
+    [DbField("f")]
     public float UnkFloat1 { get; set; }
+
+    [DbField("f")]
     public float UnkFloat2 { get; set; }
+
+    [DbField("c")]
     public byte Civilian { get; set; }
+
+    [DbField("c")]
     public byte Leader { get; set; }
 }
 
 public class GameObjectInfo
 {
+    [DbField("u")]
     public uint ID { get; set; }
+
+    [DbField("u")]
     public uint Type { get; set; }
+
+    [DbField("u")]
     public uint DisplayID { get; set; }
-    public string Name { get; set; }
+
+    [DbField("s")]
+    public string Name { get; set; } = string.Empty;
+
+    [DbField("u")]
     public uint SpellFocus { get; set; }
+
+    [DbField("u", Length = 9)]
     public uint[] Sounds { get; set; } = new uint[9];
+
+    [DbField("u", Length = 14)]
     public uint[] Unknowns { get; set; } = new uint[14];
+
+    [DbField("f")]
     public float Unknown15 { get; set; }
 }
 
 public class ItemPage
 {
+    [DbField("u")]
     public uint Id { get; set; }
-    public string Text { get; set; }
+
+    [DbField("s")]
+    public string Text { get; set; } = string.Empty;
+
+    [DbField("u")]
     public uint NextPage { get; set; }
 }
 
@@ -234,12 +581,12 @@ public class Quest
     public uint NextQuestId { get; set; }
     public uint SrcItem { get; set; }
     public uint SrcItemCount { get; set; }
-    public string Title { get; set; }
-    public string Details { get; set; }
-    public string Objectives { get; set; }
-    public string CompletionText { get; set; }
-    public string IncompleteText { get; set; }
-    public string EndText { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+    public string Objectives { get; set; } = string.Empty;
+    public string CompletionText { get; set; } = string.Empty;
+    public string IncompleteText { get; set; } = string.Empty;
+    public string EndText { get; set; } = string.Empty;
     public string[] ObjectiveTexts { get; set; } = new string[4];
     public uint[] RequiredMob { get; set; } = new uint[4];
     public uint[] RequiredMobCount { get; set; } = new uint[4];
@@ -297,29 +644,65 @@ public class GossipText
 
 public class MapInfo
 {
+    [DbField("u")]
     public uint MapId { get; set; }
+
+    [DbField("u")]
     public uint ScreenId { get; set; }
+
+    [DbField("u")]
     public uint Type { get; set; }
+
+    [DbField("u")]
     public uint PlayerLimit { get; set; }
+
+    [DbField("u")]
     public uint MinLevel { get; set; }
+
+    [DbField("f")]
     public float RepopX { get; set; }
+
+    [DbField("f")]
     public float RepopY { get; set; }
+
+    [DbField("f")]
     public float RepopZ { get; set; }
+
+    [DbField("u")]
     public uint RepopMapId { get; set; }
-    public string Name { get; set; }
+
+    [DbField("s")]
+    public string Name { get; set; } = string.Empty;
+
+    [DbField("u")]
     public uint Flags { get; set; }
+
+    [DbField("u")]
     public uint Cooldown { get; set; }
-    public uint LvlModA { get; set; }
+
+    [DbField("u")]
     public uint RequiredQuestA1 { get; set; }
+
+    [DbField("u")]
     public uint RequiredQuestH2 { get; set; }
+
+    [DbField("u")]
     public uint RequiredItem { get; set; }
+
+    [DbField("u")]
     public uint HeroicKey1 { get; set; }
+
+    [DbField("u")]
     public uint HeroicKey2 { get; set; }
+
+    [DbField("f")]
     public float UpdateDistance { get; set; }
+
+    [DbField("u")]
     public uint CheckpointId { get; set; }
+
+    [DbField("u")]
     public uint Collision { get; set; }
-    public uint ClusteringHandled { get; set; }
-    public bool HasFlag(uint flag) => (Flags & flag) != 0;
 }
 
 public class RPlayerInfo
@@ -346,9 +729,9 @@ public class RPlayerInfo
     public int References { get; set; }
     public uint ClientBuild { get; set; }
     public uint Team { get; set; }
-    public object Session { get; set; } = new object(); 
+    public object Session { get; set; } = new object();
     public uint SessionId { get; set; }
-    private Session _session; 
+    private Session _session;
 
     // Constructeur par défaut
     public RPlayerInfo()
@@ -368,9 +751,9 @@ public class RPlayerInfo
 
     // Social (thread-safe)
     private readonly object socialLock = new();
-    private readonly Dictionary<uint, string> friends = [];
-    private readonly HashSet<uint> ignores = [];
-    private readonly HashSet<uint> hasFriendList = [];
+    private readonly Dictionary<uint, string> friends = new();
+    private readonly HashSet<uint> ignores = new();
+    private readonly HashSet<uint> hasFriendList = new();
 
     public void Social_AddFriend(RPlayerInfo info, string note)
     {
@@ -507,7 +890,6 @@ public class RPlayerInfo
     }
 }
 
-
 public class LocationVector
 {
     public float X { get; set; }
@@ -523,7 +905,6 @@ public class Instance
     public uint MapId { get; set; }
     public uint MapCount { get; set; } = 0; // Used for load balancing
     public WorkerServer Server { get; set; }
-    // Optionally, add more fields as needed
     public WorkerServerSocket ServerSocket { get; set; }
 
     public Instance() { }

@@ -25,13 +25,14 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 
 using WaadShared;
-using WaadShared.Network;
 
 using static System.Buffer;
+using static WaadShared.LogonCommServer;
 using static WaadShared.RealmListOpcode;
 
 namespace LogonServer;
@@ -42,10 +43,8 @@ public class LogonPacket
     public uint Size;
 }
 
-public class LogonCommServerSocket
+public class LogonCommServerSocket : WaadShared.Network.Socket
 {
-    private readonly LogonCommServerSocket socket;
-    public readonly Socket Socket = new();
     private readonly AccountMgr AccountMgr = new();
     public uint lastPing;
     private uint nextServerPing;
@@ -61,12 +60,11 @@ public class LogonCommServerSocket
     private readonly InformationCore sInfoCore = new();
     private static readonly List<AllowedIP> m_allowedIps = [];
     private static readonly object m_allowedIpLock = new();
-    private static readonly bool ServerTrustMe = false;
+    private static readonly bool ServerTrustMe = true;
 
     // Constructeur sans paramètre public
-    public LogonCommServerSocket()
+    public LogonCommServerSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
     {
-        socket = null;
         lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         nextServerPing = lastPing + 20;
         remaining = opcode = 0;
@@ -76,9 +74,8 @@ public class LogonCommServerSocket
         pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
     }
 
-    public LogonCommServerSocket(Socket fd)
+    public LogonCommServerSocket(Socket socket) : base(socket, 1024, 1024)
     {
-        socket = fd;
         lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         nextServerPing = lastPing + 20;
         remaining = opcode = 0;
@@ -87,32 +84,34 @@ public class LogonCommServerSocket
         authenticated = 0;
         InitializeHandlers();
         pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
+        OnConnect();
     }
 
     private void PingTimerCallback(object state)
     {
         uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        if (now >= nextServerPing && Socket.IsConnected())
+        if (now >= nextServerPing && IsConnected())
         {
             SendPing();
             nextServerPing = now + 20;
         }
     }
 
-    public void OnConnect()
+    public new void OnConnect()
     {
-        if (!IsServerAllowed(Socket.GetRemoteAddress(Socket)))
+        CLog.Notice("[LogonCommServer]", L_N_LOGCOMSE_0, GetRemoteIP());
+        if (!IsServerAllowed(GetRemoteAddress(this)))
         {
-            Console.WriteLine($"Server {Socket.GetRemoteIP()} is not allowed.");
-            Socket.Disconnect();
+            CLog.Error("[LogonCommServer]", L_N_LOGCOMSE, GetRemoteIP(), GetRemotePort());
+            OnDisconnect();
             return;
         }
 
-        sInfoCore.AddServerSocket(socket);
+        sInfoCore.AddServerSocket(this);
         removed = false;
     }
 
-    public void OnDisconnect()
+    public new void OnDisconnect()
     {
         // Arrêt du timer de ping pour éviter les fuites de ressources
         pingTimer?.Dispose();
@@ -123,21 +122,21 @@ public class LogonCommServerSocket
             {
                 sInfoCore.RemoveRealm(id);
             }
-            sInfoCore.RemoveServerSocket(socket);
+            sInfoCore.RemoveServerSocket(this);
         }
     }
 
-    public void OnRead(AuthSocket authSocket)
+    public override void OnRead()
     {
         while (true)
         {
             if (remaining == 0)
             {
-                if (Socket.GetReadBuffer().Length < 6)
+                if (GetReadBuffer().GetSize() < 6)
                     return;
 
                 byte[] buffer = new byte[6];
-                authSocket.socket.Receive(buffer);
+                GetReadBuffer().Read(buffer, 6);
 
                 opcode = BitConverter.ToUInt16(buffer, 0);
                 remaining = BitConverter.ToUInt32(buffer, 2);
@@ -159,16 +158,16 @@ public class LogonCommServerSocket
                 if (remaining > 65535) // Prevent overly large packets
                 {
                     Console.WriteLine("Packet size exceeds maximum allowed size.");
-                    Socket.Disconnect();
+                    OnDisconnect();
                     return;
                 }
             }
 
-            if (Socket.GetReadBuffer().Length < remaining)
+            if (GetReadBuffer().GetSize() < remaining)
                 return;
 
             byte[] packetBuffer = new byte[remaining];
-            authSocket.socket.Receive(packetBuffer);
+            GetReadBuffer().Read(packetBuffer, (int)remaining);
 
             WorldPacket buff = new(opcode, (int)remaining);
             if (remaining > 0)
@@ -190,9 +189,10 @@ public class LogonCommServerSocket
 
     public void HandlePacket(WorldPacket recvData)
     {
+        Console.WriteLine($"HandlePacket called with opcode: {recvData.Opcode}");
         if (authenticated == 0 && recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
         {
-            Socket.Disconnect();
+            OnDisconnect();
             return;
         }
 
@@ -200,7 +200,7 @@ public class LogonCommServerSocket
 
         if (recvData.Opcode >= (ushort)RMSG_COUNT || Handlers[recvData.Opcode] == null)
         {
-            Console.WriteLine($"Invalid opcode: {recvData.Opcode}");
+            Console.WriteLine(L_N_LOGCOMSE_1, recvData.Opcode);
             return;
         }
 
@@ -209,8 +209,10 @@ public class LogonCommServerSocket
 
     public void HandleRegister(WorldPacket recvData)
     {
+        var sLog = new Logger();
+        sLog.OutString("HandleRegister called");
         Realm realm = new();
-        sInfoCore.AddServerSocket(socket);
+        sInfoCore.AddServerSocket(this);
         removed = false;
 
         realm.Name = recvData.ReadString();
@@ -234,7 +236,7 @@ public class LogonCommServerSocket
             }
         }
 
-        Console.WriteLine($"Realm {realm.Name} registered with ID {myId}");
+        sLog.OutString(L_N_LOGCOMSE_2, realm.Name, myId);
 
         sInfoCore.AddRealm(myId, realm);
 
@@ -292,7 +294,7 @@ public class LogonCommServerSocket
     public void SendPacket(WorldPacket data)
     {
         bool rv;
-        Socket.BurstBegin();
+        BurstBegin();
 
         LogonPacket header = new()
         {
@@ -306,8 +308,8 @@ public class LogonCommServerSocket
             sendCrypto.Process(BitConverter.GetBytes(header.Size), new byte[4]);
         }
 
-        rv = Socket.BurstSend(BitConverter.GetBytes(header.Opcode), 2);
-        rv = Socket.BurstSend(BitConverter.GetBytes(header.Size), 4);
+        rv = BurstSend(BitConverter.GetBytes(header.Opcode), 2);
+        rv = BurstSend(BitConverter.GetBytes(header.Size), 4);
 
         if (data.Size > 0 && rv)
         {
@@ -316,35 +318,50 @@ public class LogonCommServerSocket
                 sendCrypto.Process(data.Contents, new byte[data.Size]);
             }
 
-            rv = Socket.BurstSend(data.Contents, data.Size);
+            rv = BurstSend(data.Contents, data.Size);
         }
 
         if (rv) AuthSocket.BurstPush();
-        Socket.BurstEnd();
+        BurstEnd();
     }
 
     public void HandleAuthChallenge(WorldPacket recvData)
     {
+        var sLog = new Logger();
         byte[] key = new byte[20];
 
         uint result = 1;
         recvData.Read(key, 0, 20);
 
-        if (!key.SequenceEqual(LogonServer.sql_hash))
+        if (!key.SequenceEqual(SocketManager.sql_hash))
         {
+            sLog.OutError(L_N_LOGCOMSE_2, GetRemoteIP(), "ECHEC");
             result = 0;
         }
 
-        Console.WriteLine($"Auth challenge from {Socket.GetRemoteIP()} {(result == 1 ? "OK" : "FAILED")}");
+        sLog.OutString(L_N_LOGCOMSE_3, GetRemoteIP(), result == 1 ? "OK" : "ECHEC");
+
+        Logger.OutColor(LogColor.TNORMAL, L_N_LOGCOMSE_6);
+
+        for (int i = 0; i < 20; ++i)
+            Logger.OutColor(LogColor.TGREEN, $"{key[i]:X2} ");
+
+        Logger.OutColor(LogColor.TNORMAL, "\n");
+
+        Logger.OutColor(LogColor.TNORMAL, "Expected: ");
+        for (int i = 0; i < 20; ++i)
+            Logger.OutColor(LogColor.TGREEN, $"{SocketManager.sql_hash[i]:X2} ");
+
+        Logger.OutColor(LogColor.TNORMAL, "\n");
 
         recvCrypto.Setup(key);
         sendCrypto.Setup(key);
 
-        useCrypto = true;
-
         WorldPacket data = new((ushort)RSMSG_AUTH_RESPONSE, 1);
         data.WriteUInt32(result);
         SendPacket(data);
+
+        useCrypto = true;
 
         authenticated = (byte)result;
     }
@@ -406,10 +423,7 @@ public class LogonCommServerSocket
         return ((value >> 24) & 0x000000FF) | ((value >> 8) & 0x0000FF00) | ((value << 8) & 0x00FF0000) | ((value << 24) & 0xFF000000);
     }
 
-    public static implicit operator LogonCommServerSocket(Socket v)
-    {
-        return new LogonCommServerSocket(v);
-    }
+
 
     // Initialize the handlers array
     private static logonpacket_handler[] Handlers;
@@ -444,6 +458,7 @@ public class LogonCommServerSocket
     // Dummy methods for the missing handlers
     public void HandleMappingReply(WorldPacket recvData)
     {
+        var sLog = new Logger();
         uint realSize = recvData.ReadUInt32();
         byte[] buffer = new byte[realSize];
         Array.Resize(ref buffer, (int)realSize);
@@ -465,7 +480,7 @@ public class LogonCommServerSocket
         lock (sInfoCore)
         {
             count = BitConverter.ToUInt32(buffer, 4);
-            Console.WriteLine($"Realm ID: {realmId}, Count: {count}");
+            sLog.OutString(L_N_LOGCOMSE_5, realmId, count);
             for (uint i = 0; i < count; ++i)
             {
                 accountId = BitConverter.ToUInt32(buffer, (int)(8 + (i * 5)));
@@ -507,12 +522,14 @@ public class LogonCommServerSocket
 
     public void HandleTestConsoleLogin(WorldPacket recvData)
     {
+        var sLog = new Logger();
         WorldPacket data = new((ushort)RSMSG_CONSOLE_LOGIN_RESULT, 8);
         uint request = recvData.ReadUInt32();
         string accountName = recvData.ReadString();
         byte[] key = new byte[20];
         recvData.Read(key, 0, 20);
-        Console.WriteLine($"Account: {accountName}");
+        sLog.OutDebug(L_D_LOGCOMSE_L, accountName);
+
 
         data.WriteUInt32(request);
 
@@ -526,7 +543,7 @@ public class LogonCommServerSocket
 
         if (account.GMFlags == null || !account.GMFlags.Contains("255:"))
         {
-            Console.WriteLine($"Account: {account.UsernamePtr}, GMFlags: {account.GMFlags}");
+            sLog.OutError(L_E_LOGCOMSE_R, account.UsernamePtr, account.GMFlags);
             data.WriteUInt32(0);
             SendPacket(data);
             return;
@@ -541,9 +558,9 @@ public class LogonCommServerSocket
         uint method = recvData.ReadUInt32();
         var IPBanner = new IPBanner();
 
-        if (!IsServerAllowed(Socket.GetRemoteAddress(Socket)))
+        if (!IsServerAllowed(GetRemoteAddress(this)))
         {
-            Console.WriteLine($"Method: {method}, IP: {Socket.GetRemoteIP()}");
+            CLog.Error("[LogonCommServer]", L_E_LOGCOMSE_L_1, method, GetRemoteIP());
             return;
         }
 

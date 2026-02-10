@@ -463,14 +463,9 @@ public static partial class Common
     {
         return RTrim(LTrim(s, findStr), findStr);
     }
-    public class Field
+    public class Field(object v)
     {
-        private readonly object value;
-
-        public Field(object v)
-        {
-            value = v;
-        }
+        private readonly object value = v;
 
         public bool GetBool() => value is bool b && b;
         public byte GetUInt8() => value is byte b ? b : (byte)0;

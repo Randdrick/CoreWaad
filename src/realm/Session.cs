@@ -171,7 +171,12 @@ namespace WaadRealmServer
 
         public static void InitHandlers()
         {
-            Handlers.Clear();
+            if (Handlers.Count > 0)
+            {
+                CLog.Warning("[Session]", "Session handlers already initialized, skipping re-initialization.");
+                return;
+            }
+
             // Login
             Handlers[(ushort)Opcodes.CMSG_CHAR_ENUM]                = (s, p) => s.HandleCharEnumOpcode(p);
             Handlers[(ushort)Opcodes.CMSG_CHAR_CREATE]              = (s, p) => s.HandleCharacterCreate(p);
@@ -210,6 +215,8 @@ namespace WaadRealmServer
             Handlers[(ushort)Opcodes.CMSG_GET_CHANNEL_MEMBER_COUNT] = (s, p) => s.HandleChannelNumMembersQuery(p);
             Handlers[(ushort)Opcodes.CMSG_CHANNEL_DISPLAY_LIST]     = (s, p) => s.HandleChannelRosterQuery(p);
             Handlers[(ushort)Opcodes.CMSG_MESSAGECHAT]              = (s, p) => s.HandleMessagechatOpcode(p);
+
+            CLog.Success("[Session]", $"Session handlers initialized ({Handlers.Count} opcodes).");
         }
 
         // Main packet dispatch loop (Update)

@@ -89,6 +89,7 @@ public static class LogonConsole
 public static class LogonCommServer
 {
     public const string L_N_LOGCOMSE = "Connection au serveur pour {0}:{1} refusée, IP non autorisée.\n";
+    public const string L_N_LOGCOMSE_0 = "Nouvelle Connection au serveur sur l'adresse Ip : {0}";
     public const string L_N_LOGCOMSE_1 = "Réception un paquet inconnu du LogonServer : {0}\n";
     public const string L_N_LOGCOMSE_2 = "Enregistrement du royaume `{0}` sous l'ID {1}.";
     public const string L_N_LOGCOMSE_3 = "Demande d'identification de {0}, resultat {1}.";
@@ -362,7 +363,7 @@ public static class LogonCommHandler
     public const string R_N_LOGCOMHAN_8 = " >> Récupération des informations pour le compte : `{0}` (Requête {1}).\n";
     public const string R_Y_LOGCOMHAN = " Connexion au serveur de Logon : Délais dépassé.\n";
     public const string R_Y_LOGCOMHAN_1 = " Connexion au serveur de Royaume(s) : Délais dépassé.\n";
-    public const string R_E_LOGCOMHAN = " Échec de la connexion au serveur. Une nouvelle tentative sera faite ultérieurement.\n";
+    public const string R_E_LOGCOMHAN = " Échec de la connexion au serveur {0} - Port : {1}. Une nouvelle tentative sera faite ultérieurement.\n";
     public const string R_E_LOGCOMHAN_1 = " Échec.\n";
     public const string R_E_LOGCOMHAN_2 = "Le serveur de Royaume(s) avec l'id {0} a perdu la connexion.";
     public const string R_E_LOGCOMHAN_3 = "La connexion au serveur de Royaume(s) avec l'id {0} a été supprimée en raison du dépassement du délais du pong.";
@@ -465,6 +466,8 @@ public static class Master
     public const string R_S_MASTER_1 = "Générateurs de nombres aléatoires initialisés.";
     public const string R_S_MASTER_2 = "Connexions établies...";
     public const string R_S_MASTER_3 = "Fichiers DBC chargés...";
+    public const string R_S_MASTER_3_1 = "Chargement des données avec {0} threads (CPU).";
+    public const string R_S_MASTER_3_2 = "Toutes les tâches de chargement sont terminées.";
     public const string R_S_MASTER_4 = "Sous-système réseau démarré.";
     public const string R_S_MASTER_5 = "Prêt à recevoir les connexions. Temps de démarrage: {0}ms\n";
     public const string R_S_MASTER_6 = "Fermeture terminée.";

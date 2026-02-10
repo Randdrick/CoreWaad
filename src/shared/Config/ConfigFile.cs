@@ -142,19 +142,40 @@ public class ConfigFile : IDisposable
         return value;
     }
 
-    public bool GetBoolean(string section, string name, bool def = false)
+    public bool GetBoolean(string section, string name, bool def)
     {
         if (_iniData == null || string.IsNullOrEmpty(section) || string.IsNullOrEmpty(name))
         {
             return def;
         }
 
-        if (bool.TryParse(_iniData[section]?[name], out bool result))
+        // Vérifie si la section existe
+        if (!_iniData.Sections.ContainsKey(section))
+        {
+            return def;
+        }
+
+        // Vérifie si la clé existe dans la section
+        if (!_iniData[section].TryGetValue(name, out string value))
+        {
+            return def;
+        }
+
+        // Gestion de "0" et "1"
+        if (value == "0")
+            return false;
+        if (value == "1")
+            return true;
+
+        // Gestion classique de "true"/"false" (insensible à la casse)
+        if (bool.TryParse(value, out bool result))
         {
             return result;
         }
+
         return def;
     }
+
 
     public static bool GetBoolDefault(string key, bool defaultValue)
     {

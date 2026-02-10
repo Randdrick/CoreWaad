@@ -104,7 +104,7 @@ public class SocketManager
     {
         if (socket_count >= 64 || fds.ContainsKey(s.Handle))
         {
-            Socket.Close();
+            s.Delete();
             return;
         }
 

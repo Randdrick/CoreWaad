@@ -597,7 +597,7 @@ public class InformationCore
     {
         realmhigh = 0;
         var mainConfig = new ConfigMgr();
-        usepings = !mainConfig.MainConfig.GetBoolean("LogonServer", "DisablePings");
+        usepings = !mainConfig.MainConfig.GetBoolean("LogonServer", "DisablePings", false);
     }
 
     public Realm GetRealm(uint realmId)
@@ -708,7 +708,7 @@ public class InformationCore
 
             foreach (var socket in serverSockets)
             {
-                var remoteAddress = Socket.GetRemoteAddress(socket.Socket);
+                var remoteAddress = WaadShared.Network.Socket.GetRemoteAddress(socket);
                 if (remoteAddress != null && !LogonCommServerSocket.IsServerAllowed(remoteAddress))
                 {
                     sLog.OutError(L_E_ACCOUNT_S_1, Socket.GetRemoteIP());

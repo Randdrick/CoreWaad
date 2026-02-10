@@ -29,21 +29,38 @@ public static class RealmDatabaseManager
 {
 
     // Permet d'obtenir l'instance active de base de données (MySQL, Postgres, SQLite)
-public static Database GetDatabase()
-{
-    return dbType switch
+    public static Database GetDatabase()
     {
-        1 => sRealmSQL,
-        2 => pRealmSQL,
-        3 => slRealmSQL,
-        _ => null
-    };
-}
+        return DbType switch
+        {
+            1 => sRealmSQL,
+            2 => pRealmSQL,
+            3 => slRealmSQL,
+            _ => null
+        };
+    }
 
-private static readonly MySQLDatabase sRealmSQL = new();
-private static readonly PostgresDatabase pRealmSQL = new();
-private static readonly SQLiteDatabase slRealmSQL = new();
-private static int dbType = 1; // Default to MySQL
+    private static readonly MySQLDatabase sRealmSQL = new();
+    private static readonly PostgresDatabase pRealmSQL = new();
+    private static readonly SQLiteDatabase slRealmSQL = new();
+    public static int DbType { get; private set; } = 1; // Default to MySQL
+
+    internal static string GetConnectionString(int dbType, ConfigMgr configMgr)
+    {
+        string hostname = configMgr.ClusterConfig.GetString("Database.Realm", "Hostname");
+        string username = configMgr.ClusterConfig.GetString("Database.Realm", "Username");
+        string password = configMgr.ClusterConfig.GetString("Database.Realm", "Password");
+        string database = configMgr.ClusterConfig.GetString("Database.Realm", "Name");
+        int port = configMgr.ClusterConfig.GetInt32("Database.Realm", "Port");
+
+        return dbType switch
+        {
+            1 => $"Server={hostname};Port={port};Database={database};Uid={username};Pwd={password};",
+            2 => $"Host={hostname};Port={port};Username={username};Password={password};Database={database};",
+            3 => $"Data Source={database};Version=3;",
+            _ => throw new InvalidOperationException("Type de base de données non supporté.")
+        };
+    }
 
     public static bool InitializeDatabases(ConfigMgr configMgr, Logger sLog)
     {
@@ -86,17 +103,17 @@ private static int dbType = 1; // Default to MySQL
             return false;
         }
 
-        dbType = type;
+        DbType = type;
         return true;
     }
 
     public static void RemoveDatabase()
     {
-        if (dbType == 1)
+        if (DbType == 1)
             sRealmSQL.Shutdown();
-        else if (dbType == 2)
+        else if (DbType == 2)
             pRealmSQL.Shutdown();
-        else if (dbType == 3)
+        else if (DbType == 3)
             slRealmSQL.Shutdown();
     }
 }

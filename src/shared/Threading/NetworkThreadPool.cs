@@ -75,7 +75,9 @@ namespace WaadShared.Threading
         /// </summary>
         public void Startup(int initialThreadCount)
         {
-            _minThreads = initialThreadCount;
+            if (initialThreadCount < _minThreads)
+                initialThreadCount = _minThreads;
+                
             for (int i = 0; i < initialThreadCount; i++)
             {
                 var thread = CustomThread.StartThread(null);
@@ -89,26 +91,22 @@ namespace WaadShared.Threading
         /// </summary>
         public void ExecuteTask(ThreadBase executionTarget)
         {
-            if (_freeThreads.TryTake(out CustomThread thread))
+            if (executionTarget == null)
             {
-                thread.ExecutionTarget = executionTarget;
-                _activeThreads.Add(thread);
-                CustomThread.Resume();
-                CLog.Debug("[NETWORK-THREADPOOL]", $"Thread {thread.ManagedThreadId} executing network task.");
+                CLog.Error("[NETWORK-THREADPOOL]", "Attempt to execute a null task.");
+                return;
             }
-            else if (_activeThreads.Count + _freeThreads.Count < _maxThreads)
+
+            // Créer un nouveau thread avec la cible d'exécution
+            var newThread = CustomThread.StartThread(executionTarget);
+            if (newThread != null)
             {
-                // Créer un nouveau thread si la limite n'est pas atteinte
-                var newThread = CustomThread.StartThread(executionTarget);
                 _activeThreads.Add(newThread);
                 CLog.Debug("[NETWORK-THREADPOOL]", $"Created new thread {newThread.ManagedThreadId} for network task.");
             }
             else
             {
-                // Mettre en file d'attente si tous les threads sont occupés
-                _taskQueue.Enqueue(executionTarget);
-                CLog.Warning("[NETWORK-THREADPOOL]", $"Task queued. Active: {_activeThreads.Count}, Free: {_freeThreads.Count}, Queue: {_taskQueue.Count}");
-                _taskAvailableEvent.Set(); // Signal qu'une tâche est disponible
+                CLog.Error("[NETWORK-THREADPOOL]", "Failed to create a new thread for network task.");
             }
         }
 

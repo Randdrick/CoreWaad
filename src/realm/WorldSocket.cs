@@ -372,7 +372,7 @@ namespace WaadRealmServer
         {
             if ((len + 10) > SendBufferSize)
             {
-                Logger.OutColor(LogColor.TRED, "[WorldSocket]", R_W_WRDSOCK, len, opcode);
+                Logger.OutColor(LogColor.TRED, R_W_WRDSOCK, len, opcode);
                 return;
             }
 

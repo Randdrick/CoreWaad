@@ -50,6 +50,11 @@ namespace WaadShared
             new((uint)Opcodes.CMSG_UPDATE_ACCOUNT_DATA, "CMSG_UPDATE_ACCOUNT_DATA"),
             new((uint)Opcodes.CMSG_REQUEST_ACCOUNT_DATA, "CMSG_REQUEST_ACCOUNT_DATA"),
             // Queries
+            new((uint)Opcodes.CMSG_CREATURE_QUERY, "CMSG_CREATURE_QUERY"),
+            new((uint)Opcodes.CMSG_ITEM_QUERY_SINGLE, "CMSG_ITEM_QUERY_SINGLE"),
+            new((uint)Opcodes.CMSG_ITEM_NAME_QUERY, "CMSG_ITEM_NAME_QUERY"),
+            new((uint)Opcodes.CMSG_GAMEOBJECT_QUERY, "CMSG_GAMEOBJECT_QUERY"),
+            new((uint)Opcodes.CMSG_PAGE_TEXT_QUERY, "CMSG_PAGE_TEXT_QUERY"),
             new((uint)Opcodes.CMSG_NAME_QUERY, "CMSG_NAME_QUERY"),
             new((uint)Opcodes.CMSG_REALM_SPLIT, "CMSG_REALM_SPLIT"),
             new((uint)Opcodes.CMSG_QUERY_TIME, "CMSG_QUERY_TIME"),

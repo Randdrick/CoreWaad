@@ -18,66 +18,81 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
 using System;
-using System.Collections.Generic;
+
 using WaadShared;
+using WaadShared.Config;
 
 namespace WaadRealmServer;
 
 // Definitions des formats de tables
 public static class TableFormats
 {
-    public const string ItemPrototypeFormat = "uuuussssuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuffuffuuuuuuuuuufuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuusuuuuuuuuuuuuuuuuuuuuuuuuuuuuu";
+    public const string ItemPrototypeFormat =
+        "uuuussssuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu" + // Champs simples (entry à HolidayId, incluant Faction)
+        "uuuuuuuuuuuuuuuuuuuu" + // StatsData (stat_type1 à stat_value10)
+        "ffffff" + // DamageData (dmg_min1, dmg_max1, dmg_type1)
+        "ffffff" + // DamageData (dmg_min2, dmg_max2, dmg_type2)
+        "ffffff" + // DamageData (dmg_min3, dmg_max3, dmg_type3)
+        "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuu" + // SpellsData (spellid_1 à spellcategorycooldown_5)
+        "uuuuuuuuu"; // SocketsData (socket_color_1, unk201_3, socket_color_2, unk201_5, socket_color_3, unk201_7, socket_bonus, GemProperties, ReqDisenchantSkill)
+
     public const string CreatureNameFormat = "usssuuuuuuuuuuffcc";
     public const string GameObjectNameFormat = "uuusuuuuuuuuuuuuuuuuuuuuuuuuf";
     public const string ItemPageFormat = "usu";
     public const string RealmMapInfoFormat = "uuuuufffusuuuuuuufuu";
+
 }
 
 // Déclarations des stockages globaux
 public static class Storage
-{
+{   
     public static readonly SQLStorage<ItemPrototype,ArrayStorageContainer<ItemPrototype>> ItemPrototypeStorage = new();
     public static readonly SQLStorage<CreatureInfo, HashMapStorageContainer<CreatureInfo>> CreatureNameStorage = new();
     public static readonly SQLStorage<GameObjectInfo, HashMapStorageContainer<GameObjectInfo>> GameObjectNameStorage = new();
     public static readonly SQLStorage<ItemPage, HashMapStorageContainer<ItemPage>> ItemPageStorage = new();
-    public static readonly SQLStorage<MapInfo, HashMapStorageContainer<MapInfo>> WorldMapInfoStorage = new();
-}
-
-public class Task(Action action)
-{
-    public Action Action { get; } = action;
-}
-
-public class TaskList
-{
-    private readonly List<Task> tasks = [];
-
-    public void AddTask(Task task)
-    {
-        tasks.Add(task);
-    }
-
-    public void ExecuteAll()
-    {
-        foreach (var task in tasks)
-        {
-            task.Action();
-        }
-    }
+    public static readonly SQLStorage<MapInfo, HashMapStorageContainer<MapInfo>> WorldMapInfoStorage = new();   
 }
 
 // Fonctions principales
 public static class StorageManager
 {
-    public static void FillTaskList(TaskList tl)
+    private static int DbType => RealmDatabaseManager.DbType;
+
+    public static void FillTaskList(TaskList tl, ConfigMgr configMgr)
     {
-        tl.AddTask(new Task(() => Storage.ItemPrototypeStorage.Load("items", TableFormats.ItemPrototypeFormat)));
-        tl.AddTask(new Task(() => Storage.CreatureNameStorage.Load("creature_names", TableFormats.CreatureNameFormat)));
-        tl.AddTask(new Task(() => Storage.GameObjectNameStorage.Load("gameobject_names", TableFormats.GameObjectNameFormat)));
-        tl.AddTask(new Task(() => Storage.ItemPageStorage.Load("itempages", TableFormats.ItemPageFormat)));
-        tl.AddTask(new Task(() => Storage.WorldMapInfoStorage.Load("realmmap_info", TableFormats.RealmMapInfoFormat)));
+        string connectionString = RealmDatabaseManager.GetConnectionString(DbType, configMgr);
+        CLog.Debug("[StorageManager]", $"Chaîne de connexion : {connectionString ?? "NULL"}");
+
+        // Chargement des tables
+        CLog.Debug("[StorageManager]", "Ajout de la tâche pour la table items...");
+        tl.AddTask(new Task(() =>
+        {
+            try
+            {
+                Storage.ItemPrototypeStorage.Load("items", TableFormats.ItemPrototypeFormat, connectionString, DbType);
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("[StorageManager]", $"Erreur lors du chargement de la table items : {ex.Message}");
+            }
+        }));
+
+        CLog.Debug("[StorageManager]", "Ajout de la tâche pour la table creature_names...");
+        tl.AddTask(new Task(() =>
+        {
+            try
+            {
+                Storage.CreatureNameStorage.Load("creature_names", TableFormats.CreatureNameFormat, connectionString, DbType);
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("[StorageManager]", $"Erreur lors du chargement de la table creature_names : {ex.Message}");
+            }
+        }));
+        tl.AddTask(new Task(() => Storage.GameObjectNameStorage.Load("gameobject_names", TableFormats.GameObjectNameFormat, connectionString, DbType)));
+        tl.AddTask(new Task(() => Storage.ItemPageStorage.Load("itempages", TableFormats.ItemPageFormat, connectionString, DbType)));
+        tl.AddTask(new Task(() => Storage.WorldMapInfoStorage.Load("realmmap_info", TableFormats.RealmMapInfoFormat, connectionString, DbType)));
     }
 
     public static void Cleanup()

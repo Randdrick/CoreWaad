@@ -42,6 +42,7 @@ public class Logger : Singleton<Logger>
     private int m_screenLogLevel;
     private int m_fileLogLevel;
     private StreamWriter m_file;
+    private static readonly object _colorLock = new(); // Thread-safety for OutColor
 
     public Logger() { }
     public static bool IsOutProcess() { return false; }
@@ -174,33 +175,37 @@ public class Logger : Singleton<Logger>
         if (string.IsNullOrEmpty(str)) return;
 
         string message = string.Format(str, args);
-        ConsoleColor originalColor = Console.ForegroundColor;
 
-        switch (colorcode)
+        lock (_colorLock)
         {
-            case LogColor.TRED:
-                Console.ForegroundColor = ConsoleColor.Red;
-                break;
-            case LogColor.TGREEN:
-                Console.ForegroundColor = ConsoleColor.Green;
-                break;
-            case LogColor.TYELLOW:
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                break;
-            case LogColor.TNORMAL:
-            case LogColor.TWHITE:
-                Console.ForegroundColor = ConsoleColor.White;
-                break;
-            case LogColor.TBLUE:
-                Console.ForegroundColor = ConsoleColor.Blue;
-                break;
-            case LogColor.TPURPLE:
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                break;
-        }
+            ConsoleColor originalColor = Console.ForegroundColor;
 
-        Console.WriteLine(message);
-        Console.ForegroundColor = originalColor;
+            switch (colorcode)
+            {
+                case LogColor.TRED:
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    break;
+                case LogColor.TGREEN:
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    break;
+                case LogColor.TYELLOW:
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    break;
+                case LogColor.TNORMAL:
+                case LogColor.TWHITE:
+                    Console.ForegroundColor = ConsoleColor.White;
+                    break;
+                case LogColor.TBLUE:
+                    Console.ForegroundColor = ConsoleColor.Blue;
+                    break;
+                case LogColor.TPURPLE:
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    break;
+            }
+
+            Console.Write(message);
+            Console.ForegroundColor = originalColor;
+        }
     }
 
     public void SetScreenLoggingLevel(int level)
@@ -290,7 +295,7 @@ public class WorldLog : Singleton<WorldLog>
         m_file = null;
         m_xml = null;
 
-        if (Config.MainConfig.GetBoolean("LogLevel", "World"))
+        if (Config.MainConfig.GetBoolean("LogLevel", "World", true))
         {
             Console.WriteLine("Enabling packetlog output to \"world.log\"");
             Enable();
@@ -300,7 +305,7 @@ public class WorldLog : Singleton<WorldLog>
             Disable();
         }
 
-        if (Config.MainConfig.GetBoolean("LogLevel", "WorldXml"))
+        if (Config.MainConfig.GetBoolean("LogLevel", "WorldXml", true))
         {
             Console.WriteLine("Enabling packetlog output to \"world.xml\"");
             EnableXml();

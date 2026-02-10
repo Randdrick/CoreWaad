@@ -198,7 +198,7 @@ public class LogonServer
         Console.CancelKeyPress += (sender, e) =>
         {
             CLog.Notice("[Main]", L_N_MAIN_12_A);
-            mrunning = false;          
+            mrunning = false;
             e.Cancel = true; // Empêche la terminaison brutale, laisse le code de shutdown s'exécuter
         };
 

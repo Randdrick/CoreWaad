@@ -26,23 +26,21 @@ using System.Net.Sockets;
 using System.Linq;
 using System.Threading;
 using static WaadShared.Network.SocketManager;
-using static WaadShared.Network.Socket;
 
 namespace WaadShared;
 
-public class ListenSocket<T> : Threading.ThreadBase
+public class ListenSocket<T> : Threading.ThreadBase where T : class
 {
     private readonly Socket m_socket;
     private Socket aSocket;
     private readonly IPEndPoint m_address;
-    private readonly IPEndPoint m_tempAddress;
     private bool m_opened;
     private readonly int len;
     private T socket;
     private readonly IntPtr m_cp;
-    private readonly Func<Socket, T> _factory;
+    private readonly Func<System.Net.Sockets.Socket, T> _factory;
 
-    public ListenSocket(string ListenAddress, uint Port, Func<Socket, T> factory)
+    public ListenSocket(string ListenAddress, uint Port, Func<System.Net.Sockets.Socket, T> factory)
         : this(ListenAddress, Port)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
@@ -59,7 +57,6 @@ public class ListenSocket<T> : Threading.ThreadBase
         SocketOps.ReuseAddr(m_socket);
         SocketOps.Blocking(m_socket);
         m_address = new IPEndPoint(IPAddress.Any, (int)Port);
-        m_tempAddress = new IPEndPoint(IPAddress.Any, (int)Port);
         m_opened = false;
         if (ListenAddress != "0.0.0.0")
         {
@@ -135,19 +132,21 @@ public class ListenSocket<T> : Threading.ThreadBase
                     Console.WriteLine("Failed to create a new socket instance.");
                     continue;
                 }
+                IPEndPoint clientEndPoint = (IPEndPoint)aSocket.RemoteEndPoint;
+                if (clientEndPoint == null)
+                {
+                    Console.WriteLine("Failed to get client endpoint.");
+                    continue;
+                }
                 bool isSocketValid = true;
                 if (m_cp == IntPtr.Zero)
                 {
                     Console.WriteLine("Completion port is not initialized.");
                     continue;
                 }
-                if (m_tempAddress == null)
-                {
-                    Console.WriteLine("Temporary address is null.");
-                    continue;
-                }
                 SetCompletionPort(m_cp, isSocketValid);
-                Accept(m_tempAddress);
+                if (socket is WaadShared.Network.Socket netSocket)
+                    netSocket.SetConnected(clientEndPoint);
             }
             catch (Exception ex)
             {
@@ -190,6 +189,12 @@ public class ListenSocket<T> : Threading.ThreadBase
                     Console.WriteLine("Failed to create a new socket instance.");
                     continue;
                 }
+                IPEndPoint clientEndPoint = (IPEndPoint)aSocket.RemoteEndPoint;
+                if (clientEndPoint == null)
+                {
+                    Console.WriteLine("Failed to get client endpoint.");
+                    continue;
+                }
 #if CONFIG_USE_IOCP
                 if (m_cp == IntPtr.Zero)
                 {
@@ -197,13 +202,9 @@ public class ListenSocket<T> : Threading.ThreadBase
                     continue;
                 }
 #endif
-                if (m_tempAddress == null)
-                {
-                    Console.WriteLine("Temporary address is null.");
-                    continue;
-                }
                 SetCompletionPort(m_cp, true);
-                Accept(m_tempAddress);
+                if (socket is WaadShared.Network.Socket netSocket)
+                    netSocket.SetConnected(clientEndPoint);
             }
             catch (SocketException ex)
             {
