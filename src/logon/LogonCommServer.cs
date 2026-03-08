@@ -32,6 +32,7 @@ using System.Threading;
 using WaadShared;
 
 using static System.Buffer;
+using static WaadShared.LogonCommClient;
 using static WaadShared.LogonCommServer;
 using static WaadShared.RealmListOpcode;
 
@@ -84,7 +85,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         authenticated = 0;
         InitializeHandlers();
         pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
-        OnConnect();
+        // NOTE: DO NOT call OnConnect() here - ListenSocket.SetConnected() will handle it
     }
 
     private void PingTimerCallback(object state)
@@ -97,21 +98,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         }
     }
 
-    public new void OnConnect()
-    {
-        CLog.Notice("[LogonCommServer]", L_N_LOGCOMSE_0, GetRemoteIP());
-        if (!IsServerAllowed(GetRemoteAddress(this)))
-        {
-            CLog.Error("[LogonCommServer]", L_N_LOGCOMSE, GetRemoteIP(), GetRemotePort());
-            OnDisconnect();
-            return;
-        }
-
-        sInfoCore.AddServerSocket(this);
-        removed = false;
-    }
-
-    public new void OnDisconnect()
+    public override void OnDisconnect()
     {
         // Arrêt du timer de ping pour éviter les fuites de ressources
         pingTimer?.Dispose();
@@ -124,6 +111,26 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
             }
             sInfoCore.RemoveServerSocket(this);
         }
+
+        // Call base to ensure proper cleanup in parent class
+        base.OnDisconnect();
+    }
+
+    protected override void OnConnect()
+    {
+        // First, call base to set m_connected = true and setup IOCP read event
+        base.OnConnect();
+
+        CLog.Notice("[LogonCommServer]", L_N_LOGCOMSE_0, GetRemoteIP());
+        if (!IsServerAllowed(GetRemoteAddress(this)))
+        {
+            CLog.Error("[LogonCommServer]", L_N_LOGCOMSE, GetRemoteIP(), GetRemotePort());
+            OnDisconnect();
+            return;
+        }
+
+        sInfoCore.AddServerSocket(this);
+        removed = false;
     }
 
     public override void OnRead()
@@ -135,53 +142,67 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
                 if (GetReadBuffer().GetSize() < 6)
                     return;
 
-                byte[] buffer = new byte[6];
-                GetReadBuffer().Read(buffer, 6);
-
-                opcode = BitConverter.ToUInt16(buffer, 0);
-                remaining = BitConverter.ToUInt32(buffer, 2);
+                // Read header (2 bytes opcode, 4 bytes size)
+                byte[] opcodeBytes = new byte[2];
+                byte[] sizeBytes = new byte[4];
+                GetReadBuffer().Read(opcodeBytes, 2);
+                GetReadBuffer().Read(sizeBytes, 4);
 
                 if (useCrypto)
                 {
-                    recvCrypto.Process(buffer, new byte[6]);
+                    // Decrypt in separate calls (matches C++ original: Process(2), then Process(4))
+                    recvCrypto.Process(opcodeBytes, opcodeBytes);
+                    recvCrypto.Process(sizeBytes, sizeBytes);
                 }
 
+                // Parse opcode and size
+                opcode = BitConverter.ToUInt16(opcodeBytes, 0);
+                remaining = BitConverter.ToUInt32(sizeBytes, 0);
+
+                // Handle endianness
                 if (!BitConverter.IsLittleEndian)
                 {
                     opcode = Swap16(opcode);
                 }
-                else
-                {
-                    remaining = Swap32(remaining);
-                }
 
-                if (remaining > 65535) // Prevent overly large packets
+                // Prevent overly large packets
+                if (remaining > 65535)
                 {
-                    Console.WriteLine("Packet size exceeds maximum allowed size.");
+                    CLog.Error("[LogonCommServer]", L_E_LOGCOMSE);
                     OnDisconnect();
                     return;
                 }
             }
 
+            // Do we have a full packet?
             if (GetReadBuffer().GetSize() < remaining)
+            {
+                CLog.Error("[LogonCommServer]", R_E_LOGCOMCLT);
                 return;
+            }
+                
 
-            byte[] packetBuffer = new byte[remaining];
-            GetReadBuffer().Read(packetBuffer, (int)remaining);
+            // Create the buffer
+            byte[] packetData = new byte[remaining];
+            if (remaining > 0)
+            {
+                GetReadBuffer().Read(packetData, (int)remaining);
+
+                if (useCrypto)
+                {
+                    recvCrypto.Process(packetData, packetData);
+                }
+            }
 
             WorldPacket buff = new(opcode, (int)remaining);
             if (remaining > 0)
             {
-                buff.Resize((int)remaining);
-                BlockCopy(packetBuffer, 0, buff.Contents, 0, (int)remaining);
+                buff.Append(packetData, (int)remaining);
             }
 
-            if (useCrypto && remaining > 0)
-            {
-                recvCrypto.Process(buff.Contents, packetBuffer);
-            }
-
+            // Handle the packet
             HandlePacket(buff);
+
             remaining = 0;
             opcode = 0;
         }
@@ -189,18 +210,15 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
 
     public void HandlePacket(WorldPacket recvData)
     {
-        Console.WriteLine($"HandlePacket called with opcode: {recvData.Opcode}");
+        CLog.Debug("[LogonCommServer]", $"HandlePacket called with opcode: {recvData.Opcode}");
         if (authenticated == 0 && recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
         {
             OnDisconnect();
             return;
         }
-
-        logonpacket_handler[] Handlers = new logonpacket_handler[(int)RMSG_COUNT];
-
-        if (recvData.Opcode >= (ushort)RMSG_COUNT || Handlers[recvData.Opcode] == null)
+        if (recvData.Opcode >= (ushort)RMSG_COUNT || Handlers == null || Handlers[recvData.Opcode] == null)
         {
-            Console.WriteLine(L_N_LOGCOMSE_1, recvData.Opcode);
+            CLog.Error("[LogonCommServer]", L_N_LOGCOMSE_1, recvData.Opcode);
             return;
         }
 
@@ -291,37 +309,61 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         lastPing = (uint)DateTime.UtcNow.Ticks;
     }
 
-    public void SendPacket(WorldPacket data)
+    public void SendPacket(WorldPacket data, bool noCrypto = false)
     {
         bool rv;
         BurstBegin();
 
-        LogonPacket header = new()
-        {
-            Opcode = data.Opcode,
-            Size = (uint)data.Size
-        };
+        // Build 6-byte header: 2 bytes opcode, 4 bytes size
+        byte[] header = new byte[6];
 
-        if (useCrypto)
+        ushort op = (ushort)data.GetOpcode();
+        uint size = (uint)data.Size;
+
+        if (!BitConverter.IsLittleEndian)
         {
-            sendCrypto.Process(BitConverter.GetBytes(header.Opcode), new byte[2]);
-            sendCrypto.Process(BitConverter.GetBytes(header.Size), new byte[4]);
+            // On big-endian machines, swap opcode to network order
+            op = Swap16(op);
+            // leave size as-is
+        }
+        else
+        {
+            // On little-endian machines, send size in network order
+            size = Swap32(size);
         }
 
-        rv = BurstSend(BitConverter.GetBytes(header.Opcode), 2);
-        rv = BurstSend(BitConverter.GetBytes(header.Size), 4);
+        BlockCopy(BitConverter.GetBytes(op), 0, header, 0, 2);
+        BlockCopy(BitConverter.GetBytes(size), 0, header, 2, 4);
+
+        // Encrypt header into temporary buffer if needed (avoid in-place)
+        if (useCrypto && !noCrypto)
+        {
+            var encHeader = new byte[6];
+            sendCrypto.Process(header, encHeader);
+            rv = BurstSend(encHeader, 6);
+        }
+        else
+        {
+            rv = BurstSend(header, 6);
+        }
 
         if (data.Size > 0 && rv)
         {
-            if (useCrypto)
-            {
-                sendCrypto.Process(data.Contents, new byte[data.Size]);
-            }
+            var payload = data.Contents; // get contents once
 
-            rv = BurstSend(data.Contents, data.Size);
+            if (useCrypto && !noCrypto)
+            {
+                var encPayload = new byte[payload.Length];
+                sendCrypto.Process(payload, encPayload);
+                rv = BurstSend(encPayload, data.Size);
+            }
+            else
+            {
+                rv = BurstSend(payload, data.Size);
+            }
         }
 
-        if (rv) AuthSocket.BurstPush();
+        if (rv) BurstPush();
         BurstEnd();
     }
 
@@ -333,6 +375,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         uint result = 1;
         recvData.Read(key, 0, 20);
 
+        // Debug: log received key      
         if (!key.SequenceEqual(SocketManager.sql_hash))
         {
             sLog.OutError(L_N_LOGCOMSE_2, GetRemoteIP(), "ECHEC");
@@ -354,16 +397,18 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
 
         Logger.OutColor(LogColor.TNORMAL, "\n");
 
-        recvCrypto.Setup(key);
-        sendCrypto.Setup(key);
+        recvCrypto.Setup(key, 20);
+        sendCrypto.Setup(key, 20);
 
-        WorldPacket data = new((ushort)RSMSG_AUTH_RESPONSE, 1);
-        data.WriteUInt32(result);
-        SendPacket(data);
-
+        /* packets are encrypted from now on */
         useCrypto = true;
 
-        authenticated = (byte)result;
+        WorldPacket data = new((ushort)RSMSG_AUTH_RESPONSE, 1);
+        data.WriteByte((byte)result);
+
+        SendPacket(data);
+
+        authenticated = result;
     }
 
     public void SendPing()
@@ -423,8 +468,6 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         return ((value >> 24) & 0x000000FF) | ((value >> 8) & 0x0000FF00) | ((value << 8) & 0x00FF0000) | ((value << 24) & 0xFF000000);
     }
 
-
-
     // Initialize the handlers array
     private static logonpacket_handler[] Handlers;
 
@@ -432,26 +475,26 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
     {
         Handlers =
         [
-                null,                                       // RMSG_NULL
-                HandleRegister,                             // RCMSG_REGISTER_REALM
-                null,                                       // RSMSG_REALM_REGISTERED
-                HandleSessionRequest,                       // RCMSG_REQUEST_SESSION
-                null,                                       // RSMSG_SESSION_RESULT
-                HandlePing,                                 // RCMSG_PING
-                null,                                       // RSMSG_PONG
-                null,                                       // RCMSG_SQL_EXECUTE (Deprecated)
-                null,                                       // RCMSG_RELOAD_ACCOUNTS (Deprecated)
-                HandleAuthChallenge,                        // RCMSG_AUTH_CHALLENGE
-                null,                                       // RSMSG_AUTH_RESPONSE
-                null,                                       // RSMSG_REQUEST_ACCOUNT_CHARACTER_MAPPING
-                HandleMappingReply,                         // RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY
-                HandleUpdateMapping,                        // RCMSG_UPDATE_CHARACTER_MAPPING_COUNT
-                null,                                       // RSMSG_DISCONNECT_ACCOUNT
-                HandleTestConsoleLogin,                     // RCMSG_TEST_CONSOLE_LOGIN
-                null,                                       // RSMSG_CONSOLE_LOGIN_RESULT
-                HandleDatabaseModify,                       // RCMSG_MODIFY_DATABASE
-                null,                                       // RSMSG_SERVER_PING
-                HandleServerPong,                           // RCMSG_SERVER_PONG
+            null,                                       // RMSG_NULL
+            HandleRegister,                             // RCMSG_REGISTER_REALM
+            null,                                       // RSMSG_REALM_REGISTERED
+            HandleSessionRequest,                       // RCMSG_REQUEST_SESSION
+            null,                                       // RSMSG_SESSION_RESULT
+            HandlePing,                                 // RCMSG_PING
+            null,                                       // RSMSG_PONG
+            null,                                       // RCMSG_SQL_EXECUTE (Deprecated)
+            null,                                       // RCMSG_RELOAD_ACCOUNTS (Deprecated)
+            HandleAuthChallenge,                        // RCMSG_AUTH_CHALLENGE
+            null,                                       // RSMSG_AUTH_RESPONSE
+            null,                                       // RSMSG_REQUEST_ACCOUNT_CHARACTER_MAPPING
+            HandleMappingReply,                         // RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY
+            HandleUpdateMapping,                        // RCMSG_UPDATE_CHARACTER_MAPPING_COUNT
+            null,                                       // RSMSG_DISCONNECT_ACCOUNT
+            HandleTestConsoleLogin,                     // RCMSG_TEST_CONSOLE_LOGIN
+            null,                                       // RSMSG_CONSOLE_LOGIN_RESULT
+            HandleDatabaseModify,                       // RCMSG_MODIFY_DATABASE
+            null,                                       // RSMSG_SERVER_PING
+            HandleServerPong                            // RCMSG_SERVER_PONG
         ];
     }
 

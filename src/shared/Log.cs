@@ -81,7 +81,9 @@ public class Logger : Singleton<Logger>
 
         if (m_screenLogLevel >= 0)
         {
+            Console.ForegroundColor = ConsoleColor.White;
             Console.WriteLine(message);
+            Console.ResetColor();
         }
         if (m_fileLogLevel >= 0 && m_file != null)
         {
@@ -137,7 +139,9 @@ public class Logger : Singleton<Logger>
 
         if (m_screenLogLevel >= 2)
         {
+            Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine(message);
+            Console.ResetColor();
         }
         if (m_fileLogLevel >= 2 && m_file != null)
         {
@@ -155,7 +159,9 @@ public class Logger : Singleton<Logger>
 
         if (m_screenLogLevel >= 3)
         {
+            Console.ForegroundColor = ConsoleColor.Blue;
             Console.WriteLine(message);
+            Console.ResetColor();
         }
         if (m_fileLogLevel >= 3 && m_file != null)
         {

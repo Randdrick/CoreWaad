@@ -53,7 +53,6 @@ public static class SocketManager
         MinBuild = (uint)configMgr.MainConfig.GetInt32("Client", "MinBuild", 12340);
         MaxBuild = (uint)configMgr.MainConfig.GetInt32("Client", "MaxBuild", 12340);
         string logonPass = configMgr.MainConfig.GetString("LogonServer", "RemotePassword", "r3m0t3b4d");
-        sLog.OutDebug("Logon logonPass: " + logonPass);
         var hash = new Sha3Hash();
         hash.UpdateData(logonPass);
         hash.FinalizeHash();

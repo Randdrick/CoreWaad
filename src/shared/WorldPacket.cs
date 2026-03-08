@@ -21,20 +21,34 @@
  */
 
 using System;
-using System.Text;
-using static System.Buffer;
 
 namespace WaadShared;
 public class WorldPacket : ByteBuffer
 {
 
-    public ushort Opcode;
-    public new int Size;
-    public new byte[] Contents;
+    public ushort Opcode
+    {
+        get { return m_opcode; }
+        set { m_opcode = value; }
+    }
 
     private ushort m_opcode;
     public int m_bufferPool;
     private readonly byte[] data;
+
+    // Size property - with a setter that clears and re-initializes the buffer
+    public new int Size
+    {
+        get { return base.Size; }
+        set { 
+            // When Size is set, clear the buffer and advance write position
+            Clear();
+            for (int i = 0; i < value; i++)
+            {
+                Append((byte)0);
+            }
+        }
+    }
 
     public WorldPacket(int bufferSize) : base(bufferSize)
     {
@@ -45,7 +59,7 @@ public class WorldPacket : ByteBuffer
     {
         m_opcode = opcode;
         m_bufferPool = -1;
-        Contents = new byte[bufferSize];
+        // Contents is now managed by the base ByteBuffer class, don't override it
     }
 
     public WorldPacket(uint bufferSize) : base(bufferSize)
@@ -68,8 +82,7 @@ public class WorldPacket : ByteBuffer
     public void Initialize(ushort opcode)
     {
         Opcode = opcode;
-        Size = 0;
-        Contents = [];
+        Clear();
     }
 
     public ushort GetOpcode()
@@ -92,195 +105,134 @@ public class WorldPacket : ByteBuffer
         var sLog = new Logger();
         if (Logger.IsOutProcess())
         {
-            sLog.OutDebug($"STORAGE_SIZE: {BufferSize()}\n");
-            sLog.OutDebug("START: ");
-            for (int i = 0; i < BufferSize(); ++i)
+            sLog.OutDebug($"STORAGE_SIZE: {Size}\n");
+            sLog.OutDebug("Packet data: ");
+            foreach (byte b in Contents)
             {
-                sLog.OutDebug($"{Read<byte>(i)} - ");
+                sLog.OutDebug($"{b:X2} ");
             }
-            sLog.OutDebug("END\n");
+            sLog.OutDebug("\nEND\n");
         }
     }
 
     public new void Resize(int size)
     {
-        Array.Resize(ref Contents, size);
-        Size = size;
+        // Clear and pre-allocate space
+        Clear();
+        for (int i = 0; i < size; i++)
+        {
+            Append((byte)0);
+        }
     }
 
     public void WriteUInt16(ushort value)
     {
-        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 2);
-        Size += 2;
+        Append(value);
     }
 
     public new void WriteUInt32(uint value)
     {
-        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 4);
-        Size += 4;
+        Append(value);
     }
 
     public void WriteUInt64(ulong value)
     {
-        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 8);
-        Size += 8;
+        Append(value);
     }
 
     public void WriteString(string value)
     {
-        byte[] bytes = Encoding.UTF8.GetBytes(value);
-        BlockCopy(bytes, 0, Contents, Size, bytes.Length);
-        Size += bytes.Length;
+        Append(value);
     }
 
     public void WriteByte(byte value)
     {
-        Contents[Size] = value;
-        Size++;
+        Append(value);
     }
 
     public void Write(byte[] value, int offset, int count)
     {
-        BlockCopy(value, offset, Contents, Size, count);
-        Size += count;
+        // Extract the relevant portion and append
+        byte[] tmp = new byte[count];
+        Array.Copy(value, offset, tmp, 0, count);
+        Append(tmp, count);
     }
 
     public void WriteInt32(int value)
     {
-        BlockCopy(BitConverter.GetBytes(value), 0, Contents, Size, 4);
-        Size += 4;
+        Append(value);
     }
-    
+
     public int ReadInt32()
     {
-        if (Size + 4 > Contents.Length)
-            throw new InvalidOperationException("Not enough data to read Int32");
-        int value = BitConverter.ToInt32(Contents, Size);
-        Size += 4;
+        int value = 0;
+        Read(ref value);
         return value;
     }
 
     public ushort ReadUInt16()
     {
-        if (Size + 2 > Contents.Length)
-            throw new InvalidOperationException("Not enough data to read UInt16");
-        ushort value = BitConverter.ToUInt16(Contents, Size);
-        Size += 2;
+        ushort value = 0;
+        Read(ref value);
         return value;
     }
 
     public uint ReadUInt32()
     {
-        if (Size + 4 > Contents.Length)
-        {
-            throw new InvalidOperationException("Not enough data to read UInt32");
-        }
-        uint value = BitConverter.ToUInt32(Contents, Size);
-        Size += 4;
+        uint value = 0;
+        Read(ref value);
         return value;
     }
 
     public ulong ReadUInt64()
     {
-        if (Size + 8 > Contents.Length)
-        {
-            throw new InvalidOperationException("Not enough data to read UInt64");
-        }
-        ulong value = BitConverter.ToUInt64(Contents, Size);
-        Size += 8;
+        ulong value = 0;
+        Read(ref value);
         return value;
     }
 
     public string ReadString()
     {
-        int length = Array.IndexOf<byte>(Contents, 0, Size);
-        string value = Encoding.UTF8.GetString(Contents, Size, length);
-        Size += length + 1;
-        return value;
+        string result = "";
+        byte b;
+        while ((b = Read<byte>()) != 0)
+        {
+            result += (char)b;
+        }
+        return result;
     }
 
     public void Read(byte[] buffer, int offset, int count)
     {
-        BlockCopy(Contents, Size, buffer, offset, count);
-        Size += count;
-    }
-
-    internal void WriteByte(string gMFlags)
-    {
-        if (string.IsNullOrEmpty(gMFlags))
+        for (int i = 0; i < count; i++)
         {
-            throw new ArgumentException("gMFlags cannot be null or empty", nameof(gMFlags));
+            buffer[offset + i] = Read<byte>();
         }
-        WriteByte((byte)gMFlags[0]);
-    }
-
-    internal void Write(char[] locale, int v1, int v2)
-    {
-        ArgumentNullException.ThrowIfNull(locale);
-        if (v1 < 0 || v2 < 0 || v1 + v2 > locale.Length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(v1), "v1 and v2 must be within the bounds of the locale array");
-        }
-
-        byte[] bytes = Encoding.UTF8.GetBytes(locale, v1, v2);
-        BlockCopy(bytes, 0, Contents, Size, bytes.Length);
-        Size += bytes.Length;
     }
 
     public byte ReadByte()
     {
-        if (Size >= Contents.Length)
-        {
-            throw new InvalidOperationException("No more bytes to read");
-        }
-        byte value = Contents[Size];
-        Size++;
-        return value;
+        return Read<byte>();
     }
 
     public void WriteFloat(float value)
     {
-        var bytes = BitConverter.GetBytes(value);
-        if (BitConverter.IsLittleEndian)
-            Array.Reverse(bytes); // Optionnel : adapte l'endianess si nécessaire
-        Write(bytes, 0, bytes.Length);
+        Append(value);
     }
 
     public void WriteBytes(byte[] bytes)
     {
-        if (bytes == null)
+        if (bytes != null && bytes.Length > 0)
         {
-            throw new ArgumentNullException(nameof(bytes), "Bytes array cannot be null");
+            Append(bytes);
         }
-        if (bytes.Length == 0)
-        {
-            return; // Rien à écrire si le tableau est vide
-        }
-        if (Size + bytes.Length > Contents.Length)
-        {
-            Array.Resize(ref Contents, Math.Max(Contents.Length * 2, Size + bytes.Length));
-        }
-        BlockCopy(bytes, 0, Contents, Size, bytes.Length);
-        Size += bytes.Length;
     }
 
-    public void ReadBytes(byte[] key, int v1, int v2)
+    public void ReadBytes(byte[] key, int offset, int count)
     {
-        if (key == null)
+        for (int i = 0; i < count; i++)
         {
-            throw new ArgumentNullException(nameof(key), "Key array cannot be null");
+            key[offset + i] = Read<byte>();
         }
-        if (v1 < 0 || v2 < 0 || v1 + v2 > key.Length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(v1), "v1 and v2 must be within the bounds of the key array");
-        }
-        if (Size + v2 > Contents.Length)
-        {
-            throw new InvalidOperationException("Not enough data to read the requested number of bytes");
-        }
-        BlockCopy(Contents, Size, key, v1, v2);
-        Size += v2;
     }
-
-
 }

@@ -178,16 +178,19 @@ namespace WaadRealmServer
             BurstEnd();
         }
 
-        public new void OnConnect()
-        {
-            var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_AUTH_REQUEST, 4);
-            data.WriteUInt32((uint)REVISION);
-            SendPacket(data);
-        }
-
         public override void OnDisconnect()
         {
             ClusterMgr.Instance.OnServerDisconnect(_ws);
+        }
+
+        protected override void OnConnect()
+        {
+            // First call base to set m_connected = true and setup IOCP
+            base.OnConnect();
+
+            var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_AUTH_REQUEST, 4);
+            data.WriteUInt32((uint)REVISION);
+            SendPacket(data);
         }
 
         public static explicit operator WorkerServerSocket(Session v)

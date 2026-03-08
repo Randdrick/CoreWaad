@@ -321,8 +321,10 @@ public class ClientMgr : IDisposable
             Array.Copy(compressed, 0, finalPacket, 0, compressedSize);
             // Write the uncompressed size in the first 4 bytes
             Array.Copy(BitConverter.GetBytes(uncompressed.Size), 0, finalPacket, 0, 4);
-            data.Contents = finalPacket;
-            data.Size = finalPacket.Length;
+            
+            // Clear the packet and populate it with the compressed data
+            data.Clear();
+            data.Append(finalPacket, finalPacket.Length);
 
             server.SendPacket(data);
         }

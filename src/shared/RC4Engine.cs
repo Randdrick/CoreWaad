@@ -30,9 +30,9 @@ public class RC4Engine
     private byte index1, index2;
 
     // RC4Engine constructor. Must supply a key and the length of that array.
-    public RC4Engine(byte[] keybytes)
+    public RC4Engine(byte[] keybytes, int keylen)
     {
-        Setup(keybytes);
+        Setup(keybytes, keylen);
     }
 
     public RC4Engine()
@@ -43,11 +43,11 @@ public class RC4Engine
     }
 
     // Initializes permutation, etc.
-    public void Setup(byte[] keybytes)
+    public void Setup(byte[] keybytes, int keylen)
     {
         int i = 0;
         byte j = 0, k;
-        int keylen = keybytes.Length;
+        // int keylen = keybytes.Length;
 
         // Initialize RC4 state (all bytes to 0)
         for (i = 0; i < 256; ++i)
@@ -99,9 +99,9 @@ public class RC4Engine
         }
     }
 
-    internal void Init(bool v, KeyParameter keyParameter)
+    internal void Init(bool v, KeyParameter keyParameter, int keylen)
     {
-        Setup(keyParameter.GetKey());
+        Setup(keyParameter.GetKey(), keylen);
     }
 
     internal void ProcessBytes(byte[] input, int inOff, int length, byte[] output, int outOff)

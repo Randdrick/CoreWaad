@@ -56,6 +56,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="NuGet.Configuration" Version="6.12.1" />
     <PackageReference Include="NuGet.exe" Version="3.4.3" />
+    <PackageReference Include="NUnit" Version="4.4.0" />
     <PackageReference Include="Portable.BouncyCastle" Version="1.9.0.0" />
     <PackageReference Include="MySql.Data" Version="8.0.33" />
     <PackageReference Include="Npgsql" Version="7.0.7" />

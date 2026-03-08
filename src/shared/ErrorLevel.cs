@@ -90,7 +90,7 @@ public static class LogonCommServer
 {
     public const string L_N_LOGCOMSE = "Connection au serveur pour {0}:{1} refusée, IP non autorisée.\n";
     public const string L_N_LOGCOMSE_0 = "Nouvelle Connection au serveur sur l'adresse Ip : {0}";
-    public const string L_N_LOGCOMSE_1 = "Réception un paquet inconnu du LogonServer : {0}\n";
+    public const string L_N_LOGCOMSE_1 = "Réception un paquet inconnu par le LogonServer : {0}\n";
     public const string L_N_LOGCOMSE_2 = "Enregistrement du royaume `{0}` sous l'ID {1}.";
     public const string L_N_LOGCOMSE_3 = "Demande d'identification de {0}, resultat {1}.";
     public const string L_N_LOGCOMSE_4 = "Échec de la décompression du mapping.\n";
@@ -98,6 +98,7 @@ public static class LogonCommServer
     public const string L_N_LOGCOMSE_6 = "Clef: ";
     public const string L_D_LOGCOMSE_L = "[LogonCommServer] Testing console login: {0}\n";
     public const string L_E_LOGCOMSE_L_1 = "Demande de modification de la base de données {0} refusée pour {1} !\n";
+    public const string L_E_LOGCOMSE = "La taille du paquet dépasse la taille maximum autorisée. Déconnexion.";
     public const string L_E_LOGCOMSE_R = "[RemoteConsole] Player {0} Flag: {1} , Connection non permise !\n";
 }
 
@@ -337,7 +338,7 @@ public static class ConsoleListener
 
 public static class LogonCommClient
 {
-    public const string R_E_LOGCOMCLT = "LogonCommClient: Taille du paquet invalide.\n";
+    public const string R_E_LOGCOMCLT = "Taille du paquet invalide.\n";
     public const string R_E_LOGCOMCLT_1 = "Réception d'un paquet inconnu : {0}\n";
     public const string R_E_LOGCOMCLT_2 = "Abandon de la connexion due à la déconnexion du serveur de Logon.\n";
     public const string R_E_LOGCOMCLT_3 = "Échec de l'authentification !";

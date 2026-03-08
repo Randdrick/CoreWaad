@@ -32,7 +32,6 @@ using WaadShared.Network;
 
 using static WaadShared.RealmListOpcode;
 using static WaadShared.LogonCommHandler;
-using System.Data.SQLite;
 
 namespace WaadRealmServer;
 
@@ -86,6 +85,10 @@ public class LogonCommHandler : IDisposable
         idHigh = 1;
         nextRequest = 1;
         var configMgr = new ConfigMgr();
+        
+        // Load realm configuration to get the RemotePassword
+        string realmConfigFile = Path.Combine(AppContext.BaseDirectory, "waad-realms.ini");
+        configMgr.MainConfig.SetSource(realmConfigFile);
 
         string logonPass = configMgr.MainConfig.GetString("LogonServer", "RemotePassword", "r3m0t3b4d");
         pings = !configMgr.MainConfig.GetBoolean("LogonServer","DisablePings", false);

@@ -282,8 +282,9 @@ public static class SocketExtensions
             return;
         }
 
-        // Data is already written to _readBuffer in ReadCallback
-        OnRecvData(socket);
+        // Call the virtual OnRead method on the socket instance
+        // This allows subclasses (like LogonCommServerSocket) to handle their own packet reading
+        socket.OnRead();
 
         if (!_connected)
             return;
@@ -437,7 +438,8 @@ public static class SocketExtensions
                         {
                             lock (_readMutex)
                             {
-                                _readBuffer.Write(temp, bytesReceived);
+                                // Write directly to the socket's instance buffer, not the static _readBuffer
+                                socket.GetReadBuffer().Write(temp, bytesReceived);                                
                             }
                         }
                     }
@@ -501,7 +503,8 @@ public static class SocketExtensions
                         {
                             lock (_readMutex)
                             {
-                                _readBuffer.Write(temp, bytesReceived);
+                                // Write directly to the socket's instance buffer, not the static _readBuffer.
+                                socket.GetReadBuffer().Write(temp, bytesReceived); 
                             }
                         }
                     }

@@ -147,7 +147,7 @@ public class Socket
 
                 if (targetAddress == null)
                 {
-                    Console.WriteLine($"No compatible address found for {address} (socket family: {_socket.AddressFamily})");
+                    CLog.Error("[SOCKET]", $"No compatible address found for {address} (socket family: {_socket.AddressFamily})");
                     return false;
                 }
             }
@@ -161,7 +161,7 @@ public class Socket
             }
             catch (SocketException ex)
             {
-                Console.WriteLine($"Blocking connect failed: {ex.Message}");
+                CLog.Error("[SOCKET]", $"Blocking connect failed: {ex.Message}");
                 return false;
             }
 
@@ -178,14 +178,15 @@ public class Socket
                     IntPtr completionPort = SocketManager.GetCompletionPort();
                     if (completionPort == IntPtr.Zero)
                     {
-                        Console.WriteLine("Failed to get IOCP completion port");
+                        CLog.Error("[SOCKET]", "Failed to get IOCP completion port");
                         return false;
                     }
-                    SocketManager.Instance.AddSocket(this);
+                    
+                // NOTE: Do NOT call AddSocket() here - OnConnect() will call it via SocketManager
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"IOCP setup failed: {ex.Message}");
+                    CLog.Error("[SOCKET]", $"IOCP setup failed: {ex.Message}");
                     return false;
                 }
             }
@@ -196,12 +197,12 @@ public class Socket
         }
         catch (SocketException ex)
         {
-            Console.WriteLine($"Connection failed with SocketException: {ex.Message}");
+            CLog.Error("[SOCKET]", $"Connection failed with SocketException: {ex.Message}");
             return false;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Connection failed: {ex.Message}");
+            CLog.Error("[SOCKET]", $"Connection failed: {ex.Message}");
             return false;
         }
     }
@@ -218,7 +219,7 @@ public class Socket
         OnConnect();
     }
 
-    protected void OnConnect()
+    protected virtual void OnConnect()
     {
         SetToConnected();
 
@@ -257,7 +258,7 @@ public class Socket
             {
                 if (_socket == null)
                 {
-                    Console.WriteLine("_socket is not initialized.");
+                    CLog.Error("[SOCKET]", "_socket is not initialized.");
                     return 0;
                 }
 
@@ -266,7 +267,7 @@ public class Socket
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Send failed: {ex.Message}");
+                CLog.Error("[SOCKET]", $"Send failed: {ex.Message}");
                 return 0;
             }
         }
@@ -282,9 +283,46 @@ public class Socket
         return writeBuffer.Write(bytes, size);
     }
 
-    public static void BurstPush()
+    public void BurstPush()
     {
-        // In IOCP, this would post a write event. Here, just a placeholder.
+        // Flush all buffered write data to the socket
+        try
+        {
+            if (_socket == null)
+                return;
+
+            int availableBytes = writeBuffer.GetSize();
+            if (availableBytes <= 0)
+                return;
+
+            byte[] buffer = new byte[availableBytes];
+            if (writeBuffer.Read(buffer, availableBytes))
+            {
+                // Debug: log outgoing bytes summary
+                CLog.Debug("[SOCKET]", $"BurstPush: attempting to send {availableBytes} bytes to {GetRemoteIP()}:{GetRemotePort()}");
+                int preview = Math.Min(16, availableBytes);
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < preview; i++) sb.AppendFormat("{0:X2} ", buffer[i]);
+                CLog.Debug("[SOCKET]", $"BurstPush preview ({preview} bytes): {sb}");
+                int sent = _socket.Send(buffer, 0, availableBytes, SocketFlags.None);
+                if (sent != availableBytes)
+                {
+                    CLog.Error("[SOCKET]", $"BurstPush: sent {sent} of {availableBytes} bytes to {GetRemoteIP()}:{GetRemotePort()}");
+                }
+                else
+                {
+                    CLog.Debug("[SOCKET]", $"BurstPush: sent {sent} bytes successfully");
+                }
+            }
+        }
+        catch (SocketException ex)
+        {
+            CLog.Error("[SOCKET]", $"BurstPush SocketException: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[SOCKET]", $"BurstPush Exception: {ex.Message}");
+        }
     }
 
     public void BurstEnd()

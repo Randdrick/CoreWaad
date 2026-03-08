@@ -37,7 +37,6 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     private ushort opcode;
     private readonly RC4Engine _sendCrypto = new();
     private readonly RC4Engine _recvCrypto = new();
-
     public uint last_ping;
     public uint last_pong;
     public uint pingtime;
@@ -72,61 +71,91 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
     public override void OnRead()
     {
-        // Lecture du header puis du payload, déchiffrement si besoin, dispatch
+        // read header then payload, decrypt if needed, and dispatch
+        CLog.Debug("[LogonCommClient]", $"OnRead entered: use_crypto={use_crypto}, bufferSize={GetReadBuffer().GetSize()}");
+
         while (true)
         {
             if (remaining == 0)
             {
-                // Pas assez de données pour le header
                 if (GetReadBuffer().GetSize() < 6)
-                    return;
+                    return; // not even a header yet
 
-                // Lecture du header (opcode 2 octets, taille 4 octets)
-                byte[] header = new byte[6];
-                GetReadBuffer().Read(header, 6);
+                // read 6-byte header first and check size field
+                byte[] encryptedHeader = new byte[6];
+                GetReadBuffer().Read(encryptedHeader, 6);
 
-                ushort op = BitConverter.ToUInt16(header, 0);
-                uint size = BitConverter.ToUInt32(header, 2);
-
+                byte[] headerBytes = encryptedHeader;
                 if (use_crypto)
                 {
-                    byte[] opBytes = new byte[2];
-                    byte[] sizeBytes = new byte[4];
-                    Array.Copy(header, 0, opBytes, 0, 2);
-                    Array.Copy(header, 2, sizeBytes, 0, 4);
-                    _recvCrypto.Process(opBytes, opBytes);
-                    _recvCrypto.Process(sizeBytes, sizeBytes);
-                    op = BitConverter.ToUInt16(opBytes, 0);
-                    size = BitConverter.ToUInt32(sizeBytes, 0);
+                    headerBytes = new byte[6];
+                    _recvCrypto.Process(encryptedHeader, headerBytes);
                 }
 
-                // Endianness
-                size = Swap32(size);
-                opcode = op;
-                remaining = size;
+                CLog.Debug("[LogonCommClient]", "Header bytes: " + BitConverter.ToString(headerBytes));
+
+                // parse opcode and payload size from header
+                uint opcodeValue = BitConverter.ToUInt16(headerBytes, 0);  // bytes 0-1 = opcode
+                uint payloadSize = BitConverter.ToUInt32(headerBytes, 2);  // bytes 2-5 = size (network byte order)
+
+                // swap size from network byte order (big-endian) back to host byte order
+                if (BitConverter.IsLittleEndian)
+                {
+                    payloadSize = Swap32(payloadSize);
+                }
+
+                CLog.Debug("[LogonCommClient]", $"Parsed: payloadSize={payloadSize}, opcode=0x{opcodeValue:X4}");
+
+                // sanity check
+                if (payloadSize > 65535)
+                {
+                    CLog.Error("[LogonCommClient]", $"Packet payload size {payloadSize} too large, disconnecting.");
+                    OnDisconnect();
+                    return;
+                }
+
+                if (payloadSize == 0)
+                {
+                    // just opcode, no payload
+                    opcode = (ushort)opcodeValue;
+                    remaining = 0;
+
+                    var emptyPacket = new WorldPacket(opcode, 0);
+                    HandlePacket(emptyPacket);
+                    opcode = 0;
+                }
+                else
+                {
+                    // wait for payload
+                    if (GetReadBuffer().GetSize() < payloadSize)
+                    {
+                        // payload not ready yet - need to decrypt and parse it later
+                        // for now, store what we know
+                        opcode = (ushort)opcodeValue;
+                        remaining = payloadSize;
+                        return;
+                    }
+
+                    // read payload
+                    byte[] encryptedPayload = new byte[payloadSize];
+                    GetReadBuffer().Read(encryptedPayload, (int)payloadSize);
+
+                    byte[] payloadBytes = encryptedPayload;
+                    if (use_crypto)
+                    {
+                        payloadBytes = new byte[payloadSize];
+                        _recvCrypto.Process(encryptedPayload, payloadBytes);
+                    }
+
+                    opcode = (ushort)opcodeValue;
+                    var packet = new WorldPacket(opcode, (int)payloadSize);
+                    packet.Append(payloadBytes, (int)payloadSize);
+                    HandlePacket(packet);
+
+                    remaining = 0;
+                    opcode = 0;
+                }
             }
-
-            // Pas assez de données pour le payload
-            if (GetReadBuffer().GetSize() < remaining)
-                return;
-
-            // Lecture du payload
-            byte[] payload = new byte[remaining];
-            if (remaining > 0)
-                GetReadBuffer().Read(payload, (int)remaining);
-
-            if (use_crypto && remaining > 0)
-                _recvCrypto.Process(payload, payload);
-
-            // Construction du WorldPacket et dispatch
-            var packet = new WorldPacket(opcode, (int)remaining);
-            if (remaining > 0)
-                Array.Copy(payload, 0, packet.Contents, 0, (int)remaining);
-            packet.Size = (int)remaining;
-            HandlePacket(packet);
-
-            remaining = 0;
-            opcode = 0;
         }
     }
 
@@ -154,7 +183,16 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         // Conversion en bytes (endianness)
         byte[] headerBytes = new byte[6];
         Array.Copy(BitConverter.GetBytes(header.Opcode), 0, headerBytes, 0, 2);
-        uint sizeNet = Swap32(header.Size);
+        uint sizeNet = header.Size;
+
+        // Gestion de l'endianness
+        if (!BitConverter.IsLittleEndian)
+        {
+            headerBytes[0] = headerBytes[1];
+            headerBytes[1] = headerBytes[0];
+            sizeNet = Swap32(sizeNet);
+        }
+
         Array.Copy(BitConverter.GetBytes(sizeNet), 0, headerBytes, 2, 4);
 
         if (use_crypto && !noCrypto)
@@ -178,7 +216,8 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             rv = BurstSend(payload, data.Size);
         }
 
-        if (rv) BurstPush();
+        if (rv)
+            BurstPush();
         BurstEnd();
     }
 
@@ -246,8 +285,8 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         Logger.OutColor(LogColor.TNORMAL, "\n");
 
         /* initialize rc4 keys */
-        _recvCrypto.Setup(key);
-        _sendCrypto.Setup(key);
+        _recvCrypto.Setup(key, 20);
+        _sendCrypto.Setup(key, 20);
 
         /* packets are encrypted from now on */
         use_crypto = true;
@@ -261,7 +300,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     {
         // Lecture du résultat d'authentification
         byte result = recvData.Contents[0];
-        CLog.Notice("[LogonCommClient]", $"Auth response result: {result}");
+        CLog.Debug("[LogonCommClient]", $"Auth response result: {result}");
         if (result != 1)
         {
             authenticated = 0xFFFFFFFF;
