@@ -127,6 +127,12 @@ public class SocketManager
             socket_count--;
         }
     }
+
+    // True IOCP completion queue: BeginReceive callbacks enqueue here,
+    // worker thread blocks on TryTake → 0% CPU when idle
+    public enum SocketIOEvent { ReadComplete, WriteComplete, Shutdown }
+    internal static readonly BlockingCollection<(SocketIOEvent Event, Socket Socket, uint BytesTransferred)>
+        IOCompletionQueue = new(boundedCapacity: 10000);
 #endif
     public void CloseAll()
     {
@@ -142,12 +148,23 @@ public class SocketManager
             Close();
         }
 
-        while (true)
+        // Wait for all sockets to be removed with a reasonable timeout
+        // to avoid busy-waiting during shutdown
+        int maxWaitMs = 10000;  // 10 second timeout
+        int elapsed = 0;
+        while (elapsed < maxWaitMs)
         {
             lock (_socketLock)
             {
                 if (_sockets.IsEmpty) break;
             }
+            Thread.Sleep(10);  // Check every 10ms instead of spinning
+            elapsed += 10;
+        }
+
+        if (elapsed >= maxWaitMs)
+        {
+            CLog.Warning("[SocketMgr]", $"Timeout waiting for sockets to close. {_sockets.Count} still pending.");
         }
     }
 
@@ -464,15 +481,12 @@ public static class SocketExtensions
                     {
                         _pendingRead.TryRemove(socket, out _);
                     }
-                    OnRead(socket, bytesReceived);
-                    if (socket.IsConnected() && bytesReceived > 0)
-                    {
-                        ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            if (!_pendingRead.ContainsKey(socket))
-                                socket.SetupReadEvent();
-                        });
-                    }
+                    // Dispatch to IOCP worker thread via blocking queue (true async pattern)
+                    // Worker thread calls socket.OnRead() + SetupReadEvent() for next receive
+                    if (bytesReceived > 0)
+                        SocketManager.IOCompletionQueue.TryAdd((SocketManager.SocketIOEvent.ReadComplete, socket, (uint)bytesReceived));
+                    else
+                        socket.Disconnect();
                 }, socket);
             }
             catch (SocketException ex)

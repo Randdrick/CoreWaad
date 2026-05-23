@@ -173,7 +173,7 @@ namespace WaadRealmServer
         {
             if (Handlers.Count > 0)
             {
-                CLog.Warning("[Session]", "Session handlers already initialized, skipping re-initialization.");
+                CLog.Warning("[Session]", R_W_SESSION_HANDLERS_INITIALIZED);
                 return;
             }
 
@@ -216,7 +216,7 @@ namespace WaadRealmServer
             Handlers[(ushort)Opcodes.CMSG_CHANNEL_DISPLAY_LIST]     = (s, p) => s.HandleChannelRosterQuery(p);
             Handlers[(ushort)Opcodes.CMSG_MESSAGECHAT]              = (s, p) => s.HandleMessagechatOpcode(p);
 
-            CLog.Success("[Session]", $"Session handlers initialized ({Handlers.Count} opcodes).");
+            CLog.Success("[Session]", R_S_SESSION_HANDLERS_INITIALIZED, Handlers.Count);
         }
 
         // Main packet dispatch loop (Update)
@@ -243,7 +243,7 @@ namespace WaadRealmServer
                     }
                     catch (Exception ex)
                     {
-                        CLog.Error("[Session]", $"Exception in handler for opcode {opcodeName} (0x{opcode:X}): {ex}");
+                        CLog.Error("[Session]", R_E_SESSION_EXCEPTION_HANDLER, opcodeName, opcode, ex);
                         errorPacket = true;
                     }
                 }
@@ -271,7 +271,7 @@ namespace WaadRealmServer
                         }
                         catch (Exception ex)
                         {
-                            CLog.Error("[Session]", $"Exception forwarding packet to world/cluster server: {ex}");
+                            CLog.Error("[Session]", R_E_SESSION_EXCEPTION_FORWARDING, ex);
                         }
                     }
                     if (!forwarded)

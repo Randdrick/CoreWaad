@@ -79,6 +79,7 @@ public class LogonCommHandler : IDisposable
     public byte[] SqlPassHash = new byte[20];
     public byte[] Key = new byte[20];
     private bool _disposed = false;
+    private volatile bool _shuttingDown = false;
 
     public LogonCommHandler()
     {
@@ -130,10 +131,10 @@ public class LogonCommHandler : IDisposable
     }
     public void RequestAddition(LogonCommClientSocket socket)
     {
-        CLog.Notice("[LogonCommHandler]", $"RequestAddition: sending register for {realms.Count} realms");
-        var data = new WorldPacket((ushort)RCMSG_REGISTER_REALM, 100);
+        CLog.Notice("[LogonCommHandler]", R_D_LOGCOMHAN_REQUEST_ADDITION, realms.Count);
         foreach (var realm in realms)
         {
+            var data = new WorldPacket((ushort)RCMSG_REGISTER_REALM, 100);
             data.WriteString(realm.Name);
             data.WriteString(realm.Address);
             data.WriteUInt32(realm.Colour);
@@ -196,8 +197,13 @@ public class LogonCommHandler : IDisposable
         }
     }
 
+    public bool IsShuttingDown => _shuttingDown;
+
     public void UpdateSockets()
     {
+        if (_shuttingDown)
+            return;
+
         lock (mapLock)
         {
             uint t = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -237,6 +243,9 @@ public class LogonCommHandler : IDisposable
     }
     public void Connect(LogonServer server)
     {
+        if (_shuttingDown)
+            return;
+
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_2, server.Name, server.Address, server.Port);
         server.RetryTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
         server.Registered = false;
@@ -245,13 +254,13 @@ public class LogonCommHandler : IDisposable
         if (conn == null)
         {
             Logger.OutColor(LogColor.TRED, R_E_LOGCOMHAN, server.Address, server.Port);
-            Logger.OutColor(LogColor.TNORMAL, "\n");
+            Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_NEWLINE);
             return;
         }
 
-        Logger.OutColor(LogColor.TGREEN, " Ok !\n");
+        Logger.OutColor(LogColor.TGREEN, R_N_LOGCOMHAN_OK);
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_3);
-        Logger.OutColor(LogColor.TNORMAL, "        >> ");
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_PROMPT);
 
         uint tt = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
         conn.SendChallenge();
@@ -259,6 +268,12 @@ public class LogonCommHandler : IDisposable
 
         while (conn.authenticated == 0)
         {
+            if (_shuttingDown)
+            {
+                conn.Disconnect();
+                logons[server] = null;
+                return;
+            }
             if ((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= tt)
             {
                 Logger.OutColor(LogColor.TYELLOW, R_Y_LOGCOMHAN);
@@ -287,6 +302,12 @@ public class LogonCommHandler : IDisposable
         var st = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
         while (!server.Registered)
         {
+            if (_shuttingDown)
+            {
+                logons[server] = null;
+                conn.Disconnect();
+                break;
+            }
             if ((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= st)
             {
                 CLog.Warning("[LogonCommHandler]", R_Y_LOGCOMHAN_1);
@@ -301,8 +322,8 @@ public class LogonCommHandler : IDisposable
         Thread.Sleep(200);
 
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_6);
-        Logger.OutColor(LogColor.TYELLOW, "%ums", conn.latency);
-        Logger.OutColor(LogColor.TNORMAL, "\n");
+        Logger.OutColor(LogColor.TYELLOW, R_N_LOGCOMHAN_LATENCE, conn.latency);
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_NEWLINE);
     }
     //public void LogonDatabaseSQLExecute(string str, params object[] args) { /* ... */ }
     //public void LogonDatabaseReloadAccounts() { /* ... */ }
@@ -349,13 +370,13 @@ public class LogonCommHandler : IDisposable
         var configMgr = new ConfigMgr();
         if (!configMgr.RealmConfig.SetSource(configPath))
         {
-            CLog.Error("[ConsoleListener]", $"Config file not found: {configPath}");
+            CLog.Error("[ConsoleListener]", R_E_LOGCOMHAN_CONFIG_NOT_FOUND, configPath);
             return;
         }
-        CLog.Debug("[LogonCommHandler]", $"Loading config from: {configPath}");
+        CLog.Debug("[LogonCommHandler]", R_D_LOGCOMHAN_CHARGEMENT_CONF, configPath);
         // Normalize LogonServer address to IPv4 when possible
         string rawLogonAddr = configMgr.RealmConfig.GetString("LogonServer", "IpOrHost", "127.0.0.1");
-        CLog.Debug("[LogonCommHandler]", $"Raw logon address: {rawLogonAddr}");
+        CLog.Debug("[LogonCommHandler]", R_D_LOGCOMHAN_ADRESSE_BRUTE, rawLogonAddr);
         string normalizedLogonAddr = rawLogonAddr;
         if (!IPAddress.TryParse(rawLogonAddr, out var parsedIp) || parsedIp.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
         {
@@ -369,7 +390,7 @@ public class LogonCommHandler : IDisposable
             }
             catch { /* keep raw if resolution fails */ }
         }
-        CLog.Debug("[LogonCommHandler]", $"Normalized logon address: {normalizedLogonAddr}");
+        CLog.Debug("[LogonCommHandler]", R_D_LOGCOMHAN_ADRESSE_NORMALISEE, normalizedLogonAddr);
 
         var ls = new LogonServer
         {
@@ -534,6 +555,7 @@ public class LogonCommHandler : IDisposable
     {
         if (!_disposed)
         {
+            _shuttingDown = true;
             if (disposing)
             {
                 // Nettoyer les ressources managées : déconnecter tous les sockets actifs
@@ -543,6 +565,12 @@ public class LogonCommHandler : IDisposable
                     {
                         if (kvp.Value != null && kvp.Value.IsConnected())
                         {
+                            try
+                            {
+                                var fd = kvp.Value.GetFd();
+                                fd?.Shutdown(System.Net.Sockets.SocketShutdown.Both);
+                            }
+                            catch { }
                             try
                             {
                                 kvp.Value.Disconnect();

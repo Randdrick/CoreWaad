@@ -98,6 +98,26 @@ public class ItemStat
 
 public class ItemPrototype
 {
+    public ItemPrototype()
+    {
+        // Pré-allocation pour éviter les allocations répétées dans Parse*
+        Stats = new ItemStat[10];
+        for (int i = 0; i < 10; i++)
+            Stats[i] = new ItemStat();
+
+        Damage = new ItemDamage[5];
+        for (int i = 0; i < 5; i++)
+            Damage[i] = new ItemDamage();
+
+        Spells = new ItemSpell[5];
+        for (int i = 0; i < 5; i++)
+            Spells[i] = new ItemSpell();
+
+        Sockets = new SocketInfo[3];
+        for (int i = 0; i < 3; i++)
+            Sockets[i] = new SocketInfo();
+    }
+
     [DbField("u")]
     public uint ItemId { get; set; }
 
@@ -322,21 +342,6 @@ public class ItemPrototype
     [DbField("u")]
     public uint Unk2 { get; set; }
 
-    public ItemPrototype()
-    {
-        for (int i = 0; i < 10; i++)
-            Stats[i] = new ItemStat();
-
-        for (int i = 0; i < 5; i++)
-            Damage[i] = new ItemDamage();
-
-        for (int i = 0; i < 5; i++)
-            Spells[i] = new ItemSpell();
-
-        for (int i = 0; i < 3; i++)
-            Sockets[i] = new SocketInfo();
-    }
-
     public void ParseStats()
     {
         if (StatsData == null)
@@ -345,17 +350,15 @@ public class ItemPrototype
             StatsData = new uint[20];
         }
 
-        if (Stats == null)
+        // Stats est déjà pré-alloué dans le constructeur
+        if (Stats == null || Stats.Length < 10)
         {
-            CLog.Error("ItemPrototype", "Stats est null.");
-            Stats = new ItemStat[10];
+            CLog.Error("ItemPrototype", "Stats n'est pas correctement initialisé.");
+            return;
         }
 
         for (int i = 0; i < 10; i++)
         {
-            if (Stats[i] == null)
-                Stats[i] = new ItemStat();
-
             if (i * 2 + 1 >= StatsData.Length)
             {
                 CLog.Error("ItemPrototype", "StatsData n'a pas assez d'éléments.");
@@ -375,17 +378,15 @@ public class ItemPrototype
             DamageData = new float[15];
         }
 
-        if (Damage == null)
+        // Damage est déjà pré-alloué dans le constructeur
+        if (Damage == null || Damage.Length < 5)
         {
-            CLog.Error("ItemPrototype", "Damage est null.");
-            Damage = new ItemDamage[5];
+            CLog.Error("ItemPrototype", "Damage n'est pas correctement initialisé.");
+            return;
         }
 
         for (int i = 0; i < 5; i++)
         {
-            if (Damage[i] == null)
-                Damage[i] = new ItemDamage();
-
             if (i * 3 + 2 >= DamageData.Length)
             {
                 CLog.Error("ItemPrototype", "DamageData n'a pas assez d'éléments.");
@@ -406,17 +407,15 @@ public class ItemPrototype
             SpellsData = new uint[30];
         }
 
-        if (Spells == null)
+        // Spells est déjà pré-alloué dans le constructeur
+        if (Spells == null || Spells.Length < 5)
         {
-            CLog.Error("ItemPrototype", "Spells est null.");
-            Spells = new ItemSpell[5];
+            CLog.Error("ItemPrototype", "Spells n'est pas correctement initialisé.");
+            return;
         }
 
         for (int i = 0; i < 5; i++)
         {
-            if (Spells[i] == null)
-                Spells[i] = new ItemSpell();
-
             if (i * 6 + 5 >= SpellsData.Length)
             {
                 CLog.Error("ItemPrototype", "SpellsData n'a pas assez d'éléments.");
@@ -440,17 +439,15 @@ public class ItemPrototype
             SocketsData = new uint[9];
         }
 
-        if (Sockets == null)
+        // Sockets est déjà pré-alloué dans le constructeur
+        if (Sockets == null || Sockets.Length < 3)
         {
-            CLog.Error("ItemPrototype", "Sockets est null.");
-            Sockets = new SocketInfo[3];
+            CLog.Error("ItemPrototype", "Sockets n'est pas correctement initialisé.");
+            return;
         }
 
         for (int i = 0; i < 3; i++)
         {
-            if (Sockets[i] == null)
-                Sockets[i] = new SocketInfo();
-
             if (i * 3 + 1 >= SocketsData.Length)
             {
                 CLog.Error("ItemPrototype", "SocketsData n'a pas assez d'éléments.");

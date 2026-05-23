@@ -26,6 +26,7 @@ using WaadShared;
 using WaadShared.Auth;
 using WaadShared.Network;
 using static WaadShared.ConsoleListener;
+using static WaadShared.LogonCommHandler;
 
 
 namespace WaadRealmServer;
@@ -210,7 +211,7 @@ public static class ConsoleListener
         var configMgr = new WaadShared.Config.ConfigMgr();
         if (!configMgr.MainConfig.SetSource(configPath))
         {
-            CLog.Warning("[ConsoleListener]", $"Fichier de configuration non trouvé: {configPath}");
+            CLog.Warning("[ConsoleListener]", R_W_CONLIS_CONFIG_NOT_FOUND, configPath);
             return;
         }
 
@@ -226,7 +227,7 @@ public static class ConsoleListener
         }
 
         _ = uint.TryParse(portStr, out uint port);
-        CLog.Notice("[ConsoleListener]", $"Remote console enabled on {address}:{port}");
+        CLog.Notice("[ConsoleListener]", R_N_CONLIS_REMOTE_ENABLED, address, port);
         
         listener = new ListenSocket<ConsoleSession>(address, port, sock => {
             var waadSocket = new Socket(sock, 2048, 2048);

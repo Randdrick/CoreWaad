@@ -20,9 +20,41 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 
 public static partial class DBCStores
 {
+    // Synchronisation du chargement des DBCs
+    private static readonly ManualResetEvent _dbcLoadingEvent = new(false);
+    private static bool _dbcLoaded = false;
+
+    /// <summary>
+    /// Indique si les DBCs ont été complètement chargés.
+    /// </summary>
+    public static bool IsDbcLoaded => _dbcLoaded;
+
+    /// <summary>
+    /// Attend que les DBCs soient complètement chargés. Retourne immédiatement si déjà chargés.
+    /// </summary>
+    /// <param name="timeoutMs">Délai d'attente maximum en millisecondes. -1 = infini.</param>
+    /// <returns>true si les DBCs sont chargés, false si timeout.</returns>
+    public static bool WaitForDbcLoading(int timeoutMs = -1)
+    {
+        if (_dbcLoaded)
+            return true;
+
+        return _dbcLoadingEvent.WaitOne(timeoutMs < 0 ? Timeout.Infinite : timeoutMs);
+    }
+
+    /// <summary>
+    /// Signale que les DBCs ont été complètement chargés. Appelée en interne.
+    /// </summary>
+    private static void SignalDbcLoadingComplete()
+    {
+        _dbcLoaded = true;
+        _dbcLoadingEvent.Set();
+    }
+
     private static DBCStorage<AchievementEntry> dbcAchievement = new();
     private static DBCStorage<AchievementCategoryEntry> dbcAchievementCategory = new();
     private static DBCStorage<AchievementCriteriaEntry> dbcAchivementCriteria = new();
@@ -311,6 +343,8 @@ public static partial class DBCStores
         if (!LoaderStub(rsdbcPath, "AreaTable.dbc", AreatableFormat, true, ref dbcArea, true)) return false;
         if (!LoaderStub(rsdbcPath, "ChatChannels.dbc", ChatChannelFormat, true, ref dbcChatChannels, false)) return false;
 
+        // Signaler que le chargement des DBCs est terminé avec succès
+        SignalDbcLoadingComplete();
         return true;
     }
 

@@ -288,7 +288,7 @@ public class Socket
         // Flush all buffered write data to the socket
         try
         {
-            if (_socket == null)
+            if (_socket == null || !m_connected)
                 return;
 
             int availableBytes = writeBuffer.GetSize();
@@ -318,6 +318,10 @@ public class Socket
         catch (SocketException ex)
         {
             CLog.Error("[SOCKET]", $"BurstPush SocketException: {ex.Message}");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Socket was closed concurrently — expected during disconnection, ignore silently
         }
         catch (Exception ex)
         {

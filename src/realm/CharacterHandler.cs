@@ -397,7 +397,7 @@ namespace WaadRealmServer
             }
             else
             {
-                CLog.Warning("CHAR_CREATE", R_E_CHARHAN_CC_1, GetAccountId());
+                CLog.Warning("CHAR_CREATE", R_W_CHARHAN_CC_1, GetAccountId());
                 Ws.OutPacket((ushort)Opcodes.SMSG_CHAR_CREATE, 1, [(byte)LoginErrorCode.CHAR_CREATE_NAME_IN_USE]); // 0x32
                 return;
             }

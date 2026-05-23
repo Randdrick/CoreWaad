@@ -20,6 +20,7 @@
  */
 
 using System;
+using System.Threading;
 
 namespace WaadShared;
 
@@ -64,7 +65,13 @@ public class CThread : ThreadBase
 
         while (ThreadRunning)
         {
-            ProcessQueries();
+            bool didWork = ProcessQueries();
+            
+            // If no queries were processed, wait a bit to avoid spinning CPU
+            if (!didWork)
+            {
+                Thread.Sleep(10);  // Sleep 10ms when idle
+            }
 
             if (ThreadState == CThreadState.THREADSTATE_TERMINATE)
             {
@@ -96,13 +103,14 @@ public class CThread : ThreadBase
         return true;
     }
 
-    private void ProcessQueries()
+    private bool ProcessQueries()
     {
         // This method should be implemented in the Database class
         // Here we assume that the Database class has a reference to this CThread instance
         if (db is Database.Database database)
         {
-            database.ProcessQueries();
+            // ProcessQueries should return true if it actually processed a query
+            return database.ProcessQueries();
         }
         else
         {

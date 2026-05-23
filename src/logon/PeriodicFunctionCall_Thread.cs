@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2021 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -16,11 +16,13 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 using System;
 using System.Threading;
+using System.Threading.Tasks;
+using WaadShared;
+using static WaadShared.ThreadingLogs;
 
 namespace LogonServer;
 
@@ -29,88 +31,133 @@ public class CallbackBase
     public virtual void Execute() { }
 }
 
-public class CallbackP0<T>(T callback, Action method) : CallbackBase
+public class CallbackP0<T>(T callback, Action method) : CallbackBase, IDisposable
 {
     private readonly T _callback = callback;
     private readonly Action _method = method;
+    private bool _disposed = false;
 
-    public override void Execute()
+    public override void Execute() => _method();
+
+    public void Dispose()
     {
-        _method();
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing && _callback is IDisposable disposableCallback)
+            {
+                disposableCallback.Dispose();
+            }
+            _disposed = true;
+        }
     }
 }
 
 public abstract class ThreadBase
 {
     protected bool mrunning = true;
-    public abstract bool Run();
 
-    // Ajout de la méthode abstraite pour gérer le CancellationToken
+    // Seule méthode abstraite nécessaire (Run() supprimée)
     public abstract bool Run(CancellationToken token);
 }
 
-public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase
+public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase, IDisposable
 {
     private readonly CallbackP0<Type> _cb;
     private readonly uint _interval;
     private bool _running;
-    private readonly Thread _thread;
-    private readonly AutoResetEvent _event;
+    private readonly CancellationTokenSource _cts;
+    private readonly Task _task;
+    private bool _disposed = false;
+    private readonly string _callbackName;
 
-    public PeriodicFunctionCaller(Type callback, Action method, uint interval)
+    public PeriodicFunctionCaller(Type callback, Action method, uint interval, string callbackName = null)
     {
         _cb = new CallbackP0<Type>(callback, method);
         _interval = interval;
+        _callbackName = callbackName ?? typeof(Type).Name;
         _running = true;
-        _event = new AutoResetEvent(false);
-        _thread = new Thread(RunThread);
-        _thread.Start();
+        _cts = new CancellationTokenSource();
+        _task = Task.Run(() => RunAsync(_cts.Token));
+        CLog.Debug(R_D_THREAD_START, _callbackName, _interval);
     }
 
-    ~PeriodicFunctionCaller()
+    private async Task RunAsync(CancellationToken token)
     {
-        Kill();
-        _thread.Join();
-    }
-
-    private void RunThread()
-    {
-        while (_running && mrunning)
+        // Utilise uniquement _running pour contrôler l'exécution locale
+        while (!token.IsCancellationRequested && _running)
         {
-            _event.WaitOne((int)_interval);
+            await Task.Delay((int)_interval, token);
+            if (token.IsCancellationRequested || !_running) break;
 
-            if (!_running)
-                break;
-
-            _cb.Execute();
+            try
+            {
+                _cb.Execute();
+            }
+            catch (Exception ex)
+            {
+                CLog.Error(R_E_THREAD_EXCEPTION, _callbackName, ex);
+            }
         }
     }
 
-    public bool Run()
-    {
-        return false;
-    }
-
+    // Implémentation requise par ThreadBase
     public override bool Run(CancellationToken token)
     {
-        while (_running && mrunning && !token.IsCancellationRequested)
+        while (!token.IsCancellationRequested && _running)
         {
-            // Utilisation de WaitHandle.WaitAny pour gérer l'annulation
-            WaitHandle.WaitAny([_event, token.WaitHandle], (int)_interval);
-
-            if (!_running || token.IsCancellationRequested)
-                break;
-
-            _cb.Execute();
+            try
+            {
+                token.WaitHandle.WaitOne((int)_interval);
+                if (token.IsCancellationRequested || !_running) break;
+                _cb.Execute();
+            }
+            catch (Exception ex)
+            {
+                CLog.Error(R_E_THREAD_EXCEPTION, _callbackName, ex);
+            }
         }
         return true;
     }
 
     public void Kill()
     {
+        _cts.Cancel();
         _running = false;
-        _event.Set();
-        _thread.Join();
+
+        try
+        {
+            if (_task != null && !_task.Wait(5000))
+            {
+                CLog.Warning(R_W_THREAD_TIMEOUT, _callbackName);
+            }
+        }
+        catch (AggregateException) { }
+        CLog.Debug(R_D_THREAD_STOP, _callbackName);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                Kill();
+                _cb?.Dispose();
+                _cts?.Dispose();
+            }
+            _disposed = true;
+        }
     }
 }
-

@@ -86,13 +86,16 @@ namespace WaadShared.Threading
                 return;
             }
 
+            // Use SpinWait to avoid busy-waiting that consumes 100% CPU
+            var spinWait = new SpinWait();
             while (true)
             {
                 int owner = Interlocked.CompareExchange(ref _lock, threadId, 0);
                 if (owner == 0)
                     break;
 
-                Thread.Yield();
+                // SpinWait includes exponential backoff to prevent excessive CPU usage
+                spinWait.SpinOnce();
             }
 
             _recursiveCount++;

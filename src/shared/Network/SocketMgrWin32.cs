@@ -54,9 +54,10 @@ public class SocketMgr : IDisposable
 
     public void SpawnWorkerThreads()
     {
-        int processorCount = Environment.ProcessorCount;
-        int threadCount = processorCount * 2;
-        CLog.Notice("[IOCP]", $"Spawning {threadCount} worker threads.");
+        // 1 worker thread: BeginReceive callbacks run on ThreadPool, this thread only
+        // dispatches OnRead — reduced from processorCount*2 which caused 85-91% idle CPU
+        const int threadCount = 1;
+        CLog.Notice("[IOCP]", $"Spawning {threadCount} I/O worker thread(s).");
 
         for (int i = 0; i < threadCount; i++)
         {
@@ -78,12 +79,23 @@ public class SocketMgr : IDisposable
             socket.Disconnect();
         }
 
-        while (true)
+        // Wait for all sockets to be removed with a reasonable timeout
+        // to avoid busy-waiting during shutdown
+        int maxWaitMs = 10000;  // 10 second timeout
+        int elapsed = 0;
+        while (elapsed < maxWaitMs)
         {
             lock (_socketLock)
             {
                 if (_sockets.IsEmpty) break;
             }
+            Thread.Sleep(10);  // Check every 10ms instead of spinning
+            elapsed += 10;
+        }
+
+        if (elapsed >= maxWaitMs)
+        {
+            CLog.Warning("[SocketMgr]", $"Timeout waiting for sockets to close. {_sockets.Count} still pending.");
         }
     }
 
@@ -121,123 +133,71 @@ public class SocketWorkerThread
     {
         Thread.CurrentThread.Name = "Socket Worker";
 
-        IntPtr completionPort = SocketManager.GetCompletionPort();
         while (!cancellationToken.IsCancellationRequested)
         {
-            // Simulate GetQueuedCompletionStatus
-            bool success = GetQueuedCompletionStatus(completionPort, out uint bytesTransferred, out IntPtr completionKey, out IntPtr overlapped, 10000);
-
-            if (!success)
+            try
             {
-                // Handle failure or timeout
-                CLog.Error("[SOCKETMGR]", "GetQueuedCompletionStatus failed or timed out.");
-                continue;
+                // True blocking wait: thread sleeps in OS until an event is enqueued
+                // BlockingCollection uses Monitor.Wait internally → 0% CPU when idle
+                if (SocketManager.IOCompletionQueue.TryTake(
+                        out var evt,
+                        millisecondsTimeout: 5000,
+                        cancellationToken))
+                {
+                    switch (evt.Event)
+                    {
+                        case SocketManager.SocketIOEvent.ReadComplete:
+                            HandleReadComplete(evt.Socket, evt.BytesTransferred);
+                            break;
+                        case SocketManager.SocketIOEvent.WriteComplete:
+                            HandleWriteComplete(evt.Socket, evt.BytesTransferred);
+                            break;
+                        case SocketManager.SocketIOEvent.Shutdown:
+                            HandleShutdown(evt.Socket);
+                            break;
+                    }
+                }
+                // TryTake timed out → loop back, cancellationToken re-checked at top
             }
-
-            // Retrieve the socket and event from the completion key and overlapped structure
-            Socket socket = null;
-            if (completionKey != IntPtr.Zero)
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
             {
-                var handle = System.Runtime.InteropServices.GCHandle.FromIntPtr(completionKey);
-                socket = handle.Target as Socket;
-            }
-            OverlappedStruct ov = OverlappedStruct.FromOverlapped(overlapped);
-
-            if (ov.Event == SocketIOEvent.SocketIOThreadShutdown)
-            {
-                CLog.Notice("[SOCKETMGR]", "Socket IO thread shutdown event received.");
-                break;
-            }
-
-            switch (ov.Event)
-            {
-                case SocketIOEvent.ReadComplete:
-                    HandleReadComplete(socket, bytesTransferred);
-                    break;
-
-                case SocketIOEvent.WriteComplete:
-                    HandleWriteComplete(socket, bytesTransferred);
-                    break;
-
-                case SocketIOEvent.Shutdown:
-                    HandleShutdown(socket);
-                    break;
-
-                default:
-                    CLog.Notice("[SOCKETMGR]", "Unknown socket event.");
-                    break;
+                CLog.Error("[SOCKETMGR]", $"Worker thread error: {ex.Message}");
             }
         }
     }
 
     private static void HandleReadComplete(Socket socket, uint bytesTransferred)
     {
-        if (socket != null && !socket.IsDeleted())
+        if (socket == null || socket.IsDeleted()) return;
+        if (bytesTransferred > 0)
         {
-            if (bytesTransferred > 0)
-            {
-                SocketExtensions.OnRead(socket, (int)bytesTransferred);
-            }
-            else
-            {
-                socket.Delete();
-            }
+            socket.OnRead();             // Virtual dispatch: process received packet(s)
+            if (socket.IsConnected())
+                socket.SetupReadEvent(); // Queue next async BeginReceive
+        }
+        else
+        {
+            socket.Delete();
         }
     }
 
     private static void HandleWriteComplete(Socket socket, uint bytesTransferred)
     {
-        if (socket != null && !socket.IsDeleted())
-        {
-            socket.BurstBegin();
-            if (socket.GetWriteBufferSize() > 0)
-            {
-                socket.WriteCallback();
-            }
-            else
-            {
-                socket.DecSendLock();
-            }
-            socket.BurstEnd();
-        }
+        if (socket == null || socket.IsDeleted()) return;
+        socket.BurstBegin();
+        if (socket.GetWriteBufferSize() > 0)
+            socket.WriteCallback();
+        else
+            socket.DecSendLock();
+        socket.BurstEnd();
     }
 
     private static void HandleShutdown(Socket socket)
     {
-        if (socket != null)
-        {
-            CLog.Notice("[SOCKETMGR]", "Handling socket shutdown.");
-            socket.Disconnect();
-        }
-    }
-
-    private static bool GetQueuedCompletionStatus(IntPtr completionPort, out uint bytesTransferred, out IntPtr completionKey, out IntPtr overlapped, int timeout)
-    {
-        bytesTransferred = 0;
-        completionKey = IntPtr.Zero;
-        overlapped = IntPtr.Zero;
-
-        // Simulate a successful event retrieval
-        return true;
-    }
-
-    private class OverlappedStruct
-    {
-        public SocketIOEvent Event { get; set; }
-
-        public static OverlappedStruct FromOverlapped(IntPtr overlapped)
-        {
-            // Simulate retrieving the OverlappedStruct from the overlapped pointer
-            return new OverlappedStruct { Event = SocketIOEvent.ReadComplete };
-        }
-    }
-
-    private enum SocketIOEvent
-    {
-        ReadComplete,
-        WriteComplete,
-        Shutdown,
-        SocketIOThreadShutdown
+        if (socket == null) return;
+        CLog.Notice("[SOCKETMGR]", "Handling socket shutdown.");
+        socket.Disconnect();
     }
 }
 

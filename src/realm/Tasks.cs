@@ -118,16 +118,17 @@ public class TaskList
 
     public void Wait()
     {
-        bool hasTasks;
-        do
+        // Wait for all tasks to complete with a reasonable polling interval
+        // to avoid CPU spinning
+        while (true)
         {
             // Vérifier si un arrêt est demandé (CTRL+C)
             if (Master.StopEvent)
                 break;
 
+            bool hasTasks = false;
             lock (_queueLock)
             {
-                hasTasks = false;
                 foreach (var task in _tasks)
                 {
                     if (!task.Completed)
@@ -137,17 +138,18 @@ public class TaskList
                     }
                 }
             }
-            Thread.Sleep(20);
-        } while (hasTasks);
+
+            if (!hasTasks)
+                break;  // All tasks completed
+
+            // Sleep briefly to avoid busy-waiting CPU consumption
+            Thread.Sleep(10);
+        }
     }
 
     public void Kill()
     {
         Running = false;
-    }
-
-    public void WaitForThreadsToExit()
-    {
         while (_threadCount > 0)
         {
             Thread.Sleep(20);

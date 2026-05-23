@@ -58,11 +58,13 @@ public class AuthSocket : Socket
     private Account account;
     public bool authenticated;
     public DateTime lastRecv;
-    private readonly bool removedFromSet;
+    private bool removedFromSet;
     private Patch patch;
     private PatchJob patchJob;
     private static readonly object authSocketLock = new();
     private static readonly HashSet<AuthSocket> authSockets = [];
+    private static DateTime lastCleanup = DateTime.Now;
+    private const int CLEANUP_INTERVAL_MS = 60000; // 1 minute
     public PatchJob PatchJob { get; set; }
 
     public static void BurstBegin() { }
@@ -105,6 +107,11 @@ public class AuthSocket : Socket
             PatchMgr.AbortPatchJob(patchJob);
             patchJob = null;
         }
+        
+        // Clean up account reference to avoid holding stale references
+        account = null;
+        patch = null;
+        patchJob = null;
     }
 
     public void OnDisconnect()
@@ -114,13 +121,74 @@ public class AuthSocket : Socket
             lock (authSocketLock)
             {
                 authSockets.Remove(this);
+                removedFromSet = true;
+                
+                // Perform periodic cleanup every minute
+                var now = DateTime.Now;
+                if ((now - lastCleanup).TotalMilliseconds > CLEANUP_INTERVAL_MS)
+                {
+                    CleanupDeadSockets();
+                    lastCleanup = now;
+                }
             }
         }
 
+        // Clean up references to release memory
         if (patchJob != null)
         {
-            PatchMgr.AbortPatchJob(patchJob);
+            try
+            {
+                PatchMgr.AbortPatchJob(patchJob);
+            }
+            catch { }
             patchJob = null;
+        }
+        
+        // Null out large references to help GC
+        account = null;
+        patch = null;
+    }
+
+    private static void CleanupDeadSockets()
+    {
+        // Remove sockets where removedFromSet should have been set but wasn't
+        // This is a failsafe to catch sockets that disconnect without calling OnDisconnect
+        // Check for sockets inactive for more than 15 minutes to avoid aggressive cleanup
+        var now = DateTime.Now;
+        int removedCount = 0;
+        
+        // Create a snapshot to avoid collection modified exceptions
+        var socketsSnapshot = new List<AuthSocket>(authSockets);
+        
+        foreach (var socket in socketsSnapshot)
+        {
+            try
+            {
+                if (!socket.removedFromSet && (now - socket.lastRecv).TotalSeconds > 900) // 15 minutes
+                {
+                    authSockets.Remove(socket);
+                    socket.removedFromSet = true;
+                    removedCount++;
+                }
+            }
+            catch
+            {
+                // Skip errors
+            }
+        }
+        
+        if (removedCount > 0)
+        {
+            var sLog = new Logger();
+            sLog.OutDebug($"[AuthSocket] Cleaned up {removedCount} dead sockets");
+        }
+    }
+
+    public static int GetActiveSocketCount()
+    {
+        lock (authSocketLock)
+        {
+            return authSockets.Count;
         }
     }
 

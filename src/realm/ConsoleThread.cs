@@ -22,6 +22,7 @@ using System;
 using System.Threading;
 using WaadShared;
 using static WaadShared.Common;
+using static WaadShared.ConsoleThread;
 
 #nullable enable
 
@@ -57,7 +58,7 @@ public class ConsoleThread : WaadShared.Threading.ThreadBase
         }
         catch (Exception ex)
         {
-            CLog.Error("[ConsoleThread]", "Exception in console thread: {0}", ex.Message);
+            CLog.Error("[ConsoleThread]", R_E_CONTHR_EXCEPTION_CONSOLE_THREAD, ex.Message);
         }
         finally
         {
@@ -90,7 +91,7 @@ public class LocalConsole : IConsole
         }
         catch (Exception ex)
         {
-            CLog.Error("[LocalConsole] Error writing to console: {0}", ex.Message);
+            CLog.Error("[LocalConsole]", R_E_CONTHR_ERROR_WRITING_CONSOLE, ex.Message);
         }
     }
 }

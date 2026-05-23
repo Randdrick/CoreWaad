@@ -25,6 +25,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using WaadShared;
 
 namespace LogonServer;
 
@@ -43,11 +44,21 @@ public class PatchJob(Patch patch, AuthSocket client, uint skip)
     private readonly AuthSocket _client = client;
     private byte[] _dataPointer = [.. patch.Data.Skip((int)skip)];
     private uint _bytesLeft = patch.FileSize - skip;
+    private readonly DateTime _startTime = DateTime.Now;
+    private const int TIMEOUT_SECONDS = 300; // 5 minutes timeout
 
     public AuthSocket Client => _client;
+    
+    public bool IsTimedOut => (DateTime.Now - _startTime).TotalSeconds > TIMEOUT_SECONDS;
 
     public bool Update()
     {
+        // Check for timeout
+        if (IsTimedOut)
+        {
+            return false; // Mark job as complete (timedout)
+        }
+
         if (AuthSocket.GetWriteBufferSize() != 0)
         {
             return true;
@@ -177,7 +188,17 @@ public class PatchMgr
                 var job = _patchJobs[i];
                 if (!job.Update())
                 {
-                    job.Client.PatchJob = null;
+                    // Job is complete or timed out
+                    if (job.IsTimedOut)
+                    {
+                        // Log timeout - patch job exceeded 5 minute limit
+                        CLog.Warning("[PatchMgr]", "Patch job timeout - job exceeded 5 minute transfer limit and was removed");
+                    }
+                    
+                    if (job.Client != null)
+                    {
+                        job.Client.PatchJob = null;
+                    }
                     _patchJobs.RemoveAt(i);
                 }
             }

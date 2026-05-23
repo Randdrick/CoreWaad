@@ -60,6 +60,8 @@ public abstract class Database : CThread
         ThreadState = CThreadState.THREADSTATE_IDLE; // Initialize ThreadState
     }
 
+    public bool IsInitialized => Connections != null && mConnectionCount > 0;
+
     ~Database()
     {
         Dispose(false);
@@ -77,22 +79,49 @@ public abstract class Database : CThread
 
     public DatabaseConnection GetFreeConnection()
     {
-        uint i = 0;
-        while (true)
+        if (!IsInitialized)
+            return null;
+
+        // Retry logic with exponential backoff to avoid CPU spinning
+        int maxRetries = 50;  // ~5 seconds with backoff
+        int currentRetry = 0;
+
+        while (currentRetry++ < maxRetries)
         {
-            con = Connections[(i++) % mConnectionCount];
-            if (con.Busy.Wait(0))
-                return con;
+            uint i = 0;
+            // Try each connection once
+            for (int attempt = 0; attempt < mConnectionCount; attempt++)
+            {
+                con = Connections[(i++) % mConnectionCount];
+                if (con.Busy.Wait(0))
+                    return con;
+            }
+
+            // All connections busy, wait before retrying
+            // Use exponential backoff: 10ms, 20ms, 40ms, etc.
+            int backoffMs = Math.Min(10 << (currentRetry - 1), 500);  // Cap at 500ms
+            Thread.Sleep(backoffMs);
         }
+
+        // If we get here, all connections are busy for too long
+        // Force-take the oldest one rather than spinning
+        CLog.Warning("[Database]", $"All {mConnectionCount} connections busy for too long, returning first connection");
+        return Connections[0];
     }
 
     public QueryResult Query(string QueryString, params object[] args)
     {
+        if (!IsInitialized)
+            return null;
+
         string sql = string.Format(QueryString, args);
 
         // Send the query
         QueryResult qResult = null;
         con = GetFreeConnection();
+
+        if (con == null)
+            return null;
 
         if (SendQuery(con, sql, false))
             qResult = StoreQueryResult(con);
@@ -103,9 +132,15 @@ public abstract class Database : CThread
 
     public QueryResult QueryNA(string QueryString)
     {
+        if (!IsInitialized)
+            return null;
+
         // Send the query
         QueryResult qResult = null;
         con = GetFreeConnection();
+
+        if (con == null)
+            return null;
 
         if (SendQuery(con, QueryString, false))
             qResult = StoreQueryResult(con);
@@ -158,9 +193,15 @@ public abstract class Database : CThread
 
     public bool WaitExecute(string QueryString, params object[] args)
     {
+        if (!IsInitialized)
+            return false;
+
         string sql = string.Format(QueryString, args);
 
         con = GetFreeConnection();
+        if (con == null)
+            return false;
+
         bool Result = SendQuery(con, sql, false);
         con.Busy.Release();
         return Result;
@@ -168,7 +209,13 @@ public abstract class Database : CThread
 
     public bool WaitExecuteNA(string QueryString)
     {
+        if (!IsInitialized)
+            return false;
+
         con = GetFreeConnection();
+        if (con == null)
+            return false;
+
         bool Result = SendQuery(con, QueryString, false);
         con.Busy.Release();
         return Result;
@@ -206,10 +253,11 @@ public abstract class Database : CThread
         }
     }
 
-    public void ProcessQueries()
+    public bool ProcessQueries()
     {
         con = GetFreeConnection();
 
+        bool processedAny = false;
         while (true)
         {
             string query = null;
@@ -225,12 +273,14 @@ public abstract class Database : CThread
                 break;
 
             SendQuery(con, query, false);
+            processedAny = true;
 
             if (ThreadState == CThreadState.THREADSTATE_TERMINATE)
                 break;
         }
 
         con.Busy.Release();
+        return processedAny;  // Return true if any query was processed
     }
 
     protected abstract bool SendQuery(DatabaseConnection con, string sql, bool self);

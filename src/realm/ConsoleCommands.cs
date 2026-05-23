@@ -110,11 +110,11 @@ namespace WaadRealmServer
             }
             catch (Exception ex)
             {
-                CLog.Error("Erreur lors de la sauvegarde : {0}", ex.Message);
+                CLog.Error(R_E_CONCMD_ERROR_SAVING, ex.Message);
                 ok = false;
             }
             if (ok)
-                CLog.Success("[Command]", $"Backup effectué avec succès dans {backupFile}.");
+                CLog.Success("[Command]", R_S_CONCMD_BACKUP_SUCCESS, backupFile);
             else
                 console.Write($"Backup non supporté ou erreur sur ce backend : {backend}.");
             return true;
@@ -241,12 +241,12 @@ namespace WaadRealmServer
                 }
                 catch (Exception ex)
                 {
-                    CLog.Error("[Command]", "Erreur lors de la sauvegarde du joueur {0} : {1}", player.Name, ex.Message);
+                    CLog.Error("[Command]", R_E_CONCMD_ERROR_SAVING_PLAYER, player.Name, ex.Message);
                 }
             }
             var elapsed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startTime;
 
-            CLog.Success("[Command]", "Sauvegarde de {0} joueurs en ligne en {1} ms.", count.ToString(), elapsed.ToString());
+            CLog.Success("[Command]", R_S_CONCMD_SAVE_SUCCESS, count.ToString(), elapsed.ToString());
             return true;
         }
 
@@ -293,7 +293,7 @@ namespace WaadRealmServer
             }
             else
             {
-                CLog.Error("Session non valide pour le joueur {0}.", player.Name);
+                CLog.Error(R_E_CONCMD_INVALID_SESSION, player.Name);
             }
             return true;
         }
@@ -453,7 +453,7 @@ namespace WaadRealmServer
             }
             else
             {
-                CLog.Error("Impossible de déconnecter le joueur {0} : socket non valide.", player.Name);
+                CLog.Error(R_E_CONCMD_CANNOT_DISCONNECT, player.Name);
             }
             console.Write(R_N_CONCMD_PL_1, player.Name);
             return true;

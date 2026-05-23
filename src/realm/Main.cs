@@ -85,10 +85,13 @@ public class Master
     private static readonly int OBJECT_WAIT_TIME = 50; // ms
     public static string BRANCH_NAME { get; set; }
     public static int REVISION { get; set; }
+    public static int DbcLoadTimeout { get; private set; }
 
     // Configuration du ThreadPool
     private static bool m_enableMultithreadedLoading = true;
-    // private static int m_maxThreadCount = 32; // Limite absolue
+    private static int MinThreadCount { get; set; }
+    private static int MaxThreadCount { get; set; }
+    private static int StartThreadCount { get; set; }
     private static uint rlport = 8129;
     private static uint rsport = 11010;
 
@@ -207,18 +210,21 @@ public class Master
         DBCStores.DbcPath = dbcPath;
         DBCStores.RsdbcPath = dbcPath;
 
+        // Timeout du chargement des DBCs        
+        DbcLoadTimeout = Config.ClusterConfig.GetInt32("Startup", "DbcLoadTimeout", 30000);
+
         // Configuration du chargement multithread
         m_enableMultithreadedLoading = Config.ClusterConfig.GetBoolean("Startup", "EnableMultithreadedLoading", true);
         MAX_TOTAL_THREADS = Config.ClusterConfig.GetInt32("Startup", "MaxThreadCount", 32);
 
         // Configuration du ThreadPool réseau
-        int networkThreadCountConfig = Config.ClusterConfig.GetInt32("Network.ThreadPool", "InitialThreads", 8);
-        NetworkThreadPool.Instance.Startup((byte)networkThreadCountConfig);
+        StartThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "InitialThreads", 8);
+        NetworkThreadPool.Instance.Startup((byte)StartThreadCount);
 
         // Limites du ThreadPool réseau
-        int minThreads = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MinThreads", 8);
-        int maxThreads = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MaxThreads", 32);
-        NetworkThreadPool.Instance.SetThreadLimits(minThreads, maxThreads);
+        MinThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MinThreads", 8);
+        MaxThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MaxThreads", 32);
+        NetworkThreadPool.Instance.SetThreadLimits(MinThreadCount, MaxThreadCount);
 
         // Ports du cluster
         rsport = Config.ClusterConfig.GetUInt32("Cluster", "RSPort", 8129);
@@ -414,15 +420,12 @@ public class Master
 
         // === Gestion des threads (nouvelle logique) ===
         // 1. Calcul du nombre total de threads disponibles
-        // int totalAvailableThreads = Math.Min(Environment.ProcessorCount * 2, MAX_TOTAL_THREADS);
         int totalAvailableThreads = CalculateOptimalThreadCount();
 
         // 2. Répartition entre NetworkThreadPool et TaskList
         int networkThreadCount = totalAvailableThreads / 2;
         int taskListThreadCount = totalAvailableThreads - networkThreadCount;
-        if (taskListThreadCount < 5)
-            taskListThreadCount = 5;
-
+ 
         // Vérification des cas limites
         if (totalAvailableThreads < 2)
         {
@@ -479,20 +482,32 @@ public class Master
         }
         CLog.Success("[Storage]", R_S_MASTER_3);
 
-        // 8. Remplissage des données de stockage (doit être fait après DB, avant les managers)
+        // Attendre que les DBCs soient complètement chargés avant de continuer
+        if (!DBCStores.WaitForDbcLoading(DbcLoadTimeout)) // 30 secondes de timeout
+        {
+            sLog.OutError("[Storage]", "Les DBCs n'ont pas pu être chargés dans le délai imparti.");
+            RealmDatabaseManager.RemoveDatabase();
+            NetworkThreadPool.Instance.Shutdown();
+            BufferPool.Destroy();
+            return;
+        }
+        sLog.OutDebug("[Storage]", "DBCs complètement chargés et prêts.");
+
+        // 8. Remplissage des données de stockage (doit être fait après DB et DBCs, avant les managers)
         TaskList tl = new();
         StorageManager.FillTaskList(tl,Config);
 
         // Démarrage des tâches de chargement en parallèle
-        CLog.Notice("[Storage]", R_S_MASTER_3_1, taskListThreadCount);
-        tl.Start((uint)taskListThreadCount);        
+        CLog.Notice("[Storage]", R_S_MASTER_3_1, StartThreadCount);
+        tl.Start((uint)StartThreadCount);        
 
         // Attente de la fin des tâches
         tl.Wait();
-        CLog.Success("[Storage]", R_S_MASTER_3_2);
-
+        
         // Arrêt propre des threads du TaskList
-        tl.Kill();
+        tl.Kill();        
+      
+        CLog.Success("[Storage]", R_S_MASTER_3_2);
 
         // 9. Initialisation des singletons ChannelMgr, ClientMgr, ClusterMgr
         _ = ChannelMgr.Instance;

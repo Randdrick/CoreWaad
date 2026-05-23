@@ -23,6 +23,8 @@ using System;
 using WaadShared;
 using WaadShared.Config;
 
+using static WaadShared.LogonCommHandler;
+
 namespace WaadRealmServer;
 
 // Definitions des formats de tables
@@ -46,12 +48,12 @@ public static class TableFormats
 
 // Déclarations des stockages globaux
 public static class Storage
-{   
-    public static readonly SQLStorage<ItemPrototype,ArrayStorageContainer<ItemPrototype>> ItemPrototypeStorage = new();
+{
+    public static readonly SQLStorage<ItemPrototype, ArrayStorageContainer<ItemPrototype>> ItemPrototypeStorage = new();
     public static readonly SQLStorage<CreatureInfo, HashMapStorageContainer<CreatureInfo>> CreatureNameStorage = new();
     public static readonly SQLStorage<GameObjectInfo, HashMapStorageContainer<GameObjectInfo>> GameObjectNameStorage = new();
     public static readonly SQLStorage<ItemPage, HashMapStorageContainer<ItemPage>> ItemPageStorage = new();
-    public static readonly SQLStorage<MapInfo, HashMapStorageContainer<MapInfo>> WorldMapInfoStorage = new();   
+    public static readonly SQLStorage<MapInfo, HashMapStorageContainer<MapInfo>> WorldMapInfoStorage = new();
 }
 
 // Fonctions principales
@@ -61,35 +63,19 @@ public static class StorageManager
 
     public static void FillTaskList(TaskList tl, ConfigMgr configMgr)
     {
+        // Vérifier que les DBCs sont complètement chargés
+        if (!DBCStores.IsDbcLoaded)
+        {
+            CLog.Error("[StorageManager]", "ERREUR: Les DBCs ne sont pas complètement chargés. Impossible de remplir les tâches de stockage.");
+            throw new InvalidOperationException("DBCs must be fully loaded before filling task list.");
+        }
+
         string connectionString = RealmDatabaseManager.GetConnectionString(DbType, configMgr);
-        CLog.Debug("[StorageManager]", $"Chaîne de connexion : {connectionString ?? "NULL"}");
+        CLog.Debug("[StorageManager]", R_D_STORAGE_CONNSTRING, connectionString ?? "NULL");
 
-        // Chargement des tables
-        CLog.Debug("[StorageManager]", "Ajout de la tâche pour la table items...");
-        tl.AddTask(new Task(() =>
-        {
-            try
-            {
-                Storage.ItemPrototypeStorage.Load("items", TableFormats.ItemPrototypeFormat, connectionString, DbType);
-            }
-            catch (Exception ex)
-            {
-                CLog.Error("[StorageManager]", $"Erreur lors du chargement de la table items : {ex.Message}");
-            }
-        }));
-
-        CLog.Debug("[StorageManager]", "Ajout de la tâche pour la table creature_names...");
-        tl.AddTask(new Task(() =>
-        {
-            try
-            {
-                Storage.CreatureNameStorage.Load("creature_names", TableFormats.CreatureNameFormat, connectionString, DbType);
-            }
-            catch (Exception ex)
-            {
-                CLog.Error("[StorageManager]", $"Erreur lors du chargement de la table creature_names : {ex.Message}");
-            }
-        }));
+        // Chargement des tables de stockage
+        tl.AddTask(new Task(() => Storage.ItemPrototypeStorage.Load("items", TableFormats.ItemPrototypeFormat, connectionString, DbType)));
+        tl.AddTask(new Task(() => Storage.CreatureNameStorage.Load("creature_names", TableFormats.CreatureNameFormat, connectionString, DbType)));
         tl.AddTask(new Task(() => Storage.GameObjectNameStorage.Load("gameobject_names", TableFormats.GameObjectNameFormat, connectionString, DbType)));
         tl.AddTask(new Task(() => Storage.ItemPageStorage.Load("itempages", TableFormats.ItemPageFormat, connectionString, DbType)));
         tl.AddTask(new Task(() => Storage.WorldMapInfoStorage.Load("realmmap_info", TableFormats.RealmMapInfoFormat, connectionString, DbType)));

@@ -157,6 +157,7 @@ public static class CharacterHandler
     public const string R_E_CHARHAN_COM_1 = "Erreur lors de la lecture du GUID : {0} -> Déconnexion.";
     public const string R_D_CHARHAN_COM = "Tentative de connexion du personnage avec le GUID : {0}";
     public const string R_W_CHARHAN_COM = "Le personnage avec le GUID {0} est déjà connecté.";
+    public const string R_W_CHARHAN_CC_1 = "Id de compte {0} de session invalide";
     public const string R_E_CHARHAN_PL = "Le personnage n'existe pas dans la base de données !";
     public const string R_E_CHARHAN_PL_1 = "L'instance a été supprimée ou n'est plus valide. Tentative de reconnexion à la Map {0}";
     public const string R_E_CHARHAN_PL_2 = "Échec de la reconnexion à la Map {0}. Instance non trouvée.";
@@ -230,11 +231,15 @@ public static class QueryHandler
 
 public static class Session
 {
+    public const string R_W_SESSION_HANDLERS_INITIALIZED = "Les handlers de session sont déjà initialisés, réinitialisation ignorée.";
     public const string R_E_SESSION = "Erreur Fatale: Packet en erreur (NULL)";
     public const string R_E_SESSION_1 = "[Session] : Réception d'un paquet hors limite avec l'opcode {0} ({1:X4})";
     public const string R_D_SESSION = "[Session] : Traitement de l'Opcode par le RealmServeur {0} ({1:X4})";
     public const string R_D_SESSION_1 = "[Session] : Traitement envoyé au WorldServer";
     public const string R_D_SESSION_2 = "[Session] : Réception d'un paquet non géré avec l'opcode: {0} ({1:X4})";
+    public const string R_S_SESSION_HANDLERS_INITIALIZED = "Les gestionnaires de session ont été initialisés ({0} opcodes).";
+    public const string R_E_SESSION_EXCEPTION_HANDLER = "Exception dans le gestionnaire pour l'opcode {0} (0x{1:X}) : {2}";
+    public const string R_E_SESSION_EXCEPTION_FORWARDING = "Exception lors du transfert du paquet vers le serveur monde/cluster : {0}";
 }
 
 public static class WorldSocket
@@ -301,6 +306,12 @@ public static class ConsoleCommands
     public const string R_N_CONCMD_PC_6 = "Niveau: {0}\r\n";
     public const string R_N_CONCMD_PC_7 = "Compte: {0}\r\n";
     public const string R_N_CONCMD_RC = "Fichier Config ré-analysé\r\n";
+    public const string R_E_CONCMD_ERROR_SAVING = "Erreur lors de la sauvegarde : {0}";
+    public const string R_S_CONCMD_BACKUP_SUCCESS = "Sauvegarde effectuée avec succès dans {0}.";
+    public const string R_E_CONCMD_ERROR_SAVING_PLAYER = "Erreur lors de la sauvegarde du joueur {0} : {1}";
+    public const string R_S_CONCMD_SAVE_SUCCESS = "Sauvegarde de {0} joueurs en ligne en {1} ms.";
+    public const string R_E_CONCMD_INVALID_SESSION = "Session non valide pour le joueur {0}.";
+    public const string R_E_CONCMD_CANNOT_DISCONNECT = "Impossible de déconnecter le joueur {0} : socket non valide.";
 }
 
 public static class ConsoleListener
@@ -334,21 +345,32 @@ public static class ConsoleListener
     public const string R_N_CONLIS_I_17 = "Chuchote un message à quelqu'un de la console.";
     public const string R_N_CONLIS_I_18 = "[!]Erreur ! '{0}' utilise une syntaxe incorrecte. La bonne syntaxe est: '{1}'.\r\n\r\n";
     public const string R_N_CONLIS_I_19 = "[!]Erreur ! La commande '{0}' n'existe pas. Taper '?' ou 'help' pour obtenir la liste des commandes.\r\n\r\n";
+    public const string R_W_CONLIS_CONFIG_NOT_FOUND = "Fichier de configuration non trouvé : {0}";
 }
-
+public static class ConsoleThread
+{
+    public const string R_E_CONTHR_EXCEPTION_CONSOLE_THREAD = "Exception dans le thread de console : {0}";
+    public const string R_E_CONTHR_ERROR_WRITING_CONSOLE = "Erreur lors de l'écriture dans la console : {0}";
+}
 public static class LogonCommClient
 {
     public const string R_E_LOGCOMCLT = "Taille du paquet invalide.\n";
     public const string R_E_LOGCOMCLT_1 = "Réception d'un paquet inconnu : {0}\n";
     public const string R_E_LOGCOMCLT_2 = "Abandon de la connexion due à la déconnexion du serveur de Logon.\n";
     public const string R_E_LOGCOMCLT_3 = "Échec de l'authentification !";
-    public const string R_E_LOGCOMCLT_4 = "deflateInit: Échec.";
-    public const string R_E_LOGCOMCLT_5 = "deflate: Échec.";
-    public const string R_E_LOGCOMCLT_6 = "deflate: Échec. N'a pas mis fin au flux";
-    public const string R_E_LOGCOMCLT_7 = "deflateEnd: Échec.";
+    public const string R_E_LOGCOMCLT_4 = "Erreur d'enregistrement du realm '{0}' (id={1}) : code erreur {2}";
+    public const string R_E_LOGCOMCLT_5 = "deflateInit: Échec.";
+    public const string R_E_LOGCOMCLT_6 = "deflate: Échec.";
+    public const string R_E_LOGCOMCLT_7 = "deflate: Échec. N'a pas mis fin au flux";
+    public const string R_E_LOGCOMCLT_8 = "deflateEnd: Échec.";
     public const string R_N_LOGCOMCLT = "\n        >> Le serveur de Royaume(s) `{0}` est enregistré sous l'id ";
     public const string R_N_LOGCOMCLT_1 = "A pris {0} msec pour construire la liste de la cartographie des personnages pour le royaume {1}";
     public const string R_D_LOGCOMCLT = ">> Latence du Serveur de Logon: {0} ms";
+    public const string R_D_LOGCOMCLT_ONREAD = "OnRead démarré : use_crypto={0}, bufferSize={1}";
+    public const string R_D_LOGCOMCLT_HEADERBYTES = "Octets d'en-tête : {0}";
+    public const string R_D_LOGCOMCLT_PARSED = "Analyse : payloadSize={0}, opcode=0x{1:X4}";
+    public const string R_E_LOGCOMCLT_PAYLOAD_TOO_LARGE = "Taille de charge utile {0} trop grande, déconnexion.";
+    public const string R_D_LOGCOMCLT_AUTH_RESULT = "Résultat de l'authentification : {0}";
 }
 
 public static class LogonCommHandler
@@ -362,13 +384,26 @@ public static class LogonCommHandler
     public const string R_N_LOGCOMHAN_6 = "\n        >> Test ping: ";
     public const string R_N_LOGCOMHAN_7 = " >> La connexion du serveur de Royaume(s) avec l'id {0} a été abandonnée de façon inattendue. Reconnexion au prochain passage.";
     public const string R_N_LOGCOMHAN_8 = " >> Récupération des informations pour le compte : `{0}` (Requête {1}).\n";
+    public const string R_D_LOGCOMHAN_REQUEST_ADDITION = "Demande d'ajout : envoi de l'inscription pour {0} royaumes";
+    public const string R_D_LOGCOMHAN_CHARGEMENT_CONF = "Chargement de la configuration depuis : {0}";
+    public const string R_D_LOGCOMHAN_ADRESSE_BRUTE = "Adresse logon brute : {0}";
+    public const string R_D_LOGCOMHAN_ADRESSE_NORMALISEE = "Adresse logon normalisée : {0}";
+    public const string R_N_LOGCOMHAN_OK = "Ok !\n";
+    public const string R_N_LOGCOMHAN_PROMPT = "        >> ";
+    public const string R_N_LOGCOMHAN_NEWLINE = "\n";
+    public const string R_N_LOGCOMHAN_LATENCE = "{0} ms";
     public const string R_Y_LOGCOMHAN = " Connexion au serveur de Logon : Délais dépassé.\n";
     public const string R_Y_LOGCOMHAN_1 = " Connexion au serveur de Royaume(s) : Délais dépassé.\n";
     public const string R_E_LOGCOMHAN = " Échec de la connexion au serveur {0} - Port : {1}. Une nouvelle tentative sera faite ultérieurement.\n";
     public const string R_E_LOGCOMHAN_1 = " Échec.\n";
+    public const string R_E_LOGCOMHAN_CONFIG_NOT_FOUND = "Fichier de configuration introuvable : {0}";
     public const string R_E_LOGCOMHAN_2 = "Le serveur de Royaume(s) avec l'id {0} a perdu la connexion.";
     public const string R_E_LOGCOMHAN_3 = "La connexion au serveur de Royaume(s) avec l'id {0} a été supprimée en raison du dépassement du délais du pong.";
     public const string R_E_LOGCOMHAN_4 = "\n   >> Aucun serveur de Royaume(s) trouvé. Ce serveur ne sera en ligne nulle part !\n";
+    public const string R_E_CONLIS_CONFIG_NOT_FOUND = "Fichier de configuration non trouvé : {0}";
+    public const string R_N_CONLIS_REMOTE_ENABLED = "La console distante est activée sur {0}:{1}";
+    public const string R_D_STORAGE_CONNSTRING = "Chaîne de connexion : {0}";
+    public const string R_E_STORAGE_TABLE_LOAD = "Erreur lors du chargement de la table {0} : {1}";
 }
 
 public static class ClientManager
@@ -405,6 +440,10 @@ public static class WorkerServer
     public const string R_W_WORKMGR_1 = "Joueur non trouvé dans la session (GUID: {0}) pour la connexion au serveur de 'Monde' {1}";
     public const string R_W_WORKMGR_2 = "La connexion du personnage pour le joueur (GUID: {0}) a été bloquée";
     public const string R_W_WORKMGR_3 = "Joueur non trouvé (GUID: {0})";
+    public const string R_W_WORKMGR_DISCONNECTED_TIMEOUT = "Serveur Worker {0} déconnecté en raison d'un dépassement de délai";
+    public const string R_W_WORKMGR_CHANNEL_JOIN = "CHANNEL_JOIN : impossible de trouver le joueur {0}";
+    public const string R_W_WORKMGR_CHANNEL_PART = "CHANNEL_PART : impossible de trouver le joueur {0}";
+    public const string R_W_WORKMGR_CHANNEL_SAY = "CHANNEL_SAY : impossible de trouver le joueur {0}";
     public const string R_E_WORKMGR = "Échec de la connexion sur le serveur de 'Monde' {0} pour le joueur {1}";   
     public const string R_E_WORKMGR_1 = "La session n'existe pas. Reporter aux développeurs";
     public const string R_E_WORKMGR_2 = "Paquet {0} non traité.\n";
@@ -414,6 +453,9 @@ public static class WorkerServer
     public const string R_E_WORKMGR_6 = "Le résultat de la connexion {0} du personnage est non géré pour le joueur : GUID '{1}'";
     public const string R_N_WORKMGR = "Téléportation intra-server";
     public const string R_N_WORKMGR_1 = "Téléportation inter-server";
+    public const string R_E_WORKMGR_ERROR_CLEARING_RECV_QUEUE = "Erreur lors du nettoyage de la file d'attente de réception : {0}";
+    public const string R_E_WORKMGR_ERROR_DETACHING_INSTANCES = "Erreur lors du détachement des instances : {0}";
+    public const string R_E_WORKMGR_DISPOSE_FAILED = "Échec de la suppression : {0}";
 }
 
 public static class WorkerServerSocket
@@ -483,4 +525,12 @@ public static class Master
     public const string R_N_MASTER_CH_2 = "Données sauvegardées.";
     public const string R_N_MASTER_CH_3 = "Une exception a été provoquée pendant l'enregistrement des données.";
     public const string R_N_MASTER_CH_4 = "Fermeture.";
+}
+
+public static class ThreadingLogs
+{
+    public const string R_D_THREAD_START = "[Threading] Démarrage du thread périodique pour {0} (intervalle: {1}ms).";
+    public const string R_D_THREAD_STOP = "[Threading] Arrêt du thread périodique pour {0}.";
+    public const string R_E_THREAD_EXCEPTION = "[Threading] Exception dans le thread périodique pour {0}: {1}";
+    public const string R_W_THREAD_TIMEOUT = "[Threading] Timeout lors de l'arrêt du thread pour {0}.";
 }

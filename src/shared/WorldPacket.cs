@@ -142,7 +142,10 @@ public class WorldPacket : ByteBuffer
 
     public void WriteString(string value)
     {
-        Append(value);
+        value ??= string.Empty;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+        Append(bytes, bytes.Length);
+        Append((byte)0);
     }
 
     public void WriteByte(byte value)
@@ -180,6 +183,13 @@ public class WorldPacket : ByteBuffer
     public uint ReadUInt32()
     {
         uint value = 0;
+        Read(ref value);
+        return value;
+    }
+
+    public float ReadFloat()
+    {
+        float value = 0;
         Read(ref value);
         return value;
     }

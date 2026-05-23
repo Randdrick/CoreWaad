@@ -16,33 +16,34 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace WaadShared.Threading;
 
 // Définir ThreadBase dans un seul endroit
 public abstract class ThreadBase
 {
-    public readonly bool mrunning;
+    public bool mrunning;
 
     public abstract bool Run(CancellationToken token);
     public virtual void OnShutdown() { }
 }
 
-public class ThreadPool
+public class ThreadPool : IDisposable
 {
     private readonly HashSet<CustomThread> activeThreads = [];
     private readonly HashSet<CustomThread> freeThreads = [];
-    private readonly Mutex mutex = new();
+    private readonly object mutex = new();
     private int threadsToExit = 0;
     private int _threadsExitedSinceLastCheck;
     private int _threadsRequestedSinceLastCheck;
     private int _threadsEaten;
+    private bool _disposed = false;
 
     public ThreadPool()
     {
@@ -54,186 +55,191 @@ public class ThreadPool
 
     public bool ThreadExit(CustomThread t)
     {
-        mutex.WaitOne();
-
-        activeThreads.Remove(t);
-
-        if (threadsToExit > 0)
+        lock (mutex)
         {
-            --threadsToExit;
+            activeThreads.Remove(t);
+
+            if (threadsToExit > 0)
+            {
+                --threadsToExit;
+                ++_threadsExitedSinceLastCheck;
+                if (t.DeleteAfterExit)
+                    freeThreads.Remove(t);
+
+                t.RequestCancellation();
+                return false;
+            }
+
             ++_threadsExitedSinceLastCheck;
-            if (t.DeleteAfterExit)
-                freeThreads.Remove(t);
+            ++_threadsEaten;
+            if (freeThreads.Contains(t))
+            {
+                CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} duplicated with thread {t.ManagedThreadId}");
+            }
+            freeThreads.Add(t);
 
-            mutex.ReleaseMutex();
-            CustomThread.RequestCancellation();
-            return false;
+            CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} entered the free pool.");
+            return true;
         }
-
-        ++_threadsExitedSinceLastCheck;
-        ++_threadsEaten;
-        if (freeThreads.Contains(t))
-        {
-            CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} duplicated with thread {t.ManagedThreadId}");
-        }
-        freeThreads.Add(t);
-
-        CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} entered the free pool.");
-        mutex.ReleaseMutex();
-        return true;
     }
 
     public void ExecuteTask(ThreadBase executionTarget)
     {
         CustomThread t;
-        mutex.WaitOne();
-        ++_threadsRequestedSinceLastCheck;
-        --_threadsEaten;
-
-        if (freeThreads.Count > 0)
+        lock (mutex)
         {
-            var enumerator = freeThreads.GetEnumerator();
-            enumerator.MoveNext();
-            t = enumerator.Current;
-            freeThreads.Remove(t);
+            ++_threadsRequestedSinceLastCheck;
+            --_threadsEaten;
 
-            t.ExecutionTarget = executionTarget;
+            if (freeThreads.Count > 0)
+            {
+                var enumerator = freeThreads.GetEnumerator();
+                enumerator.MoveNext();
+                t = enumerator.Current;
+                freeThreads.Remove(t);
 
-            CustomThread.Resume();
-            CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} left the thread pool.");
+                t.ExecutionTarget = executionTarget;
+                t.Start();
+
+                CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} left the thread pool.");
+            }
+            else
+            {
+                t = StartThread(executionTarget);
+            }
+
+            CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} is now executing task.");
+            activeThreads.Add(t);
         }
-        else
-        {
-            t = StartThread(executionTarget);
-        }
-
-        CLog.Debug("[THREADPOOL]", $"Thread {t.ManagedThreadId} is now executing task.");
-        activeThreads.Add(t);
-        mutex.ReleaseMutex();
     }
 
     public void ShowStats()
     {
-        mutex.WaitOne();
-        Console.WriteLine("============ ThreadPool Status =============");
-        Console.WriteLine($"Active Threads: {activeThreads.Count}");
-        Console.WriteLine($"Suspended Threads: {freeThreads.Count}");
-        Console.WriteLine($"Requested-To-Freed Ratio: {(float)(_threadsRequestedSinceLastCheck + 1) / (_threadsExitedSinceLastCheck + 1) * 100.0f:F3}% ({_threadsRequestedSinceLastCheck}/{_threadsExitedSinceLastCheck})");
-        Console.WriteLine($"Eaten Count: {_threadsEaten} (negative is bad!)");
-        Console.WriteLine("============================================");
-        mutex.ReleaseMutex();
+        lock (mutex)
+        {
+            Console.WriteLine("============ ThreadPool Status =============");
+            Console.WriteLine($"Active Threads: {activeThreads.Count}");
+            Console.WriteLine($"Suspended Threads: {freeThreads.Count}");
+            Console.WriteLine($"Requested-To-Freed Ratio: {(float)(_threadsRequestedSinceLastCheck + 1) / (_threadsExitedSinceLastCheck + 1) * 100.0f:F3}% ({_threadsRequestedSinceLastCheck}/{_threadsExitedSinceLastCheck})");
+            Console.WriteLine($"Eaten Count: {_threadsEaten} (negative is bad!)");
+            Console.WriteLine("============================================");
+        }
     }
 
     public void IntegrityCheck(byte threadCount)
     {
-        mutex.WaitOne();
-        int gobbled = _threadsEaten;
-
-        if (gobbled < 0)
+        lock (mutex)
         {
-            uint new_threads = (uint)(Math.Abs(gobbled) + threadCount);
-            _threadsEaten = 0;
+            int gobbled = _threadsEaten;
 
-            for (uint i = 0; i < new_threads; ++i)
-                StartThread(null);
+            if (gobbled < 0)
+            {
+                uint new_threads = (uint)(Math.Abs(gobbled) + threadCount);
+                _threadsEaten = 0;
 
-            CLog.Debug("[THREADPOOL]", $"IntegrityCheck: (gobbled < 0) Spawning {new_threads} threads.");
+                for (uint i = 0; i < new_threads; ++i)
+                    StartThread(null);
+
+                CLog.Debug("[THREADPOOL]", $"IntegrityCheck: (gobbled < 0) Spawning {new_threads} threads.");
+            }
+            else if (gobbled < threadCount)
+            {
+                uint new_threads = (uint)(threadCount - gobbled);
+                for (uint i = 0; i < new_threads; ++i)
+                    StartThread(null);
+
+                CLog.Debug("[THREADPOOL]", $"IntegrityCheck: (gobbled < {threadCount}) Spawning {new_threads} threads.");
+            }
+            else if (gobbled > threadCount)
+            {
+                uint kill_count = (uint)(gobbled - threadCount);
+                KillFreeThreads(kill_count);
+                _threadsEaten -= (int)kill_count;
+                CLog.Debug("[THREADPOOL]", $"IntegrityCheck: (gobbled > {threadCount}) Killing {kill_count} threads.");
+            }
+            else
+            {
+                CLog.Success("[THREADPOOL]", "IntegrityCheck: Perfect!");
+            }
+
+            _threadsExitedSinceLastCheck = 0;
+            _threadsRequestedSinceLastCheck = 0;
         }
-        else if (gobbled < threadCount)
-        {
-            uint new_threads = (uint)(5 - gobbled);
-            for (uint i = 0; i < new_threads; ++i)
-                StartThread(null);
-
-            CLog.Debug("[THREADPOOL]", $"IntegrityCheck: (gobbled <= 5) Spawning {new_threads} threads.");
-        }
-        else if (gobbled > threadCount)
-        {
-            uint kill_count = (uint)(gobbled - threadCount);
-            KillFreeThreads(kill_count);
-            _threadsEaten -= (int)kill_count;
-            CLog.Debug("[THREADPOOL]", $"IntegrityCheck: (gobbled > 5) Killing {kill_count} threads.");
-        }
-        else
-        {
-            CLog.Success("[THREADPOOL]", "IntegrityCheck: Perfect!");
-        }
-
-        _threadsExitedSinceLastCheck = 0;
-        _threadsRequestedSinceLastCheck = 0;
-
-        mutex.ReleaseMutex();
     }
 
     public void KillFreeThreads(uint count)
     {
         CLog.Debug("[THREADPOOL]", $"Killing {count} excess threads.");
-        mutex.WaitOne();
-        CustomThread t;
-        var enumerator = freeThreads.GetEnumerator();
-        for (uint i = 0; i < count && enumerator.MoveNext(); ++i)
+        lock (mutex)
         {
-            t = enumerator.Current;
-            t.ExecutionTarget = null;
-            t.DeleteAfterExit = true;
-            ++threadsToExit;
-            CustomThread.Resume();
+            var threadsToKill = new List<CustomThread>();
+            foreach (var t in freeThreads)
+            {
+                if (threadsToKill.Count >= count) break;
+                threadsToKill.Add(t);
+            }
+
+            foreach (var t in threadsToKill)
+            {
+                t.ExecutionTarget = null;
+                t.DeleteAfterExit = true;
+                ++threadsToExit;
+                t.RequestCancellation();
+                freeThreads.Remove(t);
+            }
         }
-        mutex.ReleaseMutex();
     }
 
     public void Shutdown()
     {
-        mutex.WaitOne();
-        int tcount = activeThreads.Count + freeThreads.Count;
-        CLog.Debug("[THREADPOOL]", $"Shutting down {tcount} threads.");
-        KillFreeThreads((uint)freeThreads.Count);
-        threadsToExit += (int)(uint)activeThreads.Count;
-
-        foreach (var t in activeThreads)
+        lock (mutex)
         {
-            t.ExecutionTarget?.OnShutdown();
-        }
-        mutex.ReleaseMutex();
+            int tcount = activeThreads.Count + freeThreads.Count;
+            CLog.Debug("[THREADPOOL]", $"Shutting down {tcount} threads.");
+            KillFreeThreads((uint)freeThreads.Count);
+            threadsToExit += activeThreads.Count;
 
-        while (true)
-        {
-            mutex.WaitOne();
-            if (activeThreads.Count > 0 || freeThreads.Count > 0)
+            foreach (var t in activeThreads)
             {
-                CLog.Debug("[THREADPOOL]", $"{activeThreads.Count + freeThreads.Count} threads remaining...");
-
-                if (activeThreads.Count > 0)
-                    activeThreads.Clear();
-
-                mutex.ReleaseMutex();
-                Thread.Sleep(1000);
-                continue;
+                t.ExecutionTarget?.OnShutdown();
+                t.RequestCancellation();
             }
-
-            activeThreads.Clear();
-            freeThreads.Clear();
-            mutex.ReleaseMutex();
-
-            break;
         }
+
+        // Attendre la fin des threads avec un timeout
+        var shutdownTask = Task.Run(async () =>
+        {
+            int timeoutSeconds = 10; // Timeout global de 10 secondes
+            while (timeoutSeconds-- > 0)
+            {
+                lock (mutex)
+                {
+                    if (activeThreads.Count == 0 && freeThreads.Count == 0)
+                        return;
+                }
+                await Task.Delay(1000); // Attendre 1 seconde
+            }
+            CLog.Warning("[THREADPOOL]", "Timeout reached while shutting down threads.");
+        });
+
+        shutdownTask.Wait();
     }
+
     internal static CustomThread StartThread(ThreadBase executionTarget)
-    {       
+    {
         if (executionTarget == null)
         {
-            CLog.Debug("[THREADPOOL]","Attempt to start a thread with no execution target.");
+            CLog.Debug("[THREADPOOL]", "Attempt to start a thread with no execution target.");
             return null;
         }
 
         CLog.Debug("[THREADPOOL]", "Starting a new custom thread.");
-        
-        var cts = new CancellationTokenSource();
-        CustomThread t = new(() => RunThread(executionTarget, cts.Token), cts.Token);
+
+        var t = new CustomThread(token => RunThread(executionTarget, token));
+        t.ExecutionTarget = executionTarget;
         t.Start();
         return t;
     }
-
 
     internal static bool RunThread(ThreadBase target, CancellationToken token)
     {
@@ -242,56 +248,80 @@ public class ThreadPool
             CLog.Debug("[THREADPOOL]", "Thread has no execution target.");
             return false;
         }
-        bool res = false;
+
         try
         {
-
-            res = target.Run(token);
+            return target.Run(token);
         }
         catch (Exception ex)
         {
             CLog.Error("[THREADPOOL]", $"Thread crashed: {ex.Message}");
+            return false;
         }
-        return res;
     }
-
 
     public static void Startup(byte threadCount)
     {
-        for (int i = 0; i < threadCount; ++i)
-            StartThread(null);
+        CLog.Success("[THREADPOOL]", $"Startup, thread pool initialized (no pre-created threads).");
+    }
 
-        CLog.Success("[THREADPOOL]", $"Startup, launched {threadCount} threads.");
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                Shutdown();
+                foreach (var t in activeThreads)
+                {
+                    t.Dispose();
+                }
+                foreach (var t in freeThreads)
+                {
+                    t.Dispose();
+                }
+            }
+            _disposed = true;
+        }
     }
 }
 
-public class CustomThread(Func<bool> value, CancellationToken token)
+public class CustomThread : IDisposable
 {
     private static readonly object threadIdLock = new();
     private static int threadid_count;
+    private bool _disposed = false;
+    private readonly ManualResetEvent _pauseEvent = new(true); // true = non suspendu
 
     public ThreadBase ExecutionTarget { get; set; }
     public bool DeleteAfterExit { get; set; }
-    public Thread ControlInterface { get; private set; } = new Thread(() => RunThread(value));
-    public Mutex SetupMutex { get; private set; } = new Mutex();
-    public int ManagedThreadId { get; private set; } = GenerateThreadId();
-    public readonly CancellationToken _token = token;
+    public Thread ControlInterface { get; private set; }
+    public int ManagedThreadId { get; private set; }
+    private readonly CancellationTokenSource _cts;
 
-    public void Start()
+    public CustomThread(Func<CancellationToken, bool> target)
     {
-        ControlInterface.Start();
+        _cts = new CancellationTokenSource();
+        ManagedThreadId = GenerateThreadId();
+        ControlInterface = new Thread(() =>
+        {
+            _pauseEvent.WaitOne(); // Attend si suspendu
+            target(_cts.Token);
+        });
     }
 
-    public static void RequestCancellation()
-    {
-        // Signal the thread to cancel
-        // The thread should periodically check the token and exit if cancellation is requested
-    }
+    public void Start() => ControlInterface.Start();
 
-    public static void Resume()
-    {
-        // Resume the thread if it was suspended
-    }
+    public void RequestCancellation() => _cts.Cancel();
+
+    public void Pause() => _pauseEvent.Reset(); // Suspend le thread
+    public void Resume() => _pauseEvent.Set(); // Reprend le thread
 
     public static void Abort()
     {
@@ -320,28 +350,30 @@ public class CustomThread(Func<bool> value, CancellationToken token)
         }
     }
 
-    internal static void Yield()
+    public void Dispose()
     {
-        Thread.Yield();
+        Dispose(true);
+        GC.SuppressFinalize(this);
     }
 
-    internal static CustomThread StartThread(ThreadBase executionTarget)
+    protected virtual void Dispose(bool disposing)
     {
-        if (executionTarget == null)
+        if (!_disposed)
         {
-            CLog.Debug("[THREADPOOL]", "Attempt to start a thread with no execution target.");
-            return null;
+            if (disposing)
+            {
+                RequestCancellation();
+                try
+                {
+                    ControlInterface?.Join(5000); // Timeout de 5 secondes
+                }
+                catch (ThreadStateException)
+                {
+                    // Le thread n'a pas démarré ou est déjà terminé
+                }
+                _cts?.Dispose();
+            }
+            _disposed = true;
         }
-
-        var cts = new CancellationTokenSource();
-        CustomThread t = new(
-            () => ThreadPool.RunThread(executionTarget, cts.Token),
-            cts.Token
-        );
-
-        t.Start();
-        CLog.Debug("[THREADPOOL]", $"Started new thread {t.ManagedThreadId} with execution target.");
-
-        return t;
     }
 }

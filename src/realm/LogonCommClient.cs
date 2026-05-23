@@ -72,7 +72,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     public override void OnRead()
     {
         // read header then payload, decrypt if needed, and dispatch
-        CLog.Debug("[LogonCommClient]", $"OnRead entered: use_crypto={use_crypto}, bufferSize={GetReadBuffer().GetSize()}");
+        CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_ONREAD, use_crypto, GetReadBuffer().GetSize());
 
         while (true)
         {
@@ -92,7 +92,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
                     _recvCrypto.Process(encryptedHeader, headerBytes);
                 }
 
-                CLog.Debug("[LogonCommClient]", "Header bytes: " + BitConverter.ToString(headerBytes));
+                CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_HEADERBYTES, BitConverter.ToString(headerBytes));
 
                 // parse opcode and payload size from header
                 uint opcodeValue = BitConverter.ToUInt16(headerBytes, 0);  // bytes 0-1 = opcode
@@ -104,12 +104,12 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
                     payloadSize = Swap32(payloadSize);
                 }
 
-                CLog.Debug("[LogonCommClient]", $"Parsed: payloadSize={payloadSize}, opcode=0x{opcodeValue:X4}");
+                CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_PARSED, payloadSize, opcodeValue);
 
                 // sanity check
                 if (payloadSize > 65535)
                 {
-                    CLog.Error("[LogonCommClient]", $"Packet payload size {payloadSize} too large, disconnecting.");
+                    CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_PAYLOAD_TOO_LARGE, payloadSize);
                     OnDisconnect();
                     return;
                 }
@@ -185,11 +185,9 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         Array.Copy(BitConverter.GetBytes(header.Opcode), 0, headerBytes, 0, 2);
         uint sizeNet = header.Size;
 
-        // Gestion de l'endianness
-        if (!BitConverter.IsLittleEndian)
+        // Envoyer la taille en ordre réseau (big-endian) sur le fil
+        if (BitConverter.IsLittleEndian)
         {
-            headerBytes[0] = headerBytes[1];
-            headerBytes[1] = headerBytes[0];
             sizeNet = Swap32(sizeNet);
         }
 
@@ -300,7 +298,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     {
         // Lecture du résultat d'authentification
         byte result = recvData.Contents[0];
-        CLog.Debug("[LogonCommClient]", $"Auth response result: {result}");
+        CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_AUTH_RESULT, result);
         if (result != 1)
         {
             authenticated = 0xFFFFFFFF;
@@ -324,7 +322,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         if (error != 0)
         {
             // Affichage d'une erreur et retour immédiat
-            CLog.Error("[LogonCommClient]", $"Erreur d'enregistrement du realm '{realmname}' (id={realmlid}) : code erreur {error}");
+            CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_4, realmname, realmlid, error);
             return;
         }
 
@@ -387,7 +385,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         var mappingToSend = new Dictionary<uint, byte>();
 
         var db = RealmDatabaseManager.GetDatabase();
-        if (db == null)
+        if (db == null || !db.IsInitialized)
             return;
 
         var result = db.Query("SELECT acct FROM characters");
@@ -459,8 +457,11 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     {
         if (_id != 0)
         {
-            CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_2);
-            LogonCommHandler.Instance.ConnectionDropped(_id);
+            if (!LogonCommHandler.Instance.IsShuttingDown)
+            {
+                CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_2);
+                LogonCommHandler.Instance.ConnectionDropped(_id);
+            }
         }
     }
 

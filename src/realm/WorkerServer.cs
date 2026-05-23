@@ -91,7 +91,7 @@ namespace WaadRealmServer
             // Check for server disconnection (no pong for 60 seconds)
             if (LastPong > 0 && currentTime > LastPong && (currentTime - LastPong) > 60)
             {
-                CLog.Warning("[WServer]", $"Worker server {_id} disconnected due to timeout");
+                CLog.Warning("[WServer]", R_W_WORKMGR_DISCONNECTED_TIMEOUT, _id);
                 ClusterMgr.Instance.OnServerDisconnect(this);
                 return;
             }
@@ -587,7 +587,7 @@ namespace WaadRealmServer
                         var player = ClientMgr.Instance.GetRPlayer(guid);
                         if (player == null)
                         {
-                            CLog.Warning("[WServer]", "CHANNEL_JOIN :", R_W_WORKMGR_3, guid);
+                            CLog.Warning("[WServer]", R_W_WORKMGR_CHANNEL_JOIN, guid);
                             return;
                         }
 
@@ -602,7 +602,7 @@ namespace WaadRealmServer
                         var player = ClientMgr.Instance.GetRPlayer(guid);
                         if (player == null)
                         {
-                            CLog.Warning("[WServer]", "CHANNEL_PART :", R_W_WORKMGR_3, guid);
+                            CLog.Warning("[WServer]", R_W_WORKMGR_CHANNEL_PART, guid);
                             return;
                         }
 
@@ -620,7 +620,7 @@ namespace WaadRealmServer
                         var player = ClientMgr.Instance.GetRPlayer(guid);
                         if (player == null)
                         {
-                            CLog.Warning("[WServer]", "CHANNEL_SAY :", R_W_WORKMGR_3, guid);
+                            CLog.Warning("[WServer]", R_W_WORKMGR_CHANNEL_SAY, guid);
                             return;
                         }
 
@@ -888,7 +888,7 @@ namespace WaadRealmServer
                     }
                     catch (Exception ex)
                     {
-                        CLog.Error("[WServer]", "Error clearing recv queue: {0}", ex.Message);
+                        CLog.Error("[WServer]", R_E_WORKMGR_ERROR_CLEARING_RECV_QUEUE, ex.Message);
                     }
 
                     try
@@ -906,7 +906,7 @@ namespace WaadRealmServer
                     }
                     catch (Exception ex)
                     {
-                        CLog.Error("[WServer]", "Error detaching instances: {0}", ex.Message);
+                        CLog.Error("[WServer]", R_E_WORKMGR_ERROR_DETACHING_INSTANCES, ex.Message);
                     }
 
                     // IMPORTANT: Do NOT close the underlying socket here.
@@ -919,7 +919,7 @@ namespace WaadRealmServer
             }
             catch (Exception ex)
             {
-                CLog.Error("[WServer]", "Dispose failed: {0}", ex.Message);
+                CLog.Error("[WServer]", R_E_WORKMGR_DISPOSE_FAILED, ex.Message);
             }
 
             _disposed = true;

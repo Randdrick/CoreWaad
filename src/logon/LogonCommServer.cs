@@ -44,7 +44,7 @@ public class LogonPacket
     public uint Size;
 }
 
-public class LogonCommServerSocket : WaadShared.Network.Socket
+public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 {
     private readonly AccountMgr AccountMgr = new();
     public uint lastPing;
@@ -52,7 +52,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
     private Timer pingTimer;
     private uint remaining;
     private ushort opcode;
-    private bool removed;
+    // private bool removed;
     private bool useCrypto;
     private uint authenticated;
     private readonly RC4Engine sendCrypto = new();
@@ -62,6 +62,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
     private static readonly List<AllowedIP> m_allowedIps = [];
     private static readonly object m_allowedIpLock = new();
     private static readonly bool ServerTrustMe = true;
+    private bool _disposed = false;
 
     // Constructeur sans paramètre public
     public LogonCommServerSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
@@ -71,8 +72,9 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         remaining = opcode = 0;
         useCrypto = false;
         authenticated = 0;
+        // removed = false;
         InitializeHandlers();
-        pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
+        pingTimer = new Timer(PingTimerCallback, null, Timeout.Infinite, Timeout.Infinite); // Start disabled
     }
 
     public LogonCommServerSocket(Socket socket) : base(socket, 1024, 1024)
@@ -80,7 +82,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         nextServerPing = lastPing + 20;
         remaining = opcode = 0;
-        removed = true;
+        // removed = false;
         useCrypto = false;
         authenticated = 0;
         InitializeHandlers();
@@ -88,32 +90,82 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         // NOTE: DO NOT call OnConnect() here - ListenSocket.SetConnected() will handle it
     }
 
-    private void PingTimerCallback(object state)
+    ~LogonCommServerSocket()
     {
-        uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        if (now >= nextServerPing && IsConnected())
+        Dispose(false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
         {
-            SendPing();
-            nextServerPing = now + 20;
+            // Stop the timer BEFORE disposing it to prevent callbacks after dispose
+            if (pingTimer != null)
+            {
+                try
+                {
+                    // Disable the timer (no more callbacks will be scheduled)
+                    pingTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                    pingTimer.Dispose();
+                }
+                catch { }
+                pingTimer = null;
+            }
+
+            // Clear collections
+            if (disposing)
+            {
+                serverIds.Clear();
+            }
+
+            _disposed = true;
         }
     }
 
-    public override void OnDisconnect()
+    private void PingTimerCallback(object state)
     {
-        // Arrêt du timer de ping pour éviter les fuites de ressources
-        pingTimer?.Dispose();
-        pingTimer = null;
-        if (!removed)
+        // Exit immediately if disposed
+        if (_disposed || pingTimer == null)
+            return;
+            
+        try
+        {
+            uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (now >= nextServerPing)
+            {
+                SendPing();
+                nextServerPing = now + 20;
+            }
+        }
+        catch { }
+    }
+
+    public new void OnDisconnect()
+    {
+        // Prevent double-cleanup
+        if (_disposed)
+            return;
+            
+        // Remove realms and cleanup
+        try
         {
             foreach (var id in serverIds)
             {
                 sInfoCore.RemoveRealm(id);
             }
+            serverIds.Clear(); // Clear the collection to release memory
             sInfoCore.RemoveServerSocket(this);
         }
+        catch { }
 
-        // Call base to ensure proper cleanup in parent class
-        base.OnDisconnect();
+        // Dispose resources (this will also stop the timer safely)
+        Dispose();
     }
 
     protected override void OnConnect()
@@ -130,7 +182,6 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         }
 
         sInfoCore.AddServerSocket(this);
-        removed = false;
     }
 
     public override void OnRead()
@@ -163,6 +214,10 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
                 if (!BitConverter.IsLittleEndian)
                 {
                     opcode = Swap16(opcode);
+                }
+                else
+                {
+                    remaining = Swap32(remaining);
                 }
 
                 // Prevent overly large packets
@@ -231,14 +286,13 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         sLog.OutString("HandleRegister called");
         Realm realm = new();
         sInfoCore.AddServerSocket(this);
-        removed = false;
 
         realm.Name = recvData.ReadString();
         realm.Address = recvData.ReadString();
         realm.Colour = recvData.ReadUInt32();
         realm.Icon = recvData.ReadUInt32();
         realm.TimeZone = recvData.ReadUInt32();
-        realm.Population = recvData.ReadUInt32();
+        realm.Population = recvData.Read<float>();
 
         uint myId = sInfoCore.GenerateRealmID();
 
@@ -320,15 +374,9 @@ public class LogonCommServerSocket : WaadShared.Network.Socket
         ushort op = (ushort)data.GetOpcode();
         uint size = (uint)data.Size;
 
-        if (!BitConverter.IsLittleEndian)
+        if (BitConverter.IsLittleEndian)
         {
-            // On big-endian machines, swap opcode to network order
-            op = Swap16(op);
-            // leave size as-is
-        }
-        else
-        {
-            // On little-endian machines, send size in network order
+            // On little-endian machines, send size in network order (big-endian)
             size = Swap32(size);
         }
 

@@ -86,6 +86,13 @@ public class ByteBuffer
         Append(bytes, bytes.Length);
     }
 
+    public void Append(byte[] value)
+    {
+        if (value == null)
+            return;
+        Append(value, value.Length);
+    }
+
     public void Put<T>(int pos, T value)
     {
         byte[] bytes = GetBytes(value);
@@ -160,7 +167,10 @@ public class ByteBuffer
 
     public ByteBuffer Write(string value)
     {
-        Append(Encoding.UTF8.GetBytes(value));
+        value ??= string.Empty;
+
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        Append(bytes, bytes.Length);
         Append((byte)0);
         return this;
     }
@@ -355,6 +365,7 @@ public class ByteBuffer
 
     public void Append(string str)
     {
+        str ??= string.Empty;
         Append(Encoding.UTF8.GetBytes(str));
     }
 

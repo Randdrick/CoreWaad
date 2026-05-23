@@ -23,6 +23,7 @@ using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Data.SQLite;
+using System.Linq.Expressions;
 using System.Reflection;
 using MySql.Data.MySqlClient;
 using Npgsql;
@@ -30,6 +31,109 @@ using Npgsql;
 using static WaadShared.Common;
 
 namespace WaadShared;
+
+// Delegate pour les setters compilés - beaucoup plus rapide que SetValue
+internal delegate void CompiledPropertySetter(object target, object value);
+// Delegate pour les méthodes Parse compilées - appel direct sans réflexion
+internal delegate void CompiledParseMethod(object target);
+
+// Structure combinant attribut et setter pour accès O(1) par index
+internal struct DbFieldInfo
+{
+    public PropertyInfo Property { get; set; }
+    public DbFieldAttribute Attribute { get; set; }
+    public CompiledPropertySetter Setter { get; set; }
+}
+
+// Caching pour les informations de réflexion - optimisation du chargement DBC
+internal sealed class ReflectionCacheEntry
+{
+    public PropertyInfo[] Properties { get; set; }
+    // Array plutôt que Dictionary pour O(1) accès sans overhead
+    public DbFieldInfo[] DbFieldInfos { get; set; }
+    // Delegates compilés pour les Parse methods - beaucoup plus rapide que MethodInfo.Invoke()
+    public CompiledParseMethod CompiledParseStats { get; set; }
+    public CompiledParseMethod CompiledParseDamage { get; set; }
+    public CompiledParseMethod CompiledParseSpells { get; set; }
+    public CompiledParseMethod CompiledParseSockets { get; set; }
+}
+
+internal static class ReflectionCache
+{
+    private static readonly Dictionary<Type, ReflectionCacheEntry> _cache = new();
+
+    public static ReflectionCacheEntry GetOrCreate(Type type)
+    {
+        if (_cache.TryGetValue(type, out var cached))
+            return cached;
+
+        var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var dbFieldInfoList = new List<DbFieldInfo>();
+
+        // Filtrer les propriétés avec DbFieldAttribute en une seule pass
+        foreach (var prop in props)
+        {
+            var dbFieldAttr = prop.GetCustomAttribute<DbFieldAttribute>();
+            if (dbFieldAttr != null)
+            {
+                var setter = prop.CanWrite ? CompilePropertySetter(prop) : null;
+                dbFieldInfoList.Add(new DbFieldInfo
+                {
+                    Property = prop,
+                    Attribute = dbFieldAttr,
+                    Setter = setter
+                });
+            }
+        }
+
+        var entry = new ReflectionCacheEntry
+        {
+            Properties = props,
+            DbFieldInfos = [..dbFieldInfoList],
+            // Compiler les Parse methods - ~100× plus rapide que MethodInfo.Invoke()
+            CompiledParseStats = CompileParseMethod(type, "ParseStats"),
+            CompiledParseDamage = CompileParseMethod(type, "ParseDamage"),
+            CompiledParseSpells = CompileParseMethod(type, "ParseSpells"),
+            CompiledParseSockets = CompileParseMethod(type, "ParseSockets")
+        };
+
+        _cache[type] = entry;
+        return entry;
+    }
+
+    private static CompiledPropertySetter CompilePropertySetter(PropertyInfo property)
+    {
+        var targetParam = Expression.Parameter(typeof(object), "target");
+        var valueParam = Expression.Parameter(typeof(object), "value");
+
+        var targetCast = Expression.Convert(targetParam, property.DeclaringType);
+        var valueCast = Expression.Convert(valueParam, property.PropertyType);
+
+        var setterCall = Expression.Call(targetCast, property.GetSetMethod(), valueCast);
+        var lambda = Expression.Lambda<CompiledPropertySetter>(setterCall, targetParam, valueParam);
+
+        return lambda.Compile();
+    }
+
+    private static CompiledParseMethod CompileParseMethod(Type type, string methodName)
+    {
+        var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        if (method == null)
+            return null; // Méthode n'existe pas
+
+        var targetParam = Expression.Parameter(typeof(object), "target");
+        var targetCast = Expression.Convert(targetParam, type);
+        var methodCall = Expression.Call(targetCast, method);
+        var lambda = Expression.Lambda<CompiledParseMethod>(methodCall, targetParam);
+
+        return lambda.Compile();
+    }
+
+    public static void Clear()
+    {
+        _cache.Clear();
+    }
+}
 
 [AttributeUsage(AttributeTargets.Property)]
 public class DbFieldAttribute(string format) : Attribute
@@ -297,8 +401,10 @@ public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
 
     public void Setup(int max)
     {
-        // Pour un HashMap, Setup peut initialiser la capacité si nécessaire
-        _map = new Dictionary<int, T>(max);
+        // Pour un HashMap, utiliser une capacité raisonnable plutôt que la capacité maximale complète
+        // Limite : max 8192 pour éviter OutOfMemoryException, laissez le Dictionary croître naturellement
+        int capacity = Math.Min(max, 8192);
+        _map = new Dictionary<int, T>(capacity);
     }
 
     public void Resetup(int max)
@@ -525,10 +631,12 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             return;
         }
 
-        var properties = typeof(T).GetProperties();
+        // Utiliser le cache de réflexion au lieu de GetProperties() à chaque fois
+        var cacheEntry = ReflectionCache.GetOrCreate(typeof(T));
+        var dbFieldProperties = cacheEntry.Properties;
         int fieldIndex = 0;
 
-        foreach (var property in properties)
+        foreach (var property in dbFieldProperties)
         {
             var dbFieldAttribute = property.GetCustomAttribute<DbFieldAttribute>();
             if (dbFieldAttribute == null)
@@ -660,6 +768,250 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         }
     }
 
+    /// <summary>
+    /// Optimized version that reads directly from SqlDataReader without creating Field[] arrays
+    /// </summary>
+    public void LoadBlockFromReader(dynamic reader, T allocated)
+    {
+        if (reader == null || allocated == null)
+            return;
+
+        var cacheEntry = ReflectionCache.GetOrCreate(typeof(T));
+        // Itérer directement sur les infos DbField (attribution + setter) en array pour accès O(1)
+        var dbFieldInfos = cacheEntry.DbFieldInfos;
+        int fieldIndex = 0;
+
+        foreach (var fieldInfo in dbFieldInfos)
+        {
+            var property = fieldInfo.Property;
+            var dbFieldAttribute = fieldInfo.Attribute;
+            var setter = fieldInfo.Setter;
+
+            try
+            {
+                if (fieldIndex >= reader.FieldCount)
+                {
+                    CLog.Error("Storage", $"Index de champ hors limites : {fieldIndex}");
+                    break;
+                }
+
+                // Lecture directe depuis reader sans allocations intermediate 
+                object value = reader.IsDBNull(fieldIndex) ? null : reader.GetValue(fieldIndex);
+
+                switch (dbFieldAttribute.Format)
+                {
+                    case "u":
+                        if (property.PropertyType == typeof(uint))
+                        {
+                            try
+                            {
+                                // Conversion sûre comme Field.GetUInt32() : retourne 0 pour les valeurs invalides
+                                uint uintValue = 0;
+                                if (value != null)
+                                {
+                                    if (value is uint u)
+                                        uintValue = u;
+                                    else if (value is int i && i >= 0)
+                                        uintValue = (uint)i;
+                                    else if (value is long l && l >= 0 && l <= uint.MaxValue)
+                                        uintValue = (uint)l;
+                                    else if (value is short s && s >= 0)
+                                        uintValue = (uint)s;
+                                    else if (value is byte b)
+                                        uintValue = b;
+                                    else if (value is string str && !string.IsNullOrWhiteSpace(str))
+                                    {
+                                        if (uint.TryParse(str.Trim(), out uint parsed))
+                                            uintValue = parsed;
+                                    }
+                                }
+                                // Utiliser le setter compilé - ~100x plus rapide que SetValue()
+                                if (setter != null)
+                                    setter(allocated, uintValue);
+                            }
+                            catch (Exception ex)
+                            {
+                                CLog.Error("Storage", $"Erreur lors de la conversion en uint pour {property.Name} : {ex.Message}");
+                                if (setter != null)
+                                    setter(allocated, 0u);
+                            }
+                        }
+                        else if (property.PropertyType == typeof(uint[]))
+                        {
+                            uint[] array = new uint[dbFieldAttribute.Length];
+                            for (int i = 0; i < dbFieldAttribute.Length; i++)
+                            {
+                                if (fieldIndex + i >= reader.FieldCount)
+                                {
+                                    CLog.Error("Storage", $"Index de tableau hors limites : {fieldIndex + i}");
+                                    break;
+                                }
+                                try
+                                {
+                                    object arrayValue = reader.IsDBNull(fieldIndex + i) ? null : reader.GetValue(fieldIndex + i);
+                                    uint uintValue = 0;
+                                    if (arrayValue != null)
+                                    {
+                                        if (arrayValue is uint u)
+                                            uintValue = u;
+                                        else if (arrayValue is int i_val && i_val >= 0)
+                                            uintValue = (uint)i_val;
+                                        else if (arrayValue is long l && l >= 0 && l <= uint.MaxValue)
+                                            uintValue = (uint)l;
+                                        else if (arrayValue is short s && s >= 0)
+                                            uintValue = (uint)s;
+                                        else if (arrayValue is byte b)
+                                            uintValue = b;
+                                        else if (arrayValue is string str && !string.IsNullOrWhiteSpace(str))
+                                        {
+                                            if (uint.TryParse(str.Trim(), out uint parsed))
+                                                uintValue = parsed;
+                                        }
+                                    }
+                                    array[i] = uintValue;
+                                }
+                                catch (Exception ex)
+                                {
+                                    CLog.Error("Storage", $"Erreur lors de la conversion en uint pour {property.Name}[{i}] : {ex.Message}");
+                                    array[i] = 0u;
+                                }
+                            }
+                            property.SetValue(allocated, array);
+                            fieldIndex += dbFieldAttribute.Length - 1;
+                        }
+                        break;
+
+                    case "i":
+                        try
+                        {
+                            // Conversion sûre comme Field.GetInt32()
+                            int intValue = 0;
+                            if (value != null)
+                            {
+                                if (value is int i)
+                                    intValue = i;
+                                else if (value is long l && l >= int.MinValue && l <= int.MaxValue)
+                                    intValue = (int)l;
+                                else if (value is short s)
+                                    intValue = s;
+                                else if (value is byte b)
+                                    intValue = b;
+                                else if (value is string str && !string.IsNullOrWhiteSpace(str))
+                                {
+                                    if (int.TryParse(str.Trim(), out int parsed))
+                                        intValue = parsed;
+                                }
+                            }
+                            // Utiliser le setter compilé
+                            if (setter != null)
+                                setter(allocated, intValue);
+                        }
+                        catch (Exception ex)
+                        {
+                            CLog.Error("Storage", $"Erreur lors de la conversion en int pour {property.Name} : {ex.Message}");
+                            if (setter != null)
+                                setter(allocated, 0);
+                        }
+                        break;
+
+                    case "s":
+                        try
+                        {
+                            var strValue = value == null ? string.Empty : value.ToString();
+                            if (setter != null)
+                                setter(allocated, strValue);
+                        }
+                        catch (Exception ex)
+                        {
+                            CLog.Error("Storage", $"Erreur lors de la conversion en string pour {property.Name} : {ex.Message}");
+                            if (setter != null)
+                                setter(allocated, string.Empty);
+                        }
+                        break;
+
+                    case "f":
+                        if (property.PropertyType == typeof(float))
+                        {
+                            try
+                            {
+                                // Conversion sûre comme Field.GetFloat()
+                                float floatValue = 0f;
+                                if (value != null)
+                                {
+                                    if (value is float f)
+                                        floatValue = f;
+                                    else if (value is double d)
+                                        floatValue = (float)d;
+                                    else if (value is int i)
+                                        floatValue = i;
+                                    else if (value is long l)
+                                        floatValue = l;
+                                    else if (value is string str && !string.IsNullOrWhiteSpace(str))
+                                    {
+                                        if (float.TryParse(str.Trim(), out float parsed))
+                                            floatValue = parsed;
+                                    }
+                                }
+                                // Utiliser le setter compilé
+                                if (setter != null)
+                                    setter(allocated, floatValue);
+                            }
+                            catch (Exception ex)
+                            {
+                                CLog.Error("Storage", $"Erreur lors de la conversion en float pour {property.Name} : {ex.Message}");
+                                if (setter != null)
+                                    setter(allocated, 0f);
+                            }
+                        }
+                        break;
+
+                    case "c":
+                        try
+                        {
+                            // Conversion sûre comme Field.GetUInt8()
+                            byte byteValue = 0;
+                            if (value != null)
+                            {
+                                if (value is byte b)
+                                    byteValue = b;
+                                else if (value is int i && i >= 0 && i <= byte.MaxValue)
+                                    byteValue = (byte)i;
+                                else if (value is short s && s >= 0 && s <= byte.MaxValue)
+                                    byteValue = (byte)s;
+                                else if (value is long l && l >= 0 && l <= byte.MaxValue)
+                                    byteValue = (byte)l;
+                                else if (value is string str && !string.IsNullOrWhiteSpace(str))
+                                {
+                                    if (byte.TryParse(str.Trim(), out byte parsed))
+                                        byteValue = parsed;
+                                }
+                            }
+                            // Utiliser le setter compilé
+                            if (setter != null)
+                                setter(allocated, byteValue);
+                        }
+                        catch (Exception ex)
+                        {
+                            CLog.Error("Storage", $"Erreur lors de la conversion en byte pour {property.Name} : {ex.Message}");
+                            if (setter != null)
+                                setter(allocated, (byte)0);
+                        }
+                        break;
+
+                    default:
+                        CLog.Warning("Storage", $"Format de champ inconnu : {dbFieldAttribute.Format}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("Storage", $"Erreur lors de l'affectation de la propriété {property.Name} à l'index {fieldIndex} : {ex.Message}");
+            }
+
+            fieldIndex++;
+        }
+    }
+
     public static class SLogonSQL
     {
         private static string connectionString;
@@ -702,9 +1054,9 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
 
     public override void Load(string indexName, string formatString, string connectionString, int dbType)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        
         base.Load(indexName, formatString, connectionString, dbType);
-
-        CLog.Debug("Storage", $"Début du chargement de la table {indexName}...");
 
         SLogonSQL.SetConnectionString(connectionString, dbType);
 
@@ -717,7 +1069,6 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         using var connection = SLogonSQL.CreateConnection();
         try
         {
-            CLog.Debug("Storage", $"Ouverture de la connexion à la base de données pour {indexName}...");
             connection.Open();
         }
         catch (Exception ex)
@@ -727,10 +1078,13 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         }
 
         int max = STORAGE_ARRAY_MAX;
+        
+        // Only fetch MAX for ArrayStorageContainer, not for HashMapStorageContainer
         if (_storage.NeedsMax())
         {
             try
             {
+                var swMax = System.Diagnostics.Stopwatch.StartNew();
                 using var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {indexName}", connection);
                 using var reader = command.ExecuteReader();
                 if (reader.Read())
@@ -743,12 +1097,19 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     }
                 }
                 _storage.Setup(max);
+                swMax.Stop();
+                CLog.Debug("Storage", $"SELECT MAX pour {indexName} : {swMax.ElapsedMilliseconds}ms");
             }
             catch (Exception ex)
             {
                 CLog.Error("Storage", $"Erreur lors de la récupération du MAX(entry) pour {indexName}: {ex.Message}");
                 return;
             }
+        }
+        else
+        {
+            // Pour HashMap, Setup est appelé directement sans SELECT MAX
+            _storage.Setup(max);
         }
 
         int cols = formatString.Length;
@@ -769,6 +1130,9 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                 }
             }
 
+            var swLoad = System.Diagnostics.Stopwatch.StartNew();
+            int logInterval = 1000; // Log tous les 1000 items
+            
             while (reader.Read())
             {
                 try
@@ -777,14 +1141,16 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     T allocated = _storage.AllocateEntry(entry);
                     if (allocated != null)
                     {
-                        Field[] fields = new Field[reader.FieldCount];
-                        for (int i = 0; i < reader.FieldCount; i++)
-                        {
-                            fields[i] = new Field(reader.GetValue(i));
-                        }
-                        LoadBlock(fields, allocated);
+                        LoadBlockFromReader(reader, allocated);
                         CallParseMethods(allocated);
                         count++;
+                        
+                        // Periodic progress logging
+                        if (count % logInterval == 0 && swLoad.ElapsedMilliseconds > 0)
+                        {
+                            double itemsPerSec = (count * 1000.0) / swLoad.ElapsedMilliseconds;
+                            CLog.Debug("Storage", $"{indexName}: {count} entrées chargées ({itemsPerSec:F0} items/sec)");
+                        }
                     }
                     else
                     {
@@ -797,8 +1163,12 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                     CLog.Error("Storage", ex.StackTrace);
                 }
             }
-            CLog.Notice("Storage", $"{count} entrées chargées depuis la table {indexName}.");
+            swLoad.Stop();
         }
+        
+        sw.Stop();
+        double totalItemsPerSec = count > 0 ? (count * 1000.0) / sw.ElapsedMilliseconds : 0;
+        CLog.Notice("Storage", $"{count} entrées chargées depuis {indexName} en {sw.ElapsedMilliseconds}ms ({totalItemsPerSec:F0} items/sec).");
     }
 
     private static void CallParseMethods(object obj)
@@ -808,13 +1178,15 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
 
         Type type = obj.GetType();
 
-        // Vérifier et appeler ParseStats si la méthode existe
-        var parseStatsMethod = type.GetMethod("ParseStats");
-        if (parseStatsMethod != null)
+        // Utiliser les delegates compilés - ~100× plus rapide que MethodInfo.Invoke()
+        var cacheEntry = ReflectionCache.GetOrCreate(type);
+
+        // Appeler ParseStats si la méthode existe
+        if (cacheEntry.CompiledParseStats != null)
         {
             try
             {
-                parseStatsMethod.Invoke(obj, null);
+                cacheEntry.CompiledParseStats(obj);
             }
             catch (Exception ex)
             {
@@ -822,13 +1194,12 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             }
         }
 
-        // Vérifier et appeler ParseDamage si la méthode existe
-        var parseDamageMethod = type.GetMethod("ParseDamage");
-        if (parseDamageMethod != null)
+        // Appeler ParseDamage si la méthode existe
+        if (cacheEntry.CompiledParseDamage != null)
         {
             try
             {
-                parseDamageMethod.Invoke(obj, null);
+                cacheEntry.CompiledParseDamage(obj);
             }
             catch (Exception ex)
             {
@@ -836,13 +1207,12 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             }
         }
 
-        // Vérifier et appeler ParseSpells si la méthode existe
-        var parseSpellsMethod = type.GetMethod("ParseSpells");
-        if (parseSpellsMethod != null)
+        // Appeler ParseSpells si la méthode existe
+        if (cacheEntry.CompiledParseSpells != null)
         {
             try
             {
-                parseSpellsMethod.Invoke(obj, null);
+                cacheEntry.CompiledParseSpells(obj);
             }
             catch (Exception ex)
             {
@@ -850,13 +1220,12 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
             }
         }
 
-        // Vérifier et appeler ParseSockets si la méthode existe
-        var parseSocketsMethod = type.GetMethod("ParseSockets");
-        if (parseSocketsMethod != null)
+        // Appeler ParseSockets si la méthode existe
+        if (cacheEntry.CompiledParseSockets != null)
         {
             try
             {
-                parseSocketsMethod.Invoke(obj, null);
+                cacheEntry.CompiledParseSockets(obj);
             }
             catch (Exception ex)
             {
@@ -924,12 +1293,8 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                 T allocated = _storage.LookupEntryAllocate(entry);
                 if (allocated != null)
                 {
-                    Field[] fields = new Field[reader.FieldCount];
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        fields[i] = new Field(reader.GetValue(i));
-                    }
-                    LoadBlock(fields, allocated);
+                    // Utiliser la version optimisée sans allocations de Field[]
+                    LoadBlockFromReader(reader, allocated);
                 }
             }
             CLog.Notice("Storage", $"{reader.RecordsAffected} entries loaded from table {indexName}.");
@@ -986,12 +1351,8 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
                 T allocated = _storage.LookupEntryAllocate(entry);
                 if (allocated != null)
                 {
-                    Field[] fields = new Field[reader.FieldCount];
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        fields[i] = new Field(reader.GetValue(i));
-                    }
-                    LoadBlock(fields, allocated);
+                    // Utiliser la version optimisée sans allocations de Field[]
+                    LoadBlockFromReader(reader, allocated);
                 }
             }
         }
