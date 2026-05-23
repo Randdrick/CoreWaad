@@ -60,7 +60,16 @@ public static class SocketManager
 
         sLog.OutDebug("Logon sql_hash: " + BitConverter.ToString(sql_hash).Replace("-", " "));
 
-        ThreadPool.ExecuteTask(new LogonConsoleThread());
+                // Use a dedicated background thread for the console so Console.ReadLine()
+                // does not prevent process exit when shutdown is requested.
+                var consoleTask = new LogonConsoleThread();
+                var consoleOsThread = new System.Threading.Thread(
+                        () => consoleTask.Run(System.Threading.CancellationToken.None))
+                {
+                        IsBackground = true,
+                        Name = "LogonConsole"
+                };
+                consoleOsThread.Start();
 
 #if WIN32
         var Instance = new SocketMgr();

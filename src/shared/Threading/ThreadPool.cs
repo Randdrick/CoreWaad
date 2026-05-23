@@ -192,37 +192,51 @@ public class ThreadPool : IDisposable
 
     public void Shutdown()
     {
+        List<CustomThread> allThreads;
         lock (mutex)
         {
             int tcount = activeThreads.Count + freeThreads.Count;
             CLog.Debug("[THREADPOOL]", $"Shutting down {tcount} threads.");
-            KillFreeThreads((uint)freeThreads.Count);
-            threadsToExit += activeThreads.Count;
 
-            foreach (var t in activeThreads)
+            // Snapshot all threads before signalling cancellation
+            allThreads = [..activeThreads, ..freeThreads];
+
+            foreach (var t in allThreads)
             {
                 t.ExecutionTarget?.OnShutdown();
                 t.RequestCancellation();
             }
         }
 
-        // Attendre la fin des threads avec un timeout
-        var shutdownTask = Task.Run(async () =>
+        // Join each underlying OS thread directly with a per-thread timeout.
+        // This avoids relying on ThreadExit() being called, which never happens
+        // automatically when Run() returns.
+        const int perThreadTimeoutMs = 2000;
+        foreach (var t in allThreads)
         {
-            int timeoutSeconds = 10; // Timeout global de 10 secondes
-            while (timeoutSeconds-- > 0)
+            try
             {
-                lock (mutex)
-                {
-                    if (activeThreads.Count == 0 && freeThreads.Count == 0)
-                        return;
-                }
-                await Task.Delay(1000); // Attendre 1 seconde
+                if (t.ControlInterface != null && t.ControlInterface.IsAlive)
+                    t.ControlInterface.Join(perThreadTimeoutMs);
             }
-            CLog.Warning("[THREADPOOL]", "Timeout reached while shutting down threads.");
-        });
+            catch { }
+        }
 
-        shutdownTask.Wait();
+        // Force-clear collections so the process can exit cleanly even if a
+        // thread is still alive (e.g. blocked on Console.ReadLine).
+        lock (mutex)
+        {
+            activeThreads.Clear();
+            freeThreads.Clear();
+        }
+
+        // Dispose CancellationTokenSources (Join already done above).
+        foreach (var t in allThreads)
+        {
+            try { t.Dispose(); } catch { }
+        }
+
+        CLog.Success("[THREADPOOL]", "Shutdown complete.");
     }
 
     internal static CustomThread StartThread(ThreadBase executionTarget)
@@ -235,8 +249,10 @@ public class ThreadPool : IDisposable
 
         CLog.Debug("[THREADPOOL]", "Starting a new custom thread.");
 
-        var t = new CustomThread(token => RunThread(executionTarget, token));
-        t.ExecutionTarget = executionTarget;
+        var t = new CustomThread(token => RunThread(executionTarget, token))
+        {
+            ExecutionTarget = executionTarget
+        };
         t.Start();
         return t;
     }
@@ -365,7 +381,10 @@ public class CustomThread : IDisposable
                 RequestCancellation();
                 try
                 {
-                    ControlInterface?.Join(5000); // Timeout de 5 secondes
+                    // Only join if the thread is still alive to avoid unnecessary waits
+                    // when Shutdown() has already joined it.
+                    if (ControlInterface != null && ControlInterface.IsAlive)
+                        ControlInterface.Join(500);
                 }
                 catch (ThreadStateException)
                 {

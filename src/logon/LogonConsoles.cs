@@ -52,28 +52,12 @@ public class LogonConsole
             CLog.Notice("[LogonConsole]", L_N_LOGONCON_9);
             return;
         }
-#if WIN32
-        // Simulate keydown/keyup event
+
+        // Signal the console thread to stop.
+        // The thread is a background thread: it will be terminated automatically
+        // by Environment.Exit(0) at the end of shutdown. No blocking wait needed.
         _thread.kill = true;
-
-        // Utiliser une tâche pour simuler l'entrée utilisateur
-        Task.Run(async () =>
-        {
-            await Task.Delay(100); // Délai pour simuler l'entrée utilisateur
-            Console.WriteLine("\r"); // Simuler l'appui sur la touche Entrée
-        });
-
-        CLog.Notice("[LogonConsole]", L_N_LOGONCON_1);
-
-        while (_thread != null)
-        {
-            Thread.Sleep(100);
-        }
-
         CLog.Notice("[LogonConsole]", L_N_LOGONCON_2);
-#else
-        CLog.Notice("[LogonConsole]", L_N_LOGONCON_2);
-#endif
     }
 
     public void ProcessCmd(string cmd)
@@ -115,9 +99,15 @@ public class LogonConsole
     public void ProcessQuit(int delay)
     {
         mrunning = false;
-        Task.Run(async () => {
-            await Task.Delay(delay);
-            CLog.Notice("[LogonConsole]", $"Arrêt du serveur dans {delay / 1000} secondes...");
+        Task.Run(async () =>
+        {
+            if (delay > 0)
+            {
+                CLog.Notice("[LogonConsole]", $"Arrêt du serveur dans {delay / 1000} secondes...");
+                await Task.Delay(delay);
+            }
+            // Signal the main server loop to stop
+            LogonServer.mrunning = false;
         });
     }
 

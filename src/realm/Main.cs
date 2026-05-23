@@ -553,9 +553,17 @@ public class Master
         LogonCommHandler.Instance.Startup();
 
         // 13. Thread de console (entrée standard locale)
+        // Use a dedicated background thread so stdin remains responsive
+        // even if the network thread pool is saturated or unavailable.
         ConsoleThread consoleThread = new();
-        NetworkThreadPool.Instance.ExecuteTask(consoleThread);
-        CLog.Notice("[Console]", "Thread de console démarré.");
+        var localConsoleThread = new System.Threading.Thread(() =>
+            consoleThread.Run(System.Threading.CancellationToken.None))
+        {
+            IsBackground = true,
+            Name = "RealmConsole"
+        };
+        localConsoleThread.Start();
+        CLog.Notice("[Console]", "Thread de console local démarré.");
 
         // 14. Listener de console à distance (si activé dans la configuration)
         try

@@ -38,7 +38,7 @@ namespace LogonServer;
 
 public class LogonServer
 {
-    private static bool mrunning = true;
+    internal static bool mrunning = true;
     public static uint MaxBuild { get; private set; } = 0;
     public static uint MinBuild { get; private set; } = 0;
     public static object[] BRANCH_NAME { get; private set; }
