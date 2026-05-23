@@ -82,8 +82,9 @@ public static class LogonConsole
     public const string L_N_LOGONCON_5 = "Console: --------aide--------";
     public const string L_N_LOGONCON_6 = "   help, ?: affiche ce texte";
     public const string L_N_LOGONCON_7 = "   reload: recharge les comptes";
-    public const string L_N_LOGONCON_8 = "   shutdown, exit: ferme le programme";
+    public const string L_N_LOGONCON_8 = "   shutdown: ferme le Serveur de logon (optionnel: shutdown 10 pour un délai de 10 secondes)";
     public const string L_N_LOGONCON_9 = "Les Threads de la console ne sont plus en cours d'exécution ou sont déjà arrêtés.";
+    public const string L_N_LOGONCON_10 = "   monitor: affiche les métriques des ressources utilisées par le serveur.";
 }
 
 public static class LogonCommServer

@@ -67,8 +67,9 @@ public class LogonConsole
         {
             { "?", TranslateHelp }, { "help", TranslateHelp },
             { "reload", ReloadAccts },
+            { "monitor", (s) => ResourceMonitor.PrintDetailedReport() }, // NEW
             { "rehash", TranslateRehash },
-            { "shutdown", TranslateQuit }, { "quit", TranslateQuit }, { "exit", TranslateQuit }
+            { "shutdown", TranslateQuit }
         };
 
         var cmdLower = cmd.ToLower();
@@ -125,6 +126,7 @@ public class LogonConsole
             sLog.OutString(L_N_LOGONCON_6);
             sLog.OutString(L_N_LOGONCON_7);
             sLog.OutString(L_N_LOGONCON_8);
+            sLog.OutString(L_N_LOGONCON_10);
         }
     }
 }
