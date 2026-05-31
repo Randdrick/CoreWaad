@@ -24,6 +24,7 @@ using System.Numerics;
 using System.Linq;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Globalization;
 
 namespace WaadShared.Auth;
 
@@ -31,18 +32,20 @@ public class BigNumber
 {
     private BigInteger _bn;
     private byte[] _array;
-    private readonly byte[] data;
 
     public BigNumber()
     {
         _bn = new BigInteger(0);
         _array = null;
-        data = [];
     }
 
     public BigNumber(string v)
     {
         _bn = new BigInteger(0);
+        if (!string.IsNullOrWhiteSpace(v))
+        {
+            SetHexStr(v);
+        }
         _array = null;
     }
 
@@ -60,6 +63,15 @@ public class BigNumber
 
     public BigNumber(byte[] hash)
     {
+        _array = null;
+        if (hash == null || hash.Length == 0)
+        {
+            _bn = new BigInteger(0);
+        }
+        else
+        {
+            _bn = new BigInteger(hash, isUnsigned: true, isBigEndian: true);
+        }
     }
 
     public void SetDword(uint val)
@@ -74,13 +86,36 @@ public class BigNumber
 
     public void SetBinary(byte[] bytes, int v)
     {
-        bytes = [.. bytes.Reverse()];
-        _bn = new BigInteger(bytes);
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        if (v < 0 || v > bytes.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(v));
+        }
+
+        int len = v == 0 ? bytes.Length : v;
+        byte[] slice = new byte[len];
+        Array.Copy(bytes, 0, slice, 0, len);
+        _bn = new BigInteger(slice, isUnsigned: true, isBigEndian: true);
     }
 
     public void SetHexStr(string str)
     {
-        _bn = BigInteger.Parse(str, System.Globalization.NumberStyles.HexNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(str);
+
+        string hex = str.Trim();
+        if (hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            hex = hex[2..];
+        }
+
+        if (hex.Length % 2 != 0)
+        {
+            hex = "0" + hex;
+        }
+
+        byte[] bytes = Convert.FromHexString(hex);
+        _bn = new BigInteger(bytes, isUnsigned: true, isBigEndian: true);
     }
 
     public void SetRand(int numbits)
@@ -88,7 +123,7 @@ public class BigNumber
         Random rand = new();
         byte[] bytes = new byte[numbits / 8];
         rand.NextBytes(bytes);
-        _bn = new BigInteger(bytes);
+        _bn = new BigInteger(bytes, isUnsigned: true, isBigEndian: false);
     }
 
     public static BigNumber operator +(BigNumber a, BigNumber b)
@@ -118,7 +153,7 @@ public class BigNumber
 
     public static implicit operator BigNumber(int v)
     {
-        return v;
+        return new BigNumber((uint)v);
     }
 
     public BigNumber Exp(BigNumber bn)
@@ -128,7 +163,7 @@ public class BigNumber
 
     public static BigNumber ModExp(BigNumber bn1, BigNumber bn2, BigNumber bn)
     {
-        return new BigNumber { _bn = BigInteger.ModPow(bn._bn, bn1._bn, bn2._bn) };
+        return new BigNumber { _bn = BigInteger.ModPow(bn1._bn, bn2._bn, bn._bn) };
     }
 
     public static BigNumber GenerateRandom(int size)
@@ -143,18 +178,18 @@ public class BigNumber
 
     public byte[] ToByteArray()
     {
-        return data;
+        return AsByteArray();
     }
 
     public void SetByteArray(byte[] data)
     {
-        data = [.. data.Reverse()];
-        _bn = new BigInteger(data);
+        ArgumentNullException.ThrowIfNull(data);
+        _bn = new BigInteger(data, isUnsigned: true, isBigEndian: true);
     }
 
     public int GetNumBytes()
     {
-        return (_bn.ToByteArray().Length + 7) / 8;
+        return AsByteArray().Length;
     }
 
     public uint AsDword()
@@ -162,19 +197,29 @@ public class BigNumber
         return (uint)_bn;
     }
 
+    /// <summary>
+    /// Returns the value as little-endian bytes, matching the WoW protocol wire format
+    /// and the original C++ Ascent BigNumber::AsByteArray() which reversed BN_bn2bin output.
+    /// </summary>
     public byte[] AsByteArray()
     {
-        if (_array != null)
+        _array = _bn.ToByteArray(isUnsigned: true, isBigEndian: false);
+        if (_array.Length == 0)
         {
-            _array = null;
+            _array = [0];
         }
-        _array = _bn.ToByteArray();
-        if (_array[0] == 0)
-        {
-            _array = [.. _array.Skip(1)];
-        }
-        Array.Reverse(_array);
         return _array;
+    }
+
+    /// <summary>
+    /// Set the value from little-endian wire bytes (WoW protocol format).
+    /// Use this when reading multi-byte integers received from the client.
+    /// </summary>
+    public void SetBinaryLE(byte[] bytes, int len = 0)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        int count = len == 0 ? bytes.Length : Math.Min(len, bytes.Length);
+        _bn = new BigInteger(bytes[..count], isUnsigned: true, isBigEndian: false);
     }
 
     public List<byte> AsByteList()
@@ -190,6 +235,11 @@ public class BigNumber
     public string AsDecStr()
     {
         return _bn.ToString();
+    }
+
+    public override string ToString()
+    {
+        return AsHexStr();
     }
 
     public int ToInt()

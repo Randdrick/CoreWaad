@@ -109,7 +109,7 @@ public abstract class Database : CThread
         return Connections[0];
     }
 
-    public QueryResult Query(string QueryString, params object[] args)
+    public virtual QueryResult Query(string QueryString, params object[] args)
     {
         if (!IsInitialized)
             return null;
@@ -130,7 +130,7 @@ public abstract class Database : CThread
         return qResult;
     }
 
-    public QueryResult QueryNA(string QueryString)
+    public virtual QueryResult QueryNA(string QueryString)
     {
         if (!IsInitialized)
             return null;

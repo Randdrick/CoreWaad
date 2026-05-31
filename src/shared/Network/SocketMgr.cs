@@ -102,7 +102,8 @@ public class SocketManager
 #if CONFIG_USE_IOCP
     public void AddSocket(Socket s)
     {
-        if (socket_count >= 64 || fds.ContainsKey(s.Handle))
+        int key = s.GetFd().Handle.GetHashCode();
+        if (socket_count >= 64 || fds.ContainsKey(key))
         {
             s.Delete();
             return;
@@ -111,14 +112,15 @@ public class SocketManager
         lock (m_setLock)
         {
             m_allSet.Add(s);
-            fds[s.Handle] = s;
+            fds[key] = s;
             socket_count++;
         }
     }
 
     public void RemoveSocket(Socket s)
     {
-        if (!fds.TryRemove(s.Handle, out _))
+        int key = s.GetFd().Handle.GetHashCode();
+        if (!fds.TryRemove(key, out _))
             return;
 
         lock (m_setLock)

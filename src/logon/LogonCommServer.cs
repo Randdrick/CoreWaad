@@ -58,7 +58,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     private readonly RC4Engine sendCrypto = new();
     private readonly RC4Engine recvCrypto = new();
     public readonly HashSet<uint> serverIds = [];
-    private readonly InformationCore sInfoCore = new();
+    private readonly InformationCore sInfoCore = InformationCore.Instance;
     private static readonly List<AllowedIP> m_allowedIps = [];
     private static readonly object m_allowedIpLock = new();
     private static readonly bool ServerTrustMe = true;
@@ -330,7 +330,6 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         uint requestId = recvData.ReadUInt32();
         string accountName = recvData.ReadString();
         Account acct = AccountMgr.GetAccount(accountName);
-        byte[] localeBytes = Encoding.UTF8.GetBytes(acct.Locale);
 
         uint error = 0;
         if (acct == null || acct.SessionKey == null)
@@ -344,11 +343,15 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
         if (error == 0)
         {
-            data.WriteUInt32(acct.AccountId);
+            CLog.Debug("[LogonCommServer]", $"HandleSessionRequest: sending accountId={acct.AccountId} name={acct.UsernamePtr}");
+            // Order must match InformationRetreiveCallback reads:
+            // 1. accountName (string)  2. gmFlags (string)  3. accountFlags (byte)  4. accountId (uint32)  5. sessionKey (40 bytes)
             data.WriteString(acct.UsernamePtr);
-            data.WriteByte(Convert.ToByte(acct.GMFlags));
-            data.WriteUInt32(acct.AccountFlags);
+            data.WriteString(acct.GMFlags ?? string.Empty);
+            data.WriteByte(acct.AccountFlags);
+            data.WriteUInt32(acct.AccountId);
             data.Write(acct.SessionKey, 0, 40);
+            byte[] localeBytes = Encoding.UTF8.GetBytes(acct.Locale);
             data.Write(localeBytes, 0, localeBytes.Length);
             data.WriteUInt32(acct.Muted);
         }
@@ -358,9 +361,9 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public void HandlePing(WorldPacket recvData)
     {
-        recvData = new((ushort)RSMSG_PONG, 4);
-        SendPacket(recvData);
-        lastPing = (uint)DateTime.UtcNow.Ticks;
+        var pong = new WorldPacket((ushort)RSMSG_PONG, 4);
+        SendPacket(pong);
+        lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     }
 
     public void SendPacket(WorldPacket data, bool noCrypto = false)

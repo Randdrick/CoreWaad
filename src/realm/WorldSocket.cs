@@ -24,6 +24,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using WaadShared;
 using WaadShared.Auth;
 using WaadShared.AuthCodes;
@@ -48,6 +49,7 @@ namespace WaadRealmServer
         private uint mClientSeed;
         private uint mClientBuild;
         private uint mRequestID;
+        private readonly byte[] mClientAuthDigest = new byte[20];
         private WorldPacket pAuthenticationPacket;
         private string m_fullAccountName;
         private readonly WowCrypt _crypt;
@@ -182,24 +184,18 @@ namespace WaadRealmServer
                 return;
             }
 
-            byte[] digest = new byte[32];
-            pAuthenticationPacket.Read(digest, 0, 32);
-
-            using (var sha3 = new Sha3Hash())
+            using (var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1))
             {
-                sha3.UpdateData(!string.IsNullOrEmpty(m_fullAccountName) ? m_fullAccountName : accountName);
-                byte[] t = BitConverter.GetBytes(0u);
-                sha3.UpdateData(t, 4);
-                byte[] clientSeedBytes = BitConverter.GetBytes(mClientSeed);
-                sha3.UpdateData(clientSeedBytes, 4);
-                byte[] serverSeedBytes = BitConverter.GetBytes(mSeed);
-                sha3.UpdateData(serverSeedBytes, 4);
-                byte[] bnBytes = BNK.AsByteArray();
-                sha3.UpdateData(bnBytes, bnBytes.Length);
-                sha3.FinalizeHash();
-                byte[] computedHash = sha3.GetDigest();
+                string authAccount = !string.IsNullOrEmpty(m_fullAccountName) ? m_fullAccountName : accountName;
+                byte[] accountBytes = System.Text.Encoding.ASCII.GetBytes(authAccount);
+                sha1.AppendData(accountBytes);
+                sha1.AppendData(BitConverter.GetBytes(0u));
+                sha1.AppendData(BitConverter.GetBytes(mClientSeed));
+                sha1.AppendData(BitConverter.GetBytes(mSeed));
+                sha1.AppendData(K);
+                byte[] computedHash = sha1.GetHashAndReset();
 
-                if (!Enumerable.SequenceEqual(computedHash, digest))
+                if (!Enumerable.SequenceEqual(computedHash, mClientAuthDigest))
                 {
                     OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_UNKNOWN_ACCOUNT]);
                     return;
@@ -209,6 +205,7 @@ namespace WaadRealmServer
             // Réinitialisation de m_fullAccountName après utilisation
             m_fullAccountName = null;
 
+            m_session.SetSocket(this);
             m_session.AccountFlags = accountFlags;
             m_session.GMPermissions = gmFlags;
             m_session.AccountId = accountId;
@@ -218,7 +215,7 @@ namespace WaadRealmServer
             m_session.Language = LanguageStringToId(lang);
 
             if (recvData.Size < recvData.Contents.Length)
-                m_session.Muted = recvData.ReadByte();
+                m_session.Muted = recvData.ReadUInt32();
 
             for (uint i = 0; i < 8; i++)
                 m_session.SetAccountData(i, null, true, 0);
@@ -397,7 +394,7 @@ namespace WaadRealmServer
                 return OutPacketResult.NotConnected;
 
             BurstBegin();
-            if (GetWriteBuffer().GetSize() < (len + 4))
+            if (GetWriteBuffer().GetSpace() < (len + 4))
             {
                 BurstEnd();
                 return OutPacketResult.NoRoomInBuffer;
@@ -441,7 +438,11 @@ namespace WaadRealmServer
         private void HandleAuthSession(WorldPacket recvPacket)
         {
             if (recvPacket == null)
+            {
+                CLog.Error("[WorldSocket]", R_E_WRDSOCK);
                 return;
+            }              
+            CLog.Notice("[WorldSocket]", $"HandleAuthSession: Received auth session packet with size {recvPacket.Size}");
 
             try
             {
@@ -455,6 +456,7 @@ namespace WaadRealmServer
                 uint unk4 = recvPacket.ReadUInt32();
                 uint unk5 = recvPacket.ReadUInt32();
                 uint unk6 = recvPacket.ReadUInt32();
+                recvPacket.Read(mClientAuthDigest, 0, mClientAuthDigest.Length);
 
                 mRequestID = LogonCommHandler.Instance.ClientConnected(account, this);
                 if (mRequestID == 0xFFFFFFFF)
@@ -570,9 +572,9 @@ namespace WaadRealmServer
                     try { _crypt?.Decrypt(headerBytes); }
                     catch (InvalidOperationException) { /* Crypt not initialized */ }
 
-                    // Conversion depuis le format réseau (big-endian)
+                    // Size est en big-endian (réseau), opcode est en little-endian côté client WoW
                     header.size = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(headerBytes, 0));
-                    header.cmd = (uint)IPAddress.NetworkToHostOrder(BitConverter.ToInt32(headerBytes, 2));
+                    header.cmd = BitConverter.ToUInt32(headerBytes, 2);
 
                     mRemaining = mSize = (int)header.size - 4; // Taille du payload (sans l'opcode)
                     mOpcode = (int)header.cmd;

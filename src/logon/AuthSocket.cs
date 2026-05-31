@@ -48,11 +48,11 @@ public enum AuthError
     CE_ACCOUNT_FREEZED = 0x0c
 }
 
-public class AuthSocket : Socket
+public class AuthSocket
 {
-    public readonly Socket socket;
+    public Socket socket;
     private Challenge challenge;
-    private readonly BigNumber b;
+    private BigNumber b;
     private readonly BigNumber N;
     private readonly BigNumber g;
     private Account account;
@@ -61,6 +61,10 @@ public class AuthSocket : Socket
     private bool removedFromSet;
     private Patch patch;
     private PatchJob patchJob;
+    // Exact bytes sent to client in challenge — used in HandleProof for byte-level consistency
+    internal byte[] BBytesSent;
+    internal byte[] SaltBytesSent;
+    internal Account Account => account;
     private static readonly object authSocketLock = new();
     private static readonly HashSet<AuthSocket> authSockets = [];
     private static DateTime lastCleanup = DateTime.Now;
@@ -75,11 +79,11 @@ public class AuthSocket : Socket
     public static uint GetWriteBufferSize() { return 0; }
     private readonly PatchMgr PatchMgr;
 
-    // Public parameterless constructor
-    public AuthSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+    // Constructor: accepts the socket returned by ListenSocket.Accept()
+    public AuthSocket(Socket sock)
     {
         PatchMgr = new PatchMgr();
-        this.socket = this;
+        this.socket = sock;
         challenge = new Challenge { I_len = 0 };
 
         b = new BigNumber();
@@ -97,6 +101,117 @@ public class AuthSocket : Socket
         lock (authSocketLock)
         {
             authSockets.Add(this);
+        }
+        StartReadThread();
+    }
+
+    private void StartReadThread()
+    {
+        var t = new System.Threading.Thread(() =>
+        {
+            while (socket != null && !removedFromSet)
+            {
+                try
+                {
+                    if (socket.Connected && socket.Available > 0)
+                        OnRead();
+                    else
+                        System.Threading.Thread.Sleep(1);
+                }
+                catch (Exception ex)
+                {
+                    CLog.Error("[AuthSocket]", "Read thread exception: {0}", ex.Message);
+                    break;
+                }
+            }
+            OnDisconnect();
+        })
+        { IsBackground = true, Name = "AuthSocket" };
+        t.Start();
+    }
+
+    private static byte[] ToFixedLength(BigNumber value, int size)
+    {
+        byte[] src = value?.ToByteArray() ?? [];
+        if (src.Length == size)
+            return src;
+
+        byte[] dst = new byte[size]; // zero-filled
+        if (src.Length > size)
+        {
+            // Take first 'size' bytes — in LE the first bytes are the least-significant
+            Array.Copy(src, 0, dst, 0, size);
+        }
+        else if (src.Length > 0)
+        {
+            // Copy and leave zeros at the end (high bytes in LE = zero-padding)
+            Array.Copy(src, 0, dst, 0, src.Length);
+        }
+        return dst;
+    }
+
+    private static byte[] Sha3(byte[] input)
+    {
+        using var sha3 = new Sha3Hash();
+        sha3.UpdateData(input, input.Length);
+        sha3.FinalizeHash();
+        return sha3.GetDigest();
+    }
+
+    private static void EnsureVerifierConsistency(Account account)
+    {
+        if (account == null || string.IsNullOrEmpty(account.UsernamePtr))
+            return;
+
+        // Validate salt and verifier exist.
+        if (account.Salt == null || account.Salt.GetNumBytes() == 0 ||
+            account.Verifier == null || account.Verifier.GetNumBytes() == 0)
+        {
+            CLog.Warning("[AuthSocket]", "Missing SRP salt/verifier for account {0}", account.UsernamePtr);
+            return;
+        }
+
+        // The verifier stored in DB was computed by the realm server (WaadAscent C++) and is authoritative.
+        // We only attempt recomputation when we have the raw plaintext password (not a SHA-2 or SHA-512 hash).
+        // SHA-512 = 128 hex chars, SHA-256 = 64 hex chars — we cannot reverse these to get the plaintext.
+        string enc = (account.EncryptedPassword ?? "").Trim();
+        bool isSHA512 = enc.Length == 128 && enc.All(Uri.IsHexDigit);
+        bool isSHA256 = enc.Length == 64  && enc.All(Uri.IsHexDigit);
+        if (string.IsNullOrEmpty(enc) || isSHA512 || isSHA256)
+        {
+            // Cannot recompute — use the verifier from DB as-is.
+            return;
+        }
+
+        // encrypted_password is either plaintext or SHA-1 pre-hash (40 hex chars).
+        string loginUpper = account.UsernamePtr.ToUpperInvariant();
+        bool isPreHashed = enc.Length == 40 && enc.All(Uri.IsHexDigit);
+        byte[] identityHash = isPreHashed
+            ? Convert.FromHexString(enc)
+            : SHA1.HashData(Encoding.ASCII.GetBytes($"{loginUpper}:{enc.ToUpperInvariant()}"));
+
+        // Use LE salt bytes (AsByteArray returns LE) matching WaadAscent C++ s.AsByteArray().
+        byte[] s32 = ToFixedLength(account.Salt, 32);
+        byte[] xHash = SHA1.HashData([.. s32, .. identityHash]);
+
+        BigNumber Nbig = new();
+        Nbig.SetHexStr("894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7");
+        BigNumber gbig = new();
+        gbig.SetDword(7);
+
+        // WaadAscent C++ SetBinary treats SHA1 bytes as LE integer.
+        BigNumber x = new();
+        x.SetBinaryLE(xHash);
+        BigNumber newVerifier = BigNumber.ModExp(gbig, x, Nbig);
+        string newVerifierHex = newVerifier.AsHexStr();
+        string oldVerifierHex = account.Verifier?.AsHexStr() ?? "";
+
+        if (!string.Equals(oldVerifierHex, newVerifierHex, StringComparison.OrdinalIgnoreCase))
+        {
+            account.Verifier = newVerifier;
+            string saltHex = account.Salt.AsHexStr();
+            SLogonSQL.Execute($"UPDATE account_data SET salt='{saltHex}', verifier='{newVerifierHex}' WHERE acct={account.AccountId};");
+            CLog.Notice("[AuthSocket]", "SRP verifier updated for account {0}", account.UsernamePtr);
         }
     }
 
@@ -116,6 +231,7 @@ public class AuthSocket : Socket
 
     public void OnDisconnect()
     {
+        CLog.Debug("[AuthSocket]", "Socket disconnected for account={0}", account?.UsernamePtr ?? "<unknown>");
         if (!removedFromSet)
         {
             lock (authSocketLock)
@@ -192,46 +308,106 @@ public class AuthSocket : Socket
         }
     }
 
+    private static bool ReadExact(System.Net.Sockets.Socket sock, byte[] buffer, int offset, int count)
+    {
+        int total = 0;
+        while (total < count)
+        {
+            int read;
+            try
+            {
+                read = sock.Receive(buffer, offset + total, count - total, SocketFlags.None);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (read <= 0)
+                return false;
+
+            total += read;
+        }
+        return true;
+    }
+
+    private static bool SendExact(System.Net.Sockets.Socket sock, byte[] buffer, int count)
+    {
+        int total = 0;
+        while (total < count)
+        {
+            int sent;
+            try
+            {
+                sent = sock.Send(buffer, total, count - total, SocketFlags.None);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (sent <= 0)
+                return false;
+
+            total += sent;
+        }
+
+        return true;
+    }
+
     public static void HandleChallenge(AuthSocket authSocket)
     {
         var sLog = new Logger();
         var IPBanner = new IPBanner();
         var PatchMgr = new PatchMgr();
 
-        if (authSocket.socket.Available < 4)
-            return;
+        sLog.OutDebug(L_D_AUTHSOCK_C_0);
 
-        byte[] buffer = new byte[4];
-        authSocket.socket.Receive(buffer);
-        ushort fullSize = BitConverter.ToUInt16(buffer, 2);
-
-        sLog.OutDetail(L_N_AUTHSOCK, fullSize);
-
-        if (authSocket.socket.Available < fullSize + 4)
-            return;
-
-        buffer = new byte[fullSize + 4];
-        authSocket.socket.Receive(buffer);
-
-        if (fullSize > Marshal.SizeOf<Challenge>())
+        // WoW 3.3.5a auth challenge (after cmd byte consumed by OnRead):
+        // error(1)+size(2)+gamename(4)+version(3)+build(2)+platform(4)+os(4)+country(4)+tz(4)+ip(4)+I_len(1) = 33 bytes
+        const int FIXED_HDR = 33;
+        byte[] hdr = new byte[FIXED_HDR];
+        if (!ReadExact(authSocket.socket, hdr, 0, FIXED_HDR))
         {
-            sLog.OutDebug(L_D_AUTHSOCK_C);
             authSocket.Disconnect();
             return;
         }
 
+        ushort build   = BitConverter.ToUInt16(hdr, 10);
+        byte[] country = hdr[20..24];
+        byte   I_len   = hdr[32];
+
+        sLog.OutDebug("[AuthSocket] Challenge parsed: build={0}, MinBuild={1}, MaxBuild={2}, I_len={3}", build, SocketManager.MinBuild, SocketManager.MaxBuild, I_len);
+
+        sLog.OutDetail(L_N_AUTHSOCK, build);
+
+        if (I_len == 0 || I_len >= 0x50) { authSocket.Disconnect(); return; }
+
+        byte[] I = new byte[I_len + 1];
+        if (!ReadExact(authSocket.socket, I, 0, I_len))
+        {
+            authSocket.Disconnect();
+            return;
+        }
+        I[I_len] = 0;
+
+        authSocket.challenge = new Challenge
+        {
+            Build   = build,
+            I       = I,
+            I_len   = I_len,
+            Country = country
+        };
+
         sLog.OutDebug(L_D_AUTHSOCK_C_1);
 
-        authSocket.challenge = Challenge.FromBytes(buffer);
-
-        ushort build = authSocket.challenge.Build;
-        if (build > LogonServer.MaxBuild)
+        if (build > SocketManager.MaxBuild)
         {
             authSocket.SendChallengeError(AuthError.CE_WRONG_BUILD_NUMBER);
             return;
         }
 
-        if (build < LogonServer.MinBuild)
+        if (build < SocketManager.MinBuild)
         {
             // can we patch?
             char[] flippedLoc = new char[5];
@@ -248,9 +424,9 @@ public class AuthSocket : Socket
                 return;
             }
 
-            sLog.OutDebug("[AuthChallenge]", L_D_AUTHSOCK_C_2, authSocket.patch.Version, authSocket.patch.Locality);
+            sLog.OutDebug(L_D_AUTHSOCK_C_2, authSocket.patch.Version, authSocket.patch.Locality);
 
-            authSocket.socket.Send([
+            byte[] patchChallenge = [
                 0x00, 0x00, 0x00, 0x72, 0x50, 0xa7, 0xc9, 0x27, 0x4a, 0xfa, 0xb8, 0x77, 0x80, 0x70, 0x22,
                 0xda, 0xb8, 0x3b, 0x06, 0x50, 0x53, 0x4a, 0x16, 0xe2, 0x65, 0xba, 0xe4, 0x43, 0x6f, 0xe3,
                 0x29, 0x36, 0x18, 0xe3, 0x45, 0x01, 0x07, 0x20, 0x89, 0x4b, 0x64, 0x5e, 0x89, 0xe1, 0x53,
@@ -259,7 +435,8 @@ public class AuthSocket : Socket
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe1, 0x32, 0xa3,
                 0x49, 0x76, 0x5c, 0x5b, 0x35, 0x9a, 0x93, 0x3c, 0x6f, 0x3c, 0x63, 0x6d, 0xc0, 0x00
-            ], (SocketFlags)119);
+            ];
+            _ = SendExact(authSocket.socket, patchChallenge, patchChallenge.Length);
             return;
         }
 
@@ -317,55 +494,60 @@ public class AuthSocket : Socket
             authSocket.account.Locale = Encoding.ASCII.GetChars(authSocket.challenge.Country);
         }
 
+        // Keep verifier aligned with current SRP algorithm for legacy accounts.
+        EnsureVerifierConsistency(authSocket.account);
+
         if (authSocket.account.Salt == null || authSocket.account.Verifier == null)
         {
-            sLog.OutDebug(L_D_AUTHSOCK_C_6);
-            authSocket.account.Salt = BigNumber.GenerateRandom(32);
-
-            using (SHA3_256.Create())
-            {
-                byte[] hash = SHA3_256.HashData([.. authSocket.account.Salt.ToByteArray(), .. Encoding.ASCII.GetBytes(authSocket.account.UsernamePtr)]);
-                authSocket.account.Verifier = BigNumber.ModExp(authSocket.g, new BigNumber(hash), authSocket.N);
-            }
-
-            if (authSocket.account.Verifier.AsDword() == 0)
-            {
-                sLog.OutDebug(L_D_AUTHSOCK_C_7);
-                authSocket.SendChallengeError(AuthError.CE_NO_ACCOUNT);
-                return;
-            }
-            SLogonSQL.Execute($"UPDATE accounts SET salt='{authSocket.account.Salt}', verifier='{authSocket.account.Verifier}' WHERE acct={authSocket.account.AccountId};");
+            sLog.OutError("[AuthSocket] Missing SRP data (salt/verifier) for account {0}", accountName);
+            authSocket.SendChallengeError(AuthError.CE_NO_ACCOUNT);
+            return;
         }
 
-        BigNumber b = BigNumber.GenerateRandom(152);
-        BigNumber gmod = BigNumber.ModExp(authSocket.g, b, authSocket.N);
-        BigNumber B = ((authSocket.account.Verifier.ToInt() * 3) + gmod) % authSocket.N;
+        authSocket.b = BigNumber.GenerateRandom(152);
+        BigNumber gmod = BigNumber.ModExp(authSocket.g, authSocket.b, authSocket.N);
+        BigNumber B = ((authSocket.account.Verifier * new BigNumber(3u)) + gmod) % authSocket.N;
 
         if (gmod.GetNumBytes() > 32)
         {
-            throw new InvalidOperationException("gmod has more than 32 bytes.");
+            CLog.Error("[AuthSocket]", "gmod has more than 32 bytes ({0}), normalizing", gmod.GetNumBytes());
         }
 
         BigNumber unk = BigNumber.GenerateRandom(128);
+        // Capture exact bytes to be sent so HandleProof can use the identical values
+        byte[] b32sent = ToFixedLength(B, 32);
+        byte[] s32sent = ToFixedLength(authSocket.account.Salt, 32);
+        authSocket.BBytesSent = b32sent;
+        authSocket.SaltBytesSent = s32sent;
+
+        CLog.Debug("[AuthSocket]", "SRP challenge: B={0}", BitConverter.ToString(b32sent).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP challenge: s={0}", BitConverter.ToString(s32sent).Replace("-", ""));
+
         byte[] response = new byte[200];
         int c = 0;
         response[c++] = 0;
         response[c++] = 0;
         response[c++] = (byte)AuthError.CE_SUCCESS;
-        Array.Copy(B.ToByteArray(), 0, response, c, 32);
+        Array.Copy(b32sent, 0, response, c, 32);
         c += 32;
         response[c++] = 1;
-        response[c++] = authSocket.g.ToByteArray()[0];
+        response[c++] = ToFixedLength(authSocket.g, 1)[0];
         response[c++] = 32;
-        Array.Copy(authSocket.N.ToByteArray(), 0, response, c, 32);
+        Array.Copy(ToFixedLength(authSocket.N, 32), 0, response, c, 32);
         c += 32;
-        Array.Copy(authSocket.account.Salt.ToByteArray(), 0, response, c, authSocket.account.Salt.GetNumBytes());
-        c += authSocket.account.Salt.GetNumBytes();
-        Array.Copy(unk.ToByteArray(), 0, response, c, 16);
+        Array.Copy(s32sent, 0, response, c, 32);
+        c += 32;
+        Array.Copy(ToFixedLength(unk, 16), 0, response, c, 16);
         c += 16;
         response[c++] = 0;
 
-        authSocket.socket.Send(response, c, SocketFlags.None);
+        if (!SendExact(authSocket.socket, response, c))
+        {
+            CLog.Error("[AuthSocket]", "Failed to send full challenge response ({0} bytes)", c);
+            authSocket.Disconnect();
+            return;
+        }
+        CLog.Debug("[AuthSocket]", "Challenge response sent ({0} bytes)", c);
     }
 
     public static void HandleProof(AuthSocket authSocket)
@@ -373,13 +555,12 @@ public class AuthSocket : Socket
         var PatchMgr = new PatchMgr();
         var sLog = new Logger();
 
-        if (authSocket.socket.Available < Marshal.SizeOf<LogonProof>())
-            return;
+        CLog.Debug("[AuthSocket]", "HandleProof entered: patch={0}, account={1}", authSocket.patch != null, authSocket.account?.UsernamePtr ?? "<null>");
 
         if (authSocket.patch != null && authSocket.account == null)
         {
             sLog.OutDebug(L_D_AUTHSOCK_P);
-            authSocket.socket.ReceiveBufferSize -= 75;
+            authSocket.socket.Receive(new byte[74]); // discard proof data (command byte already consumed)
             byte[] bytes = [0x01, 0x0a];
             authSocket.socket.Send(bytes);
             global::LogonServer.PatchMgr.InitiatePatch(authSocket.patch, authSocket);
@@ -391,109 +572,125 @@ public class AuthSocket : Socket
 
         sLog.OutDebug(L_D_AUTHSOCK_P_1);
 
-        LogonProof lp = LogonProof.FromBytes(authSocket.socket.ReceiveBufferSize);
-        BigNumber A = new(lp.A);
-        BigNumber B = new(authSocket.challenge.I);
-
-        if (A % authSocket.N == null)
+        // WoW 3.3.5a proof payload AFTER command byte: A(32) + M1(20) + crc(20) + nkeys(1) + secflags(1) = 74 bytes
+        byte[] proofData = new byte[74];
+        if (!ReadExact(authSocket.socket, proofData, 0, 74))
         {
-            sLog.OutDebug(L_D_AUTHSOCK_P);
+            CLog.Error("[AuthSocket]", "HandleProof failed to read 74-byte proof payload");
+            return;
+        }
+        CLog.Debug("[AuthSocket]", "HandleProof payload read successfully");
+
+        // --- All byte arrays are little-endian (WoW protocol), matching C++ AsByteArray() ---
+
+        byte[] a32 = proofData[0..32];          // client's A, LE 32 bytes (raw wire bytes)
+        byte[] M1received = proofData[32..52];  // client's M1, 20 bytes
+
+        // Use the EXACT bytes sent in HandleChallenge for byte-level consistency
+        byte[] b32 = authSocket.BBytesSent;
+        byte[] s32 = authSocket.SaltBytesSent;
+        byte[] n32 = ToFixedLength(authSocket.N, 32);   // LE N (32 bytes)
+        byte[] gBytes = authSocket.g.ToByteArray();     // LE g (1 byte = {7})
+
+        if (b32 == null || s32 == null)
+        {
+            CLog.Error("[AuthSocket]", "HandleProof: missing BBytesSent or SaltBytesSent — challenge not completed");
+            return;
+        }
+
+        // A: read from wire as little-endian into BigNumber (needed for modular exponentiation)
+        BigNumber A = new();
+        A.SetBinaryLE(a32, 32);
+
+        // v: the verifier (recomputed with LE salt by EnsureVerifierConsistency)
+        BigNumber v = authSocket.account.Verifier;
+
+        // u = SHA1(A_LE | B_LE) — exact wire bytes.
+        // C++ Ascent SetBinary reverses bytes (LE input convention), matching WoW client's convention.
+        byte[] uBytes = SHA1.HashData([.. a32, .. b32]);
+        BigNumber u = new();
+        u.SetBinaryLE(uBytes);  // LE integer — matches C++ Ascent BigNumber::SetBinary behaviour
+
+        // S = (A * v^u)^b mod N
+        BigNumber S = BigNumber.ModExp(A * BigNumber.ModExp(v, u, authSocket.N), authSocket.b, authSocket.N);
+
+        // Session key K: 40-byte interleaved SHA1 of even/odd bytes of S (LE)
+        byte[] t = ToFixedLength(S, 32);
+        byte[] t1 = new byte[16];
+        byte[] vK = new byte[40];
+        for (int i = 0; i < 16; i++) t1[i] = t[i * 2];
+        byte[] kHash = SHA1.HashData(t1);
+        for (int i = 0; i < 20; i++) vK[i * 2] = kHash[i];
+        for (int i = 0; i < 16; i++) t1[i] = t[(i * 2) + 1];
+        kHash = SHA1.HashData(t1);
+        for (int i = 0; i < 20; i++) vK[(i * 2) + 1] = kHash[i];
+
+        // M1 = SHA1( H(N) XOR H(g) | H(I) | s | A | B | K )
+        byte[] hashN = SHA1.HashData(n32);
+        byte[] hashG = SHA1.HashData(gBytes);
+        for (int i = 0; i < 20; i++) hashN[i] ^= hashG[i];
+        // C++ Ascent: t3.SetBinary(hash,20) stores as LE, t3.AsByteArray() returns original bytes unchanged.
+        // No reversal needed — use the direct XOR output.
+        // WoW SRP always hashes the uppercased login for H(I)
+        string username = authSocket.account.UsernamePtr.ToUpperInvariant();
+        byte[] userHash = SHA1.HashData(Encoding.ASCII.GetBytes(username));
+
+        byte[] m1Computed = SHA1.HashData([.. hashN, .. userHash, .. s32, .. a32, .. b32, .. vK]);
+
+        // Diagnostic logging — compare all components to identify divergence
+        CLog.Debug("[AuthSocket]", "SRP a32 ={0}", BitConverter.ToString(a32).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP b32 ={0}", BitConverter.ToString(b32).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP s32 ={0}", BitConverter.ToString(s32).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP u   ={0}", BitConverter.ToString(uBytes).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP S   ={0}", BitConverter.ToString(t).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP K   ={0}", BitConverter.ToString(vK).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP HNg ={0}", BitConverter.ToString(hashN).Replace("-", ""));
+        CLog.Debug("[AuthSocket]", "SRP HI  ={0}", BitConverter.ToString(userHash).Replace("-", "")) ;
+        CLog.Debug("[AuthSocket]", "SRP user={0}", username);
+
+        if (!M1received.SequenceEqual(m1Computed))
+        {
+            CLog.Error("[AuthSocket]", "SRP M1 mismatch for account {0}", authSocket.account.UsernamePtr);
+            CLog.Error("[AuthSocket]", "M1 recv={0}", BitConverter.ToString(M1received).Replace("-", ""));
+            CLog.Error("[AuthSocket]", "M1 calc={0}", BitConverter.ToString(m1Computed).Replace("-", ""));
+            sLog.OutDebug(L_D_AUTHSOCK_P_2);
             authSocket.SendChallengeError(AuthError.CE_NO_ACCOUNT);
             return;
         }
 
-        using (SHA3_256.Create())
-        {
-            byte[] hash = SHA3_256.HashData(A.ToByteArray());
-            BigNumber u = new(hash);
-            BigNumber S = BigNumber.ModExp(A * BigNumber.ModExp(authSocket.account.Verifier, u, authSocket.N), authSocket.b, authSocket.N);
-            byte[] t = S.ToByteArray();
-            byte[] t1 = new byte[16];
-            byte[] vK = new byte[40];
+        // M2 = SHA1(A | M1 | K)
+        authSocket.Sessionkey = new BigNumber(vK);
+        authSocket.account.SetSessionKey(vK);
+        byte[] m2 = SHA1.HashData([.. a32, .. m1Computed, .. vK]);
+        authSocket.SendProofError(0, m2);
+        CLog.Debug("[AuthSocket]", "SRP proof accepted for account {0}", authSocket.account.UsernamePtr);
+        sLog.OutDebug(L_D_AUTHSOCK_P_3);
+        authSocket.authenticated = true;
 
-            for (int i = 0; i < 16; i++)
-            {
-                t1[i] = t[i * 2];
-            }
-
-            hash = SHA3_256.HashData(t1);
-            for (int i = 0; i < 20; i++)
-            {
-                vK[i * 2] = hash[i];
-            }
-
-            for (int i = 0; i < 16; i++)
-            {
-                t1[i] = t[(i * 2) + 1];
-            }
-
-            hash = SHA3_256.HashData(t1);
-            for (int i = 0; i < 20; i++)
-            {
-                vK[(i * 2) + 1] = hash[i];
-            }
-
-            authSocket.Sessionkey = new BigNumber(vK);
-
-            hash = SHA3_256.HashData(authSocket.N.ToByteArray());
-            byte[] hash2 = SHA3_256.HashData(authSocket.g.ToByteArray());
-            for (int i = 0; i < 20; i++)
-            {
-                hash[i] ^= hash2[i];
-            }
-
-            BigNumber t3 = new(hash);
-            hash = SHA3_256.HashData(Encoding.ASCII.GetBytes(authSocket.account.UsernamePtr));
-            BigNumber t4 = new(hash);
-            hash = SHA3_256.HashData(
-            [
-                .. t3.ToByteArray(),
-                .. t4.ToByteArray(),
-                .. authSocket.account.Salt.ToByteArray(),
-                .. A.ToByteArray(),
-                .. B.ToByteArray(),
-                .. authSocket.Sessionkey.ToByteArray(),
-            ]);
-            BigNumber M = new(hash);
-
-            if (!lp.M1.SequenceEqual(M.ToByteArray()))
-            {
-                sLog.OutDebug(L_D_AUTHSOCK_P_2);
-                authSocket.SendChallengeError(AuthError.CE_NO_ACCOUNT);
-                return;
-            }
-
-            authSocket.account.SetSessionKey(authSocket.Sessionkey.ToByteArray());
-            hash = SHA3_256.HashData([.. A.ToByteArray(), .. M.ToByteArray(), .. authSocket.Sessionkey.ToByteArray()]);
-            authSocket.SendProofError(0, hash);
-            sLog.OutDebug(L_D_AUTHSOCK_P_3);
-            authSocket.authenticated = true;
-
-            SLogonSQL.Execute($"UPDATE accounts SET lastlogin=NOW(), lastip='{authSocket.socket.RemoteEndPoint}' WHERE acct={authSocket.account.AccountId};");
-        }
+        SLogonSQL.Execute($"UPDATE accounts SET lastlogin=CURRENT_TIMESTAMP, lastip='{((IPEndPoint)authSocket.socket.RemoteEndPoint).Address}' WHERE acct={authSocket.account.AccountId};");
     }
 
     public void SendChallengeError(AuthError error)
     {
         byte[] buffer = [0, 0, (byte)error];
-        socket.Send(buffer);
+        _ = SendExact(socket, buffer, buffer.Length);
     }
 
     public void SendProofError(byte error, byte[] m2 = null)
     {
-        byte[] buffer = new byte[m2 == null ? 6 : 32];
+        byte[] buffer = new byte[32];
         buffer[0] = 1;
         buffer[1] = error;
 
         if (m2 == null)
         {
             BitConverter.GetBytes(3).CopyTo(buffer, 2);
-            socket.Send(buffer, 6, SocketFlags.None);
+            _ = SendExact(socket, buffer, 6);
         }
         else
         {
             Array.Copy(m2, 0, buffer, 2, 20);
-            socket.Send(buffer, 32, SocketFlags.None);
+            _ = SendExact(socket, buffer, 32);
         }
     }
 
@@ -502,8 +699,14 @@ public class AuthSocket : Socket
         if (socket.Available < 1)
             return;
 
-        byte command = (byte)socket.Receive(new byte[1]);
+        byte[] cmdBuffer = new byte[1];
+        int received = socket.Receive(cmdBuffer, 0, 1, SocketFlags.None);
+        if (received != 1)
+            return;
+
+        byte command = cmdBuffer[0];
         lastRecv = DateTime.Now;
+        CLog.Debug("[AuthSocket]", "OnRead command={0}, available={1}", command, socket.Available);
 
         if (command < MAX_AUTH_CMD && Handlers.ContainsKey(command))
         {
@@ -517,8 +720,13 @@ public class AuthSocket : Socket
 
     public static void HandleRealmlist(AuthSocket authSocket)
     {
-        var InfoCore = new InformationCore();
-        InfoCore.SendRealms();
+        // Consume the 4-byte unknown field in the CMD_REALM_LIST client packet
+        // (cmd byte already consumed by OnRead; 4 bytes remain and must be drained)
+        byte[] unk = new byte[4];
+        ReadExact(authSocket.socket, unk, 0, 4);
+
+        InformationCore.Instance.SendRealms(authSocket);
+        CLog.Debug("[AuthSocket]", "Realm list sent to account {0}", authSocket.Account?.UsernamePtr ?? "<unknown>");
     }
 
     public static void HandleReconnectChallenge(AuthSocket authSocket)
@@ -526,19 +734,21 @@ public class AuthSocket : Socket
         var sLog = new Logger();
         var IPBanner = new IPBanner();
 
-        if (authSocket.socket.Available < 4)
-            return;
-
         byte[] buffer = new byte[4];
-        authSocket.socket.Receive(buffer);
+        if (!ReadExact(authSocket.socket, buffer, 0, 4))
+        {
+            authSocket.Disconnect();
+            return;
+        }
         ushort fullSize = BitConverter.ToUInt16(buffer, 2);
         sLog.OutDetail(L_N_AUTHSOCK_1, fullSize);
 
-        if (authSocket.socket.Available < fullSize + 4)
-            return;
-
         buffer = new byte[fullSize + 4];
-        authSocket.socket.Receive(buffer);
+        if (!ReadExact(authSocket.socket, buffer, 0, fullSize + 4))
+        {
+            authSocket.Disconnect();
+            return;
+        }
 
         if (fullSize + 4 > Marshal.SizeOf<Challenge>())
         {
@@ -550,7 +760,7 @@ public class AuthSocket : Socket
 
         authSocket.challenge = Challenge.FromBytes(buffer);
 
-        if (authSocket.challenge.Build > LogonServer.MaxBuild || authSocket.challenge.Build < LogonServer.MinBuild)
+        if (authSocket.challenge.Build > SocketManager.MaxBuild || authSocket.challenge.Build < SocketManager.MinBuild)
         {
             authSocket.SendChallengeError(AuthError.CE_WRONG_BUILD_NUMBER);
             return;
@@ -607,8 +817,7 @@ public class AuthSocket : Socket
         if (authSocket.account == null)
             return;
 
-        SLogonSQL.Execute($"UPDATE accounts SET lastlogin=NOW(), lastip='{authSocket.socket.RemoteEndPoint}' WHERE acct={authSocket.account.AccountId};");
-        authSocket.socket.ReceiveBufferSize -= authSocket.socket.ReceiveBufferSize;
+        SLogonSQL.Execute($"UPDATE accounts SET lastlogin=CURRENT_TIMESTAMP, lastip='{((System.Net.IPEndPoint)authSocket.socket.RemoteEndPoint).Address}' WHERE acct={authSocket.account.AccountId};");
 
         if (authSocket.account.SessionKey == null)
         {
@@ -628,7 +837,6 @@ public class AuthSocket : Socket
         if (authSocket.patch == null)
             return;
 
-        authSocket.socket.ReceiveBufferSize -= 1;
         PatchMgr.BeginPatchJob(authSocket.patch, authSocket, 0);
     }
 
@@ -638,7 +846,6 @@ public class AuthSocket : Socket
         if (authSocket.patch == null)
             return;
 
-        authSocket.socket.ReceiveBufferSize -= 1;
         byte[] buffer = new byte[8];
         int receivedBytes = authSocket.socket.Receive(buffer);
         if (receivedBytes != 8)
@@ -653,7 +860,6 @@ public class AuthSocket : Socket
 
     public static void HandleTransferCancel(AuthSocket authSocket)
     {
-        authSocket.socket.ReceiveBufferSize -= 1;
         authSocket.Disconnect();
     }
 

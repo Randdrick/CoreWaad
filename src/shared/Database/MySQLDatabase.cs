@@ -20,6 +20,7 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using MySql.Data.MySqlClient;
@@ -33,16 +34,15 @@ public class MySQLDatabase : Database
     private new int mConnectionCount;
     private readonly uint fieldCount = 0;
     private readonly uint rowCount = 0;
+    private string _connStr;
+    private string _queryConnStr; // non-pooled variant for short-lived Query() calls
 
     public bool DumpDatabase(string filePath)
     {
         // Utilise mysqldump (doit être dans le PATH)
         try
         {
-            var conn = Connections != null && Connections.Length > 0 ? Connections[0] : null;
-            if (conn == null)
-                throw new InvalidOperationException("Aucune connexion MySQL active.");
-
+            var conn = (Connections != null && Connections.Length > 0 ? Connections[0] : null) ?? throw new InvalidOperationException("Aucune connexion MySQL active.");
             var csb = new MySqlConnectionStringBuilder(conn.ConnectionString);
             var args = $"--user=\"{csb.UserID}\" --password=\"{csb.Password}\" --host=\"{csb.Server}\" --port={csb.Port} {csb.Database} --result-file=\"{filePath}\" --skip-lock-tables";
 
@@ -92,6 +92,14 @@ public class MySQLDatabase : Database
                 MinimumPoolSize = 0,
                 MaximumPoolSize = (uint)(int)ConnectionCount
             }.ToString();
+
+            if (i == 0)
+            {
+                _connStr = connString; // store pooled string (used by Connections[])
+                // Build a non-pooled variant for Query() — avoids pool exhaustion
+                var qcsb = new MySqlConnectionStringBuilder(connString) { Pooling = false };
+                _queryConnStr = qcsb.ToString();
+            }
 
             var conn = new MySqlConnection(connString);
 
@@ -244,6 +252,66 @@ public class MySQLDatabase : Database
     {
         // Set the name of the current thread
         CurrentThread.Name = v;
+    }
+
+    // Override Query() to properly execute SELECT statements via ExecuteReader.
+    // The base Database.Query() calls SendQuery() (ExecuteNonQuery) + StoreQueryResult()
+    // which discards rows — this override fixes that for MySQL.
+    public override QueryResult Query(string QueryString, params object[] args)
+    {
+        if (string.IsNullOrEmpty(_queryConnStr)) return null;
+
+        string sql = args.Length > 0 ? string.Format(QueryString, args) : QueryString;
+
+        try
+        {
+            using var conn = new MySqlConnection(_queryConnStr);
+            conn.Open();
+            using var cmd = new MySqlCommand(sql, conn);
+            using var reader = cmd.ExecuteReader();
+
+            int fc = reader.FieldCount;
+            var allRows = new List<Field[]>();
+            while (reader.Read())
+            {
+                var row = new Field[fc];
+                for (int i = 0; i < fc; i++)
+                {
+                    row[i] = new Field();
+                    row[i].SetValue(reader.IsDBNull(i) ? null : reader.GetValue(i));
+                }
+                allRows.Add(row);
+            }
+            if (allRows.Count == 0) return null;
+            return new MySQLInMemoryResult(allRows, (uint)fc);
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[MySQLDatabase]", $"Query error: {ex.Message} | SQL: {sql}");
+            return null;
+        }
+    }
+
+    public override QueryResult QueryNA(string QueryString) => Query(QueryString);
+
+    private sealed class MySQLInMemoryResult : QueryResult
+    {
+        private readonly List<Field[]> _rows;
+        private int _index = -1;
+
+        internal MySQLInMemoryResult(List<Field[]> rows, uint fieldCount)
+            : base(fieldCount, (uint)rows.Count)
+        {
+            _rows = rows;
+        }
+
+        public override bool NextRow()
+        {
+            _index++;
+            if (_index >= _rows.Count) return false;
+            mCurrentRow = _rows[_index];
+            return true;
+        }
     }
 }
 

@@ -467,12 +467,12 @@ public static partial class Common
     {
         private readonly object value = v;
 
-        public bool GetBool() => value is bool b && b;
-        public byte GetUInt8() => value is byte b ? b : (byte)0;
-        public ushort GetUInt16() => value is ushort s ? s : (ushort)0;
-        public uint GetUInt32() => value is uint u ? u : 0;
-        public int GetInt32() => value is int i ? i : 0;
-        public float GetFloat() => value is float f ? f : 0;
+        public bool GetBool() => value != null && Convert.ToBoolean(value);
+        public byte GetUInt8() => value == null ? (byte)0 : Convert.ToByte(value);
+        public ushort GetUInt16() => value == null ? (ushort)0 : Convert.ToUInt16(value);
+        public uint GetUInt32() => value == null ? 0u : Convert.ToUInt32(value);
+        public int GetInt32() => value == null ? 0 : Convert.ToInt32(value);
+        public float GetFloat() => value == null ? 0f : Convert.ToSingle(value);
         public string GetString() => value?.ToString() ?? "";
     }
 }

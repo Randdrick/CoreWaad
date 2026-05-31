@@ -74,13 +74,13 @@ public static class SocketManager
 #if WIN32
         var Instance = new SocketMgr();
         Instance.SpawnWorkerThreads();
-        var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket());
+        var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket(sock));
         var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport, (sock) => new LogonCommServerSocket(sock));
 #endif
 
 #if !WIN32
         SocketMgr.SpawnWorkerThreads();
-        var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket());
+        var authSocket = new ListenSocket<AuthSocket>(host, cport, (sock) => new AuthSocket(sock));
         var serverSocket = new ListenSocket<LogonCommServerSocket>(shost, sport, (sock) => new LogonCommServerSocket(sock));
 #endif
         if (!authSocket.IsOpen() || !serverSocket.IsOpen())

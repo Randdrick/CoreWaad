@@ -20,10 +20,8 @@
  */
 
 using System;
+using System.Security.Cryptography;
 using Org.BouncyCastle.Crypto.Parameters;
-using Org.BouncyCastle.Crypto.Digests;
-using Org.BouncyCastle.Crypto.Macs;
-using NUnit.Framework;
 
 namespace WaadShared.Auth;
 
@@ -33,13 +31,6 @@ public class WowCrypt : IDisposable
     private RC4Engine m_clientDecrypt;
     private RC4Engine m_serverEncrypt;
     private bool _disposed = false;
-    private static bool AllZeros(byte[] array)
-    {
-        foreach (byte b in array)
-            if (b != 0)
-                return false;
-        return true;
-    }
 
     public WowCrypt()
     {
@@ -59,36 +50,22 @@ public class WowCrypt : IDisposable
 
         byte[] s = [0xC2, 0xB3, 0x72, 0x3C, 0xC6, 0xAE, 0xD9, 0xB5, 0x34, 0x3C, 0x53, 0xEE, 0x2F, 0x43, 0x67, 0xCE];
         byte[] r = [0xCC, 0x98, 0xAE, 0x04, 0xE8, 0x97, 0xEA, 0xCA, 0x12, 0xDD, 0xC0, 0x93, 0x42, 0x91, 0x53, 0x57];
-        byte[] encryptHash = new byte[32];
-        byte[] decryptHash = new byte[32];
         byte[] pass = new byte[1024];
 
-        HMac hmacSha3 = new(new Sha3Digest(256));
-
-        // generate c->s key
-        hmacSha3.Init(new KeyParameter(s));
-        hmacSha3.BlockUpdate(K, 0, K.Length);
-        hmacSha3.DoFinal(decryptHash, 0);
-
-        // generate s->c key
-        hmacSha3.Init(new KeyParameter(r));
-        hmacSha3.BlockUpdate(K, 0, K.Length);
-        hmacSha3.DoFinal(encryptHash, 0);
+        byte[] decryptHash;
+        byte[] encryptHash;
+        using (var hmac = new HMACSHA1(s))
+            decryptHash = hmac.ComputeHash(K);
+        using (var hmac = new HMACSHA1(r))
+            encryptHash = hmac.ComputeHash(K);
 
         // Debug : Affiche les clés générées (pour vérification manuelle)
         CLog.Debug("[WowCrypt]", "decryptHash: " + BitConverter.ToString(decryptHash).Replace("-", ""));
         CLog.Debug("[WowCrypt]", "encryptHash: " + BitConverter.ToString(encryptHash).Replace("-", ""));
 
-        // Vérifie que les clés ne sont pas nulles et ont la bonne taille
-        Assert.That(32, Is.EqualTo(decryptHash.Length));
-        Assert.That(32, Is.EqualTo(encryptHash.Length));
-        Assert.That(AllZeros(decryptHash), Is.False);
-        Assert.That(AllZeros(encryptHash), Is.False);
-
         // initialize rc4 structs
-        var sha3DigestSize = new Sha3Digest();
-        m_clientDecrypt.Init(false, new KeyParameter(decryptHash), sha3DigestSize.GetDigestSize());
-        m_serverEncrypt.Init(true, new KeyParameter(encryptHash), sha3DigestSize.GetDigestSize());
+        m_clientDecrypt.Init(false, new KeyParameter(decryptHash), decryptHash.Length);
+        m_serverEncrypt.Init(true, new KeyParameter(encryptHash), encryptHash.Length);
 
         // initial encryption pass -- this is just to get key position,
         // the data doesn't actually have to be initialized as discovered

@@ -548,6 +548,23 @@ public class Master
             return;
         }
 
+        // Start listener accept loops on background threads
+        var worldListenerThread = new System.Threading.Thread(
+            () => worldListener.Run(System.Threading.CancellationToken.None))
+        {
+            IsBackground = true,
+            Name = "WorldListener"
+        };
+        worldListenerThread.Start();
+
+        var wsListenerThread = new System.Threading.Thread(
+            () => wsListener.Run(System.Threading.CancellationToken.None))
+        {
+            IsBackground = true,
+            Name = "WorkerServerListener"
+        };
+        wsListenerThread.Start();
+
         // 12. LogonCommHandler singleton (dépend du réseau)
         _ = LogonCommHandler.Instance;
         LogonCommHandler.Instance.Startup();
@@ -738,7 +755,7 @@ public class Master
         sLog.OutDebug($"Taux d'envoi : {sdata:F5}{rateExtensions[sextensionoffset]}");
         sLog.OutDebug($"Taux de réception : {rdata:F5}{rateExtensions[rextensionoffset]}");
         sLog.OutDebug($"Taux total : {tdata:F5}{rateExtensions[textensionoffset]}");
-        sLog.OutString("============================================");
+        sLog.OutDebug("============================================");
 
         // Réinitialiser les compteurs après affichage
         NetworkThreadPool.ResetCounters();

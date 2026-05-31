@@ -334,6 +334,7 @@ public class LogonCommHandler : IDisposable
     public uint ClientConnected(string accountName, WorldSocket socket)
     {
         uint requestId = nextRequest++;
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_8, accountName, requestId);
         if (logons.Count == 0)
             return uint.MaxValue;
         var s = logons.Values.FirstOrDefault();

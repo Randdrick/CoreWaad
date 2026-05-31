@@ -54,8 +54,8 @@ namespace WaadRealmServer
     // Accès base de données
     public static class CharacterDatabase
     {
-        public static QueryResult Query(string sql) => RealmDatabaseManager.GetDatabase()?.Query(sql);
-        public static QueryResult Query(string sql, params object[] args) => RealmDatabaseManager.GetDatabase()?.Query(sql, args);
+        public static QueryResult Query(string sql) => RealmDatabaseManager.GetCharacterDatabase()?.Query(sql);
+        public static QueryResult Query(string sql, params object[] args) => RealmDatabaseManager.GetCharacterDatabase()?.Query(sql, args);
     }
     public static class WorldDatabase
     {
@@ -135,7 +135,7 @@ namespace WaadRealmServer
         #endregion
 
         #region HandleCharacterEnum
-        public static void HandleCharacterEnum(QueryResult result)
+        public void HandleCharacterEnum(QueryResult result)
         {
             var items = new PlayerItem[InventorySlots.INVENTORY_SLOT_BAG_END];
             uint levelMaxFound = 0;
@@ -156,15 +156,16 @@ namespace WaadRealmServer
             int rowCount = rows.Count;
             int bufferSize = Math.Max(256, rowCount * 256);
             var data = new WorldPacket((ushort)Opcodes.SMSG_CHAR_ENUM, bufferSize);
+            data.WriteByte((byte)Math.Min(rowCount, 255));
             uint numChar = 0;
             foreach (var values in rows)
             {
                 numChar++;
-                ulong charGuid = (ulong)values[0];
-                uint bytes2 = (uint)values[6];
-                byte classId = (byte)values[3];
-                uint flags = (uint)values[17];
-                byte race = (byte)values[2];
+                ulong charGuid = Convert.ToUInt64(values[0]);
+                uint bytes2 = Convert.ToUInt32(values[6]);
+                byte classId = Convert.ToByte(values[3]);
+                uint flags = Convert.ToUInt32(values[17]);
+                byte race = Convert.ToByte(values[2]);
 
                 if (side < 0)
                 {
@@ -176,24 +177,24 @@ namespace WaadRealmServer
                 data.WriteString(values[7]?.ToString() ?? ""); // name
                 data.WriteByte(race); // race
                 data.WriteByte(classId); // class
-                data.WriteByte((byte)values[4]); // gender
-                data.WriteUInt32((uint)values[5]); // PLAYER_BYTES
+                data.WriteByte(Convert.ToByte(values[4])); // gender
+                data.WriteUInt32(Convert.ToUInt32(values[5])); // PLAYER_BYTES
                 data.WriteByte((byte)(bytes2 & 0xFF)); // facial hair
-                uint levelFound = (byte)values[1];
+                uint levelFound = Convert.ToUInt32(values[1]);
                 data.WriteByte((byte)levelFound);
-                data.WriteUInt32((uint)values[12]); // zoneid
-                data.WriteUInt32((uint)values[11]); // Mapid
+                data.WriteUInt32(Convert.ToUInt32(values[12])); // zoneid
+                data.WriteUInt32(Convert.ToUInt32(values[11])); // Mapid
                 data.WriteFloat(Convert.ToSingle(values[8]));
                 data.WriteFloat(Convert.ToSingle(values[9]));
                 data.WriteFloat(Convert.ToSingle(values[10]));
-                data.WriteUInt32((uint)values[18]); // GuildID
+                data.WriteUInt32(Convert.ToUInt32(values[18])); // GuildID
 
-                uint banned = (uint)values[13];
+                uint banned = Convert.ToUInt32(values[13]);
                 if (banned != 0 && (banned < 10 || banned > (uint)Utils.UNIXTIME))
                     data.WriteUInt32(0x01A04040);
-                else if ((uint)values[16] != 0)
+                else if (Convert.ToUInt32(values[16]) != 0)
                     data.WriteUInt32(0x00A04342);
-                else if ((uint)values[15] != 0)
+                else if (Convert.ToUInt32(values[15]) != 0)
                     data.WriteUInt32(8704); // Dead (displaying as Ghost)
                 else
                     data.WriteUInt32(1); // alive
@@ -208,15 +209,15 @@ namespace WaadRealmServer
                     res = CharacterDatabase.Query($"SELECT entry FROM playerpets WHERE ownerguid={Utils.GUID_LOPART(charGuid)} AND (active % 10) = 1");
                     if (res != null && res.NextRow())
                     {
-                        uint entry = (uint)res.GetValue(0);
+                        uint entry = Convert.ToUInt32(res.GetValue(0));
                         infos = WorldDatabase.Query($"SELECT * FROM creature_names WHERE entry={entry}");
                     }
                 }
                 if (infos != null && infos.NextRow())
                 {
-                    data.WriteUInt32((uint)infos.GetValue(10)); // male_DisplayID
+                    data.WriteUInt32(Convert.ToUInt32(infos.GetValue(10))); // male_DisplayID
                     data.WriteUInt32(10); // level
-                    data.WriteUInt32((uint)infos.GetValue(6)); // family
+                    data.WriteUInt32(Convert.ToUInt32(infos.GetValue(6))); // family
                 }
                 else
                 {
@@ -238,9 +239,14 @@ namespace WaadRealmServer
                     {
                         int containerslot = Convert.ToInt32(res.GetValue(0));
                         int slot = Convert.ToInt32(res.GetValue(1));
+                        uint entry = Convert.ToUInt32(res.GetValue(2));
                         if (containerslot == -1 && slot < InventorySlots.EQUIPMENT_SLOT_END && slot >= InventorySlots.EQUIPMENT_SLOT_START)
                         {
-                            var proto = Storage.ItemPrototypeStorage.LookupEntry((int)Convert.ToUInt32(res.GetValue(2)));
+                            var proto = Storage.ItemPrototypeStorage.LookupEntry((int)entry);
+                            if (proto == null)
+                            {
+                                CLog.Debug("[CharEnum]", $"Item entry {entry} not found in ItemPrototypeStorage for guid={Utils.GUID_LOPART(charGuid)} slot={slot}");
+                            }
                             if (proto != null)
                             {
                                 if (!(slot == InventorySlots.EQUIPMENT_SLOT_HEAD && (flags & (uint)PlayerFlags.NOHELM) != 0) &&
@@ -270,6 +276,8 @@ namespace WaadRealmServer
                     data.WriteUInt32(items[i]?.Enchantment ?? 0);
                 }
             }
+
+            SendPacket(data);
         }
 
         private void HandleCharEnumOpcode(WorldPacket p)
@@ -401,7 +409,7 @@ namespace WaadRealmServer
                 Ws.OutPacket((ushort)Opcodes.SMSG_CHAR_CREATE, 1, [(byte)LoginErrorCode.CHAR_CREATE_NAME_IN_USE]); // 0x32
                 return;
             }
-        } 
+        }
         private bool VerifyName(string name)
         {
             if (string.IsNullOrWhiteSpace(name) || name.Length < 3 || name.Length > 12)
@@ -534,7 +542,7 @@ namespace WaadRealmServer
             var SizeOfMinimumPacket = 11; // 8 + 3
             if (p.Size < SizeOfMinimumPacket) // 8 (GUID) + 3 (nom minimum)
             {
-                sLog.OutError("CHAR_RENAME", R_E_CHARHAN_COM,  p.Size, SizeOfMinimumPacket);
+                sLog.OutError("CHAR_RENAME", R_E_CHARHAN_COM, p.Size, SizeOfMinimumPacket);
                 Disconnect();
                 return;
             }
@@ -759,7 +767,7 @@ namespace WaadRealmServer
             );
 
             if (result == null || !result.NextRow())
-            {                
+            {
                 Ws.OutPacket((ushort)Opcodes.SMSG_CHARACTER_LOGIN_FAILED, 1, [(byte)LoginErrorCode.CHAR_LOGIN_NO_CHARACTER]);
                 return null;
             }

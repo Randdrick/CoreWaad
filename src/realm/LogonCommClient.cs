@@ -156,6 +156,29 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
                     opcode = 0;
                 }
             }
+            else
+            {
+                // remaining > 0: payload arrived in a subsequent read
+                if (GetReadBuffer().GetSize() < remaining)
+                    return; // still waiting for the rest of the payload
+
+                byte[] encryptedPayload = new byte[remaining];
+                GetReadBuffer().Read(encryptedPayload, (int)remaining);
+
+                byte[] payloadBytes = encryptedPayload;
+                if (use_crypto)
+                {
+                    payloadBytes = new byte[remaining];
+                    _recvCrypto.Process(encryptedPayload, payloadBytes);
+                }
+
+                var packet = new WorldPacket(opcode, (int)remaining);
+                packet.Append(payloadBytes, (int)remaining);
+                HandlePacket(packet);
+
+                remaining = 0;
+                opcode = 0;
+            }
         }
     }
 
@@ -359,24 +382,10 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
     public static void HandleSessionInfo(WorldPacket recvData)
     {
-        // Gestion des infos de session : lit l'identifiant de requête et transmet le paquet au handler
-        // Le C++ lit l'ID puis passe le WorldPacket (qui contient le reste des données) au handler
+        // Read requestId first; recvData.Rpos now points to the error field.
+        // Pass recvData directly — InformationRetreiveCallback reads from current Rpos.
         uint requestId = recvData.ReadUInt32();
-        // Le WorldPacket passé à OnSessionInfo doit contenir le reste du payload (après l'ID)
-        // On crée un nouveau WorldPacket avec le reste des données si besoin
-        var restSize = recvData.Size - 4; // 4 octets pour l'uint32
-        WorldPacket restPacket;
-        if (restSize > 0)
-        {
-            restPacket = new WorldPacket(recvData.GetOpcode(), (int)restSize);
-            Array.Copy(recvData.Contents, 4, restPacket.Contents, 0, restSize);
-            restPacket.Size = (int)restSize;
-        }
-        else
-        {
-            restPacket = new WorldPacket(recvData.GetOpcode(), 0);
-        }
-        LogonCommHandler.Instance.OnSessionInfo(restPacket, requestId);
+        LogonCommHandler.Instance.OnSessionInfo(recvData, requestId);
     }
 
     public void HandleRequestAccountMapping(WorldPacket recvData)

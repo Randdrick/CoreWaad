@@ -52,6 +52,7 @@ public class Account
     public uint Banned { get; set; }
     public byte[] SessionKey { get; set; }
     public string UsernamePtr { get; set; }
+    public string EncryptedPassword { get; set; }
     public uint Muted { get; set; }
     public uint OneDkCreated { get; set; }
     public BigNumber Salt { get; set; }
@@ -65,6 +66,7 @@ public class Account
         ForcedLocale = false;
         Locale = new char[4];
         UsernamePtr = null;
+        EncryptedPassword = null;
         GMFlags = null;
         AccountFlags = 0;
         Banned = 0;
@@ -307,8 +309,9 @@ public class AccountMgr
         };
 
         string GMFlags = field[2].GetString();
-        string Salt = field[7].GetString() ?? "";
-        string Verifier = field[8].GetString() ?? "";
+        acct.EncryptedPassword = field[7].GetString();
+        string Salt = field[8].GetString() ?? "";
+        string Verifier = field[9].GetString() ?? "";
 
         if (!string.IsNullOrEmpty(Salt))
         {
@@ -400,8 +403,9 @@ public class AccountMgr
         uint id = new Field(field[0]).GetUInt32();
         string username = new Field(field[1]).GetString();
         string gmFlags = new Field(field[2]).GetString();
-        string salt = new Field(field[7]).GetString() ?? "";
-        string verifier = new Field(field[8]).GetString() ?? "";
+        acct.EncryptedPassword = new Field(field[7]).GetString();
+        string salt = new Field(field[8]).GetString() ?? "";
+        string verifier = new Field(field[9]).GetString() ?? "";
         var Logger = new Logger();
 
         if (id != acct.AccountId)
@@ -483,7 +487,7 @@ public class AccountMgr
         {
             if (!silent) sLog.OutString(L_N_ACCOUNT);
 
-            var result = SLogonSQL.Query("SELECT a.acct, a.login, a.gm, a.flags, a.banned, a.forceLanguage, a.muted, ad.salt, ad.verifier FROM accounts a LEFT JOIN account_data ad ON a.acct = ad.acct");
+            var result = SLogonSQL.Query("SELECT a.acct, a.login, a.gm, a.flags, a.banned, a.forceLanguage, a.muted, a.encrypted_password, ad.salt, ad.verifier FROM accounts a LEFT JOIN account_data ad ON a.acct = ad.acct");
             var accountList = new HashSet<string>();
 
             if (result != null)
@@ -622,50 +626,51 @@ public class InformationCore
         }
     }
 
-    public void SendRealms()
+    public void SendRealms(AuthSocket authSocket)
     {
+        if (authSocket == null) return;
+        uint accountId = authSocket.Account?.AccountId ?? 0;
+
         lock (realmLock)
         {
             var data = new ByteBuffer(realms.Count * 150 + 20);
-            var Socket = new Socket();
 
-            data.Write(0x10);
-            data.Write(0); // Size Placeholder
+            data.Write((byte)0x10);     // cmd: 1 byte
+            data.Write((ushort)0);      // size placeholder: 2 bytes
 
-            data.Write(0); // Unknown value
+            data.Write(0);              // unknown uint32: 4 bytes
 
             data.Write((ushort)realms.Count);
 
-            foreach (var realm in realms.Values)
+            foreach (var kvp in realms)
             {
+                var realm = kvp.Value;
+                byte realmId = (byte)kvp.Key;
+
                 data.Write((byte)realm.Icon);
-                data.Write(0); // Locked Flag
+                data.Write((byte)0);    // locked flag: 1 byte
                 data.Write((byte)realm.Colour);
 
                 data.Write(realm.Name);
                 data.Write(realm.Address);
                 data.Write(realm.Population);
 
-                if (realm.CharacterMap.TryGetValue(AuthSocket.GetAccountID(), out var characterCount))
-                {
+                if (realm.CharacterMap.TryGetValue(accountId, out var characterCount))
                     data.Write(characterCount);
-                }
                 else
-                {
-                    data.Write(0);
-                }
+                    data.Write((byte)0);    // chars count: 1 byte
 
                 data.Write((byte)realm.TimeZone);
-                data.Write(6);
+                data.Write(realmId);        // realm id: 1 byte
             }
 
-            data.Write(0x17);
-            data.Write(0);
+            data.Write((byte)0x17);     // footer byte 1
+            data.Write((byte)0);        // footer byte 2
 
             var size = (ushort)(data.Size - 3);
             data.SetUInt16(1, size);
 
-            Socket.Send(data.ToArray());
+            authSocket.socket.Send(data.ToArray());
         }
     }
 

@@ -47,6 +47,7 @@ public class Socket
     public Socket(System.Net.Sockets.Socket socket, int sendbuffersize, int recvbuffersize)
     {
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
+        Handle = _socket.Handle.GetHashCode();
         m_connected = false;
         m_deleted = false;
 #if CONFIG_USE_IOCP
@@ -68,6 +69,7 @@ public class Socket
     public Socket(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
     {
         _socket = new System.Net.Sockets.Socket(addressFamily, socketType, protocolType);
+        Handle = _socket.Handle.GetHashCode();
         m_connected = false;
         m_deleted = false;
 #if CONFIG_USE_IOCP
@@ -84,6 +86,7 @@ public class Socket
     public Socket(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType, int sendBufferSize, int recvBufferSize)
     {
         _socket = new System.Net.Sockets.Socket(addressFamily, socketType, protocolType);
+        Handle = _socket.Handle.GetHashCode();
         m_connected = false;
         m_deleted = false;
 #if CONFIG_USE_IOCP
@@ -99,6 +102,7 @@ public class Socket
     public Socket()
     {
         _socket = new System.Net.Sockets.Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        Handle = _socket.Handle.GetHashCode();
         m_connected = false;
         m_deleted = false;
 #if CONFIG_USE_IOCP

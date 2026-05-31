@@ -52,15 +52,14 @@ public class WowSRP6
         if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(password) || s.GetNumBytes() == 0)
             return new BigNumber();
 
-        // génération de I
+        // WoW SRP6 x = SHA1(s | SHA1(UPPER(login):UPPER(password)))
         string strLogin = login.ToUpper();
         string strPassword = password.ToUpper();
-        byte[] hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{strLogin}:{strPassword}"));
+        byte[] identityHash = SHA1.HashData(System.Text.Encoding.ASCII.GetBytes($"{strLogin}:{strPassword}"));
+        byte[] xHash = SHA1.HashData([.. s.ToByteArray(), .. identityHash]);
 
-        BigNumber x = new();
-        x.SetBinary(hash, hash.Length);
-
-        BigNumber v = g.Exp(x).ModExp(N, N);
+        BigNumber x = new(xHash);
+        BigNumber v = BigNumber.ModExp(g, x, N);
         return v;
     }
 }

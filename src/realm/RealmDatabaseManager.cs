@@ -28,7 +28,7 @@ namespace WaadRealmServer;
 public static class RealmDatabaseManager
 {
 
-    // Permet d'obtenir l'instance active de base de données (MySQL, Postgres, SQLite)
+    // Permet d'obtenir l'instance active de base de données Realm (MySQL, Postgres, SQLite)
     public static Database GetDatabase()
     {
         return DbType switch
@@ -40,10 +40,26 @@ public static class RealmDatabaseManager
         };
     }
 
+    // Permet d'obtenir l'instance active de base de données Character
+    public static Database GetCharacterDatabase()
+    {
+        return CharacterDbType switch
+        {
+            1 => sCharacterSQL,
+            2 => pCharacterSQL,
+            3 => slCharacterSQL,
+            _ => null
+        };
+    }
+
     private static readonly MySQLDatabase sRealmSQL = new();
     private static readonly PostgresDatabase pRealmSQL = new();
     private static readonly SQLiteDatabase slRealmSQL = new();
+    private static readonly MySQLDatabase sCharacterSQL = new();
+    private static readonly PostgresDatabase pCharacterSQL = new();
+    private static readonly SQLiteDatabase slCharacterSQL = new();
     public static int DbType { get; private set; } = 1; // Default to MySQL
+    public static int CharacterDbType { get; private set; } = 1; // Default to MySQL
 
     internal static string GetConnectionString(int dbType, ConfigMgr configMgr)
     {
@@ -104,7 +120,54 @@ public static class RealmDatabaseManager
         }
 
         DbType = type;
-        return true;
+
+        // Configure Character Database (falls back to Realm DB when config is incomplete)
+        string charHostname = configMgr.ClusterConfig.GetString("Database.Character", "Hostname");
+        string charUsername = configMgr.ClusterConfig.GetString("Database.Character", "Username");
+        string charPassword = configMgr.ClusterConfig.GetString("Database.Character", "Password");
+        string charDatabase = configMgr.ClusterConfig.GetString("Database.Character", "Name");
+        int charPort = configMgr.ClusterConfig.GetInt32("Database.Character", "Port");
+        int charType = configMgr.ClusterConfig.GetInt32("Database.Character", "Type", type);
+
+        bool charCfgValid = charType switch
+        {
+            1 or 2 => !string.IsNullOrEmpty(charHostname)
+                   && !string.IsNullOrEmpty(charUsername)
+                   && !string.IsNullOrEmpty(charDatabase)
+                   && charPort > 0,
+            3 => !string.IsNullOrEmpty(charDatabase),
+            _ => false
+        };
+
+        bool charOk;
+        if (charCfgValid)
+        {
+            uint effectiveCharPort = charPort > 0 ? (uint)charPort : 0;
+            charOk = (charType == 1 && sCharacterSQL.Initialize(charHostname, effectiveCharPort, charUsername, charPassword, charDatabase,
+                            (uint)configMgr.ClusterConfig.GetInt32("Database.Character", "ConnectionCount", 5), 16384))
+                || (charType == 2 && pCharacterSQL.Initialize(charHostname, effectiveCharPort, charUsername, charPassword, charDatabase,
+                            (uint)configMgr.ClusterConfig.GetInt32("Database.Character", "ConnectionCount", 5), 16384))
+                || (charType == 3 && slCharacterSQL.Initialize(charHostname, effectiveCharPort, charUsername, charPassword, charDatabase,
+                            (uint)configMgr.ClusterConfig.GetInt32("Database.Character", "ConnectionCount", 5), 16384));
+
+            if (!charOk)
+            {
+                sLog.OutWarning("[Database] Character DB init failed, falling back to Realm DB for character queries.");
+                CharacterDbType = DbType;
+            }
+            else
+            {
+                CharacterDbType = charType;
+            }
+        }
+        else
+        {
+            sLog.OutWarning("[Database] Character DB config missing, falling back to Realm DB for character queries.");
+            CharacterDbType = DbType;
+            charOk = true;
+        }
+
+        return charOk;
     }
 
     public static void RemoveDatabase()
@@ -115,5 +178,12 @@ public static class RealmDatabaseManager
             pRealmSQL.Shutdown();
         else if (DbType == 3)
             slRealmSQL.Shutdown();
+
+        if (CharacterDbType == 1)
+            sCharacterSQL.Shutdown();
+        else if (CharacterDbType == 2)
+            pCharacterSQL.Shutdown();
+        else if (CharacterDbType == 3)
+            slCharacterSQL.Shutdown();
     }
 }

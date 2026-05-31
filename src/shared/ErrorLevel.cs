@@ -49,6 +49,7 @@ public static class AuthSocket
     public const string L_D_AUTHSOCK_1 = "Transfert accepté";
     public const string L_D_AUTHSOCK_2 = "Reprise du transfert";
     public const string L_D_AUTHSOCK_C = "[AuthChallenge] Déconnexion.";
+    public const string L_D_AUTHSOCK_C_0 = "[AuthChallenge] Réception d'une demande d'authentification.";
     public const string L_D_AUTHSOCK_C_1 = "[AuthChallenge] Réception terminée.";
     public const string L_D_AUTHSOCK_C_2 = "Patch {0}{1} sélectionné pour le client.";
     public const string L_D_AUTHSOCK_C_3 = "[AuthChallenge] Nom du compte: \"{0}\"";
