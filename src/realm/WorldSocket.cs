@@ -529,7 +529,7 @@ namespace WaadRealmServer
 
         private void HandlePing(WorldPacket recvPacket)
         {
-            if (recvPacket == null || recvPacket.Size < 4)
+            if (recvPacket == null || recvPacket.Size < 8)
             {
                 CLog.Debug("[WorldSocket]", "Ping packet too small");
                 Disconnect();

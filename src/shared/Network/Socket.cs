@@ -267,7 +267,7 @@ public class Socket
                 }
 
                 int bytesSent = _socket.Send(bytes, size, flags);
-                return bytesSent == bytes.Length ? bytesSent : 0;
+                return bytesSent;
             }
             catch (Exception ex)
             {
@@ -308,14 +308,38 @@ public class Socket
                 var sb = new System.Text.StringBuilder();
                 for (int i = 0; i < preview; i++) sb.AppendFormat("{0:X2} ", buffer[i]);
                 CLog.Debug("[SOCKET]", $"BurstPush preview ({preview} bytes): {sb}");
-                int sent = _socket.Send(buffer, 0, availableBytes, SocketFlags.None);
-                if (sent != availableBytes)
+
+                int totalSent = 0;
+                while (totalSent < availableBytes)
                 {
-                    CLog.Error("[SOCKET]", $"BurstPush: sent {sent} of {availableBytes} bytes to {GetRemoteIP()}:{GetRemotePort()}");
+                    int sent = _socket.Send(buffer, totalSent, availableBytes - totalSent, SocketFlags.None);
+                    if (sent <= 0)
+                        break;
+
+                    totalSent += sent;
+                }
+
+                if (totalSent != availableBytes)
+                {
+                    int unsent = availableBytes - totalSent;
+                    if (unsent > 0)
+                    {
+                        // Preserve unsent bytes so packet stream order/crypto state stays valid.
+                        byte[] pending = new byte[unsent];
+                        Buffer.BlockCopy(buffer, totalSent, pending, 0, unsent);
+                        if (!writeBuffer.Write(pending, unsent))
+                        {
+                            CLog.Error("[SOCKET]", $"BurstPush: failed to requeue {unsent} unsent bytes; disconnecting {GetRemoteIP()}:{GetRemotePort()}");
+                            Disconnect();
+                            return;
+                        }
+                    }
+
+                    CLog.Warning("[SOCKET]", $"BurstPush: partial send {totalSent}/{availableBytes} bytes to {GetRemoteIP()}:{GetRemotePort()}, requeued={availableBytes - totalSent}");
                 }
                 else
                 {
-                    CLog.Debug("[SOCKET]", $"BurstPush: sent {sent} bytes successfully");
+                    CLog.Debug("[SOCKET]", $"BurstPush: sent {totalSent} bytes successfully");
                 }
             }
         }
@@ -352,16 +376,25 @@ public class Socket
 
     public void Disconnect()
     {
+        if (m_deleted)
+            return;
+
+        bool wasConnected = m_connected;
         m_connected = false;
     #if CONFIG_USE_IOCP
-        SocketManager.Instance.RemoveSocket(this);
+        if (wasConnected)
+            SocketManager.Instance.RemoveSocket(this);
     #endif
     #if CONFIG_USE_EPOLL
-        SocketMgr.RemoveSocket(_socket);
+        if (wasConnected)
+            SocketMgr.RemoveSocket(_socket);
     #endif
         SocketOps.CloseSocket(_socket);
-        OnDisconnect();
-        if (!m_deleted) Delete();
+
+        if (wasConnected)
+            OnDisconnect();
+
+        Delete();
     }
 
     public void Delete()

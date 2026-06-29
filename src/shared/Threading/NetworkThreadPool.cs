@@ -21,16 +21,32 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace WaadShared.Threading;
 
 public class NetworkThreadPool : IDisposable
 {
-    private readonly ConcurrentBag<CustomThread> _activeThreads = [];
-    private readonly ConcurrentBag<CustomThread> _freeThreads = [];
+    private sealed class DelegateThreadTask : ThreadBase
+    {
+        private readonly Func<CancellationToken, bool> _runner;
+
+        public DelegateThreadTask(Func<CancellationToken, bool> runner)
+        {
+            _runner = runner;
+        }
+
+        public override bool Run(CancellationToken token)
+        {
+            return _runner(token);
+        }
+    }
+
+    private readonly ConcurrentDictionary<int, CustomThread> _workers = new();
+    private readonly ConcurrentDictionary<int, byte> _busyWorkers = new();
     private readonly ConcurrentQueue<ThreadBase> _taskQueue = new();
-    private readonly ReaderWriterLockSlim _lock = new();
+    private readonly object _syncRoot = new();
     private readonly AutoResetEvent _taskAvailableEvent = new(false);
 
     private int _minThreads = 8;
@@ -52,18 +68,159 @@ public class NetworkThreadPool : IDisposable
         Interlocked.Exchange(ref _bytesReceived, 0);
     }
 
+    private int LiveWorkerCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (var worker in _workers.Values)
+            {
+                if (worker.ControlInterface != null && worker.ControlInterface.IsAlive)
+                    count++;
+            }
+            return count;
+        }
+    }
+
+    private int BusyWorkerCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (var workerId in _busyWorkers.Keys)
+            {
+                if (_workers.TryGetValue(workerId, out var worker) && worker.ControlInterface != null && worker.ControlInterface.IsAlive)
+                    count++;
+            }
+            return count;
+        }
+    }
+
+    private int IdleWorkerCount => Math.Max(0, LiveWorkerCount - BusyWorkerCount);
+
+    private void SpawnWorker()
+    {
+        CustomThread worker = null;
+        worker = new CustomThread(ct => WorkerLoop(worker, ct));
+        _workers[worker.ManagedThreadId] = worker;
+        worker.Start();
+    }
+
+    private bool WorkerLoop(CustomThread worker, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            if (!_taskQueue.TryDequeue(out var task))
+            {
+                _busyWorkers.TryRemove(worker.ManagedThreadId, out _);
+                _taskAvailableEvent.WaitOne(250);
+                continue;
+            }
+
+            _busyWorkers[worker.ManagedThreadId] = 1;
+
+            try
+            {
+                task?.Run(token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal during shutdown.
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("[NETWORK-THREADPOOL]", $"Worker {worker.ManagedThreadId} failed: {ex.Message}");
+            }
+            finally
+            {
+                _busyWorkers.TryRemove(worker.ManagedThreadId, out _);
+            }
+        }
+
+        _busyWorkers.TryRemove(worker.ManagedThreadId, out _);
+        return true;
+    }
+
+    private void EnsureMinimumThreads()
+    {
+        lock (_syncRoot)
+        {
+            int alive = LiveWorkerCount;
+            if (alive >= _minThreads)
+                return;
+
+            int toAdd = _minThreads - alive;
+            for (int i = 0; i < toAdd; i++)
+                SpawnWorker();
+
+            if (toAdd > 0)
+                CLog.Debug("[NETWORK-THREADPOOL]", $"Added {toAdd} worker thread(s) to maintain minimum.");
+        }
+    }
+
+    private void TrimExcessIdleWorkers()
+    {
+        lock (_syncRoot)
+        {
+            int alive = LiveWorkerCount;
+            int targetMax = Math.Max(_minThreads, _maxThreads);
+            if (alive <= targetMax)
+                return;
+
+            int toStop = alive - targetMax;
+            foreach (var worker in _workers.Values)
+            {
+                if (toStop == 0)
+                    break;
+
+                if (_busyWorkers.ContainsKey(worker.ManagedThreadId))
+                    continue;
+
+                if (_workers.TryRemove(worker.ManagedThreadId, out var removed))
+                {
+                    removed.RequestCancellation();
+                    toStop--;
+                }
+            }
+        }
+    }
+
+    private void PruneDeadWorkers()
+    {
+        foreach (var kvp in _workers)
+        {
+            var worker = kvp.Value;
+            if (worker.ControlInterface == null || !worker.ControlInterface.IsAlive)
+            {
+                _workers.TryRemove(kvp.Key, out _);
+                _busyWorkers.TryRemove(kvp.Key, out _);
+                try
+                {
+                    worker.Dispose();
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
+
     public void Startup(int initialThreadCount)
     {
-        if (initialThreadCount < _minThreads)
-            initialThreadCount = _minThreads;
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(NetworkThreadPool));
 
-        for (int i = 0; i < initialThreadCount; i++)
+        initialThreadCount = Math.Clamp(initialThreadCount, _minThreads, _maxThreads);
+
+        lock (_syncRoot)
         {
-            var thread = new CustomThread(ct => false);
-            thread.Start();
-            _freeThreads.Add(thread);
+            int alive = LiveWorkerCount;
+            int toAdd = Math.Max(0, initialThreadCount - alive);
+            for (int i = 0; i < toAdd; i++)
+                SpawnWorker();
+
+            CLog.Success("[NETWORK-THREADPOOL]", $"Started/updated pool with {LiveWorkerCount} live thread(s) (min: {_minThreads}, max: {_maxThreads}).");
         }
-        CLog.Success("[NETWORK-THREADPOOL]", $"Started with {initialThreadCount} threads (min: {_minThreads}, max: {_maxThreads}).");
     }
 
     public void ExecuteTask(ThreadBase executionTarget)
@@ -74,84 +231,74 @@ public class NetworkThreadPool : IDisposable
             return;
         }
 
-        // Réutiliser un thread libre si disponible
-        if (_freeThreads.TryTake(out CustomThread freeThread))
+        _taskQueue.Enqueue(executionTarget);
+        _taskAvailableEvent.Set();
+
+        lock (_syncRoot)
         {
-            freeThread.ExecutionTarget = executionTarget;
-            _activeThreads.Add(freeThread);
-            CLog.Debug("[NETWORK-THREADPOOL]", $"Reused thread {freeThread.ManagedThreadId} for network task.");
+            int alive = LiveWorkerCount;
+            int idle = IdleWorkerCount;
+            int queued = _taskQueue.Count;
+
+            if (queued > idle && alive < _maxThreads)
+            {
+                SpawnWorker();
+                CLog.Debug("[NETWORK-THREADPOOL]", "Spawned one additional worker for pending network tasks.");
+            }
+        }
+    }
+
+    public void ExecuteTask(Func<CancellationToken, bool> taskRunner)
+    {
+        if (taskRunner == null)
+        {
+            CLog.Error("[NETWORK-THREADPOOL]", "Attempt to execute a null delegate task.");
             return;
         }
 
-        // Sinon, créer un nouveau thread (si on n'a pas atteint _maxThreads)
-        if (_activeThreads.Count + _freeThreads.Count < _maxThreads)
-        {
-            var newThread = new CustomThread(ct => executionTarget.Run(ct));
-            newThread.Start();
-            _activeThreads.Add(newThread);
-            CLog.Debug("[NETWORK-THREADPOOL]", $"Created new thread {newThread.ManagedThreadId} for network task.");
-        }
-        else
-        {
-            // Si on a atteint _maxThreads, mettre la tâche en file d'attente
-            _taskQueue.Enqueue(executionTarget);
-            CLog.Debug("[NETWORK-THREADPOOL]", "Queued task (max threads reached).");
-        }
+        ExecuteTask(new DelegateThreadTask(taskRunner));
     }
 
     public void IntegrityCheck()
     {
-        // Ne créer des threads que si nécessaire (tâches en attente)
-        if (_taskQueue.Count > 0 && _freeThreads.Count < _minThreads)
-        {
-            int threadsToAdd = Math.Min(
-                _minThreads - _freeThreads.Count,
-                _maxThreads - (_activeThreads.Count + _freeThreads.Count)
-            );
-            for (int i = 0; i < threadsToAdd; i++)
-            {
-                var thread = new CustomThread(ct => false);
-                thread.Start();
-                _freeThreads.Add(thread);
-            }
-            CLog.Debug("[NETWORK-THREADPOOL]", $"Added {threadsToAdd} threads to maintain minimum.");
-        }
+        if (_disposed)
+            return;
 
-        // Traiter les tâches en file d'attente si des threads sont disponibles
-        if (!_taskQueue.IsEmpty && !_freeThreads.IsEmpty)
-        {
-            while (_taskQueue.TryDequeue(out ThreadBase task) && _freeThreads.TryTake(out CustomThread thread))
-            {
-                thread.ExecutionTarget = task;
-                _activeThreads.Add(thread);
-                // Ne pas appeler thread.Start() ici (le thread est déjà démarré)
-            }
-        }
+        PruneDeadWorkers();
+        EnsureMinimumThreads();
+        TrimExcessIdleWorkers();
+
+        if (!_taskQueue.IsEmpty)
+            _taskAvailableEvent.Set();
     }
 
     public void SetThreadLimits(int minThreads, int maxThreads)
     {
+        if (minThreads < 1)
+            minThreads = 1;
+
+        if (maxThreads < minThreads)
+            maxThreads = minThreads;
+
         _minThreads = minThreads;
         _maxThreads = maxThreads;
+
+        EnsureMinimumThreads();
+        TrimExcessIdleWorkers();
+
         CLog.Success("[NETWORK-THREADPOOL]", $"Updated thread limits: min={_minThreads}, max={_maxThreads}");
     }
 
     public void ReleaseThread(CustomThread thread)
     {
-        if (_activeThreads.TryTake(out var activeThread) && activeThread == thread)
-        {
-            thread.ExecutionTarget = null;
-            _freeThreads.Add(thread);
-            CLog.Debug("[NETWORK-THREADPOOL]", $"Thread {thread.ManagedThreadId} released to free pool.");
+        if (thread == null)
+            return;
 
-            if (!_taskQueue.IsEmpty)
-                _taskAvailableEvent.Set();
-        }
-        else
-        {
-            thread.Dispose();
-            CLog.Warning("[NETWORK-THREADPOOL]", $"Thread {thread.ManagedThreadId} was not in active threads. Disposed.");
-        }
+        // Network workers are persistent; releasing means marking as idle.
+        _busyWorkers.TryRemove(thread.ManagedThreadId, out _);
+
+        if (!_taskQueue.IsEmpty)
+            _taskAvailableEvent.Set();
     }
 
     public void Shutdown()
@@ -160,26 +307,35 @@ public class NetworkThreadPool : IDisposable
 
         CLog.Debug("[NETWORK-THREADPOOL]", "Shutting down...");
 
-        foreach (var thread in _activeThreads)
+        List<CustomThread> workers;
+        lock (_syncRoot)
         {
-            thread.ExecutionTarget?.OnShutdown();
-            thread.RequestCancellation();
-            thread.Dispose();
+            workers = [.._workers.Values];
+            _workers.Clear();
+            _busyWorkers.Clear();
+            _taskQueue.Clear();
         }
 
-        foreach (var thread in _freeThreads)
+        foreach (var thread in workers)
         {
-            thread.ExecutionTarget?.OnShutdown();
             thread.RequestCancellation();
-            thread.Dispose();
         }
 
-        _activeThreads.Clear();
-        _freeThreads.Clear();
-        _taskQueue.Clear();
+        foreach (var thread in workers)
+        {
+            try
+            {
+                if (thread.ControlInterface != null && thread.ControlInterface.IsAlive)
+                    thread.ControlInterface.Join(1000);
+            }
+            catch
+            {
+            }
+
+            thread.Dispose();
+        }
 
         _taskAvailableEvent.Dispose();
-        _lock.Dispose();
 
         _disposed = true;
         CLog.Success("[NETWORK-THREADPOOL]", "Shutdown complete.");
@@ -187,9 +343,14 @@ public class NetworkThreadPool : IDisposable
 
     public void ShowStats()
     {
+        int aliveWorkers = LiveWorkerCount;
+        int busyWorkers = BusyWorkerCount;
+        int idleWorkers = Math.Max(0, aliveWorkers - busyWorkers);
+
         CLog.Debug("[NETWORK-THREADPOOL]", "===== Network ThreadPool Stats =====");
-        CLog.Debug("[NETWORK-THREADPOOL]", $"Active Threads: {_activeThreads.Count}");
-        CLog.Debug("[NETWORK-THREADPOOL]", $"Free Threads: {_freeThreads.Count}");
+        CLog.Debug("[NETWORK-THREADPOOL]", $"Active Threads: {busyWorkers} (alive: {busyWorkers})");
+        CLog.Debug("[NETWORK-THREADPOOL]", $"Free Threads: {idleWorkers} (alive: {idleWorkers})");
+        CLog.Debug("[NETWORK-THREADPOOL]", $"Total Live Workers: {aliveWorkers}");
         CLog.Debug("[NETWORK-THREADPOOL]", $"Queued Tasks: {_taskQueue.Count}");
         CLog.Debug("[NETWORK-THREADPOOL]", $"Thread Limits: min={_minThreads}, max={_maxThreads}");
         CLog.Debug("[NETWORK-THREADPOOL]", "======================================");

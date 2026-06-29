@@ -130,7 +130,7 @@ public class IPBanner
     public static void Reload()
     {
         var Logger = new Logger();
-        var banList = new List<IPBan>();
+        var loadedBans = new List<IPBan>();
 
         lock (Instance.listBusy)
         {
@@ -142,20 +142,26 @@ public class IPBanner
                 {
                     var ipb = new IPBan();
                     string smask = "32";
-                    string ip = new Field(row[0]).GetString();
+                    string ip = row[0].GetString();
                     int i = ip.IndexOf('/');
-                    string stmp = ip[..i];
+                    string stmp = ip;
                     if (i == -1)
                     {
                         Logger.OutString(L_P_ACCOUNT_I, ip);
                     }
                     else
                     {
+                        stmp = ip[..i];
                         smask = ip[(i + 1)..];
                     }
 
                     uint ipraw = MakeIP(stmp);
-                    uint ipmask = uint.Parse(smask);
+                    if (!uint.TryParse(smask, out uint ipmask))
+                    {
+                        Logger.OutString(L_P_ACCOUNT_I_1, ip);
+                        continue;
+                    }
+
                     if (ipraw == 0 || ipmask == 0)
                     {
                         Logger.OutString(L_P_ACCOUNT_I_1, ip);
@@ -164,11 +170,13 @@ public class IPBanner
 
                     ipb.Bytes = (byte)ipmask;
                     ipb.Mask = ipraw;
-                    ipb.Expire = new Field(row[1]).GetUInt32();
+                    ipb.Expire = row[1].GetUInt32();
                     ipb.DbIp = ip;
-                    banList.Add(ipb);
+                    loadedBans.Add(ipb);
                 }
             }
+
+            Instance.banList.AddRange(loadedBans);
         }
     }
 
@@ -276,16 +284,16 @@ public class AccountMgr
 {
     private static AccountMgr _instance;
     public static AccountMgr Instance => _instance ??= new AccountMgr();
-    public static AccountMgr GetSingleton() => new();
+    public static AccountMgr GetSingleton() => Instance;
     private static readonly Dictionary<string, Account> AccountDatabase = [];
-    private readonly object setBusy = new();
+    private static readonly object setBusy = new();
 
-    public void AddAccount(Field[] field)
+    public static void AddAccount(Field[] field)
     {
         var sLog = new Logger();
 
         // Vérifiez que le tableau 'field' n'est pas nul et contient des éléments
-        if (field == null || field.Length < 9)
+        if (field == null || field.Length < 10)
         {
             sLog.OutError("[AddAccount] Field array is null or does not contain enough elements.");
             return;
@@ -381,7 +389,7 @@ public class AccountMgr
         }
     }
 
-    public int GetAccountCount()
+    public static int GetAccountCount()
     {
         lock (setBusy)
         {
@@ -389,7 +397,7 @@ public class AccountMgr
         }
     }
 
-    public Account GetAccount(string name)
+    public static Account GetAccount(string name)
     {
         lock (setBusy)
         {
@@ -400,13 +408,20 @@ public class AccountMgr
 
     public static void UpdateAccount(Account acct, Field[] field)
     {
-        uint id = new Field(field[0]).GetUInt32();
-        string username = new Field(field[1]).GetString();
-        string gmFlags = new Field(field[2]).GetString();
-        acct.EncryptedPassword = new Field(field[7]).GetString();
-        string salt = new Field(field[8]).GetString() ?? "";
-        string verifier = new Field(field[9]).GetString() ?? "";
         var Logger = new Logger();
+
+        if (field == null || field.Length < 10)
+        {
+            Logger.OutError("[UpdateAccount] Field array is null or does not contain enough elements.");
+            return;
+        }
+
+        uint id = field[0].GetUInt32();
+        string username = field[1].GetString();
+        string gmFlags = field[2].GetString();
+        acct.EncryptedPassword = field[7].GetString();
+        string salt = field[8].GetString() ?? "";
+        string verifier = field[9].GetString() ?? "";
 
         if (id != acct.AccountId)
         {
@@ -423,9 +438,9 @@ public class AccountMgr
             return;
         }
 
-        acct.AccountId = new Field(field[0]).GetUInt32();
-        acct.AccountFlags = new Field(field[3]).GetUInt8();
-        acct.Banned = new Field(field[4]).GetUInt32();
+        acct.AccountId = field[0].GetUInt32();
+        acct.AccountFlags = field[3].GetUInt8();
+        acct.Banned = field[4].GetUInt32();
 
         if (!string.IsNullOrEmpty(salt))
         {
@@ -452,9 +467,9 @@ public class AccountMgr
         }
 
         acct.SetGMFlags(gmFlags);
-        if (new Field(field[5]).GetString() != "enUS")
+        if (field[5].GetString() != "enUS")
         {
-            acct.Locale = new Field(field[5]).GetString().ToCharArray();
+            acct.Locale = field[5].GetString().ToCharArray();
             acct.ForcedLocale = true;
         }
         else
@@ -462,7 +477,7 @@ public class AccountMgr
             acct.ForcedLocale = false;
         }
 
-        acct.Muted = new Field(field[6]).GetUInt32();
+        acct.Muted = field[6].GetUInt32();
         if (UNIXTIME.Value > acct.Muted && acct.Muted != 0 && acct.Muted != 1)
         {
             acct.Muted = 0;
@@ -480,7 +495,7 @@ public class AccountMgr
         _ = username.ToUpper();
     }
 
-    public void ReloadAccounts(bool silent)
+    public static void ReloadAccounts(bool silent)
     {
         var sLog = new Logger();
         lock (setBusy)
@@ -545,7 +560,7 @@ public class AccountMgr
         IPBanner.Reload();
     }
 
-    public void ReloadAccountsCallback()
+    public static void ReloadAccountsCallback()
     {
         ReloadAccounts(true);
     }
@@ -676,18 +691,18 @@ public class InformationCore
 
     public void TimeoutSockets()
     {
-        var Socket = new Socket();
         if (!usepings)
             return;
 
         lock (serverSocketLock)
         {
-            var currentTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long now_ms = Environment.TickCount64;
 
             foreach (var socket in serverSockets.ToList())
             {
-                if (socket.lastPing < currentTime && (currentTime - socket.lastPing) > 60)
+                if (socket.lastPing_ms < now_ms && (now_ms - socket.lastPing_ms) > 60_000)
                 {
+                    CLog.Warning("[InfoCore]", $"Disconnecting realm socket due to ping timeout. now={now_ms} lastPing_ms={socket.lastPing_ms} delta={now_ms - socket.lastPing_ms}ms remote={socket.GetRemoteIP()}:{socket.GetRemotePort()}");
                     serverSockets.Remove(socket);
 
                     foreach (var serverId in socket.serverIds)
@@ -695,8 +710,7 @@ public class InformationCore
                         RemoveRealm(serverId);
                     }
 
-                    serverSockets.Remove(socket);
-                    Socket.Disconnect();
+                    socket.Disconnect();
                 }
             }
         }
@@ -705,7 +719,6 @@ public class InformationCore
     public void CheckServers()
     {
         var sLog = new Logger();
-        var Socket = new Socket();
 
         lock (serverSocketLock)
         {
@@ -716,14 +729,14 @@ public class InformationCore
                 var remoteAddress = WaadShared.Network.Socket.GetRemoteAddress(socket);
                 if (remoteAddress != null && !LogonCommServerSocket.IsServerAllowed(remoteAddress))
                 {
-                    sLog.OutError(L_E_ACCOUNT_S_1, Socket.GetRemoteIP());
+                    sLog.OutError(L_E_ACCOUNT_S_1, socket.GetRemoteIP());
                     socketsToRemove.Add(socket);
                 }
             }
 
             foreach (var socket in socketsToRemove)
             {
-                Socket.Disconnect();
+                socket.Disconnect();
                 serverSockets.Remove(socket);
             }
         }

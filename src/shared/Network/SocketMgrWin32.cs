@@ -24,12 +24,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-
-using static WaadShared.Network.Socket;
-
+using WaadShared.Threading;
 
 namespace WaadShared.Network;
 
@@ -54,9 +51,9 @@ public class SocketMgr : IDisposable
 
     public void SpawnWorkerThreads()
     {
-        // 1 worker thread: BeginReceive callbacks run on ThreadPool, this thread only
-        // dispatches OnRead — reduced from processorCount*2 which caused 85-91% idle CPU
-        const int threadCount = 1;
+        // Keep worker count low to avoid idle CPU overhead, but use 2 workers
+        // so heartbeats are not starved when one worker is busy parsing packets.
+        const int threadCount = 4;
         CLog.Notice("[IOCP]", $"Spawning {threadCount} I/O worker thread(s).");
 
         for (int i = 0; i < threadCount; i++)
@@ -129,41 +126,59 @@ public class SocketMgr : IDisposable
 
 public class SocketWorkerThread
 {
+    private static int _runningWorkers = 0;
+    public static int RunningWorkers => Volatile.Read(ref _runningWorkers);
+
     public static void Run(CancellationToken cancellationToken)
     {
+        Interlocked.Increment(ref _runningWorkers);
         Thread.CurrentThread.Name = "Socket Worker";
+        CLog.Debug("[SOCKETMGR]", $"IOCP worker started. running={RunningWorkers}");
 
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!cancellationToken.IsCancellationRequested)
             {
-                // True blocking wait: thread sleeps in OS until an event is enqueued
-                // BlockingCollection uses Monitor.Wait internally → 0% CPU when idle
-                if (SocketManager.IOCompletionQueue.TryTake(
-                        out var evt,
-                        millisecondsTimeout: 5000,
-                        cancellationToken))
+                try
                 {
-                    switch (evt.Event)
+                    // True blocking wait: thread sleeps in OS until an event is enqueued
+                    // BlockingCollection uses Monitor.Wait internally → 0% CPU when idle
+                    if (SocketManager.IOCompletionQueue.TryTake(
+                            out var evt,
+                            millisecondsTimeout: 5000,
+                            cancellationToken))
                     {
-                        case SocketManager.SocketIOEvent.ReadComplete:
-                            HandleReadComplete(evt.Socket, evt.BytesTransferred);
-                            break;
-                        case SocketManager.SocketIOEvent.WriteComplete:
-                            HandleWriteComplete(evt.Socket, evt.BytesTransferred);
-                            break;
-                        case SocketManager.SocketIOEvent.Shutdown:
-                            HandleShutdown(evt.Socket);
-                            break;
+                        switch (evt.Event)
+                        {
+                            case SocketManager.SocketIOEvent.ReadComplete:
+                                HandleReadComplete(evt.Socket, evt.BytesTransferred);
+                                break;
+                            case SocketManager.SocketIOEvent.WriteComplete:
+                                HandleWriteComplete(evt.Socket, evt.BytesTransferred);
+                                break;
+                            case SocketManager.SocketIOEvent.Shutdown:
+                                HandleShutdown(evt.Socket);
+                                break;
+                        }
                     }
+                    // TryTake timed out → loop back, cancellationToken re-checked at top
                 }
-                // TryTake timed out → loop back, cancellationToken re-checked at top
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    CLog.Error("[SOCKETMGR]", $"Worker thread error: {ex.Message}");
+                }
             }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
+
+            if (cancellationToken.IsCancellationRequested)
             {
-                CLog.Error("[SOCKETMGR]", $"Worker thread error: {ex.Message}");
+                CLog.Debug("[SOCKETMGR]", "IOCP worker exiting due to cancellation request.");
             }
+        }
+        finally
+        {
+            int running = Interlocked.Decrement(ref _runningWorkers);
+            CLog.Debug("[SOCKETMGR]", $"IOCP worker stopped. running={running}");
         }
     }
 
@@ -172,9 +187,26 @@ public class SocketWorkerThread
         if (socket == null || socket.IsDeleted()) return;
         if (bytesTransferred > 0)
         {
-            socket.OnRead();             // Virtual dispatch: process received packet(s)
-            if (socket.IsConnected())
-                socket.SetupReadEvent(); // Queue next async BeginReceive
+            NetworkThreadPool.Instance.ExecuteTask(_ =>
+            {
+                try
+                {
+                    socket.OnRead(); // Virtual dispatch: process received packet(s)
+                }
+                catch (Exception ex)
+                {
+                    CLog.Error("[SOCKETMGR]", $"Read handler exception on {socket.GetRemoteIP()}:{socket.GetRemotePort()}: {ex.Message}");
+                    socket.Disconnect();
+                    return false;
+                }
+
+                if (!socket.IsDeleted() && socket.IsConnected())
+                {
+                    socket.SetupReadEvent(); // Queue next async BeginReceive
+                }
+
+                return true;
+            });
         }
         else
         {

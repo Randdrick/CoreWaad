@@ -22,6 +22,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -37,11 +38,6 @@ public class SocketManager
     private readonly ConcurrentDictionary<int, Socket> fds = new();
     private int socket_count = 0;
     private readonly object m_setLock = new();
-    private readonly object _socketLock = new();
-
-    private readonly ConcurrentBag<Socket> _sockets = [];
-
-    private readonly HashSet<Socket> writable = [];
 
     public SocketManager()
     {
@@ -103,10 +99,16 @@ public class SocketManager
     public void AddSocket(Socket s)
     {
         int key = s.GetFd().Handle.GetHashCode();
-        if (socket_count >= 64 || fds.ContainsKey(key))
+        if (socket_count >= 1024)
         {
+            CLog.Warning("[SocketMgr]", $"AddSocket: socket limit reached ({socket_count}), refusing new connection from {s.GetRemoteIP()}");
             s.Delete();
             return;
+        }
+        if (fds.ContainsKey(key))
+        {
+            // Handle collision (socket handle reuse by OS after close)
+            CLog.Warning("[SocketMgr]", $"AddSocket: handle key collision for {s.GetRemoteIP()}, replacing stale entry.");
         }
 
         lock (m_setLock)
@@ -135,38 +137,25 @@ public class SocketManager
     public enum SocketIOEvent { ReadComplete, WriteComplete, Shutdown }
     internal static readonly BlockingCollection<(SocketIOEvent Event, Socket Socket, uint BytesTransferred)>
         IOCompletionQueue = new(boundedCapacity: 10000);
+
+    public static int IOQueueDepth => IOCompletionQueue.Count;
 #endif
     public void CloseAll()
     {
-        List<SocketManager> toKill = [];
+        List<Socket> toKill;
 
-        lock (_socketLock)
+        lock (m_setLock)
         {
-            toKill.AddRange((IEnumerable<SocketManager>)_sockets);
+            toKill = [.. fds.Values];
         }
 
-        foreach (SocketManager socket in toKill)
+        foreach (Socket socket in toKill)
         {
-            Close();
-        }
-
-        // Wait for all sockets to be removed with a reasonable timeout
-        // to avoid busy-waiting during shutdown
-        int maxWaitMs = 10000;  // 10 second timeout
-        int elapsed = 0;
-        while (elapsed < maxWaitMs)
-        {
-            lock (_socketLock)
+            try
             {
-                if (_sockets.IsEmpty) break;
+                socket.Disconnect();
             }
-            Thread.Sleep(10);  // Check every 10ms instead of spinning
-            elapsed += 10;
-        }
-
-        if (elapsed >= maxWaitMs)
-        {
-            CLog.Warning("[SocketMgr]", $"Timeout waiting for sockets to close. {_sockets.Count} still pending.");
+            catch { }
         }
     }
 
@@ -182,6 +171,8 @@ public class SocketManager
     {
         while (true)
         {
+            HashSet<Socket> writable;
+
             lock (m_setLock)
             {
                 if (socket_count == 0)
@@ -191,7 +182,7 @@ public class SocketManager
                 }
 
                 m_readableSet = [.. m_allSet];
-                var writable = new HashSet<Socket>(m_writableSet);
+                writable = [.. m_writableSet];
                 m_writableSet.Clear();
             }
 
@@ -224,7 +215,7 @@ public class SocketManager
 
                 if (m_exceptionSet.Contains(s))
                 {
-                    SocketExtensions.Disconnect();
+                    s.Disconnect();
                 }
             }
 
@@ -234,7 +225,7 @@ public class SocketManager
 
     public static void Close()
     {
-        SocketExtensions.Disconnect();
+        Instance.CloseAll();
     }
 
     public void SpawnWorkerThreads()
@@ -247,7 +238,7 @@ public class SocketManager
         }
     }
 
-    public void ShutdownThreads()
+    public static void ShutdownThreads()
     {
         // Implementation for shutting down threads
     }
@@ -257,20 +248,6 @@ public class SocketManager
 public static class SocketExtensions
 {
     private static readonly object _readMutex = new();
-    private static readonly object _writeMutex = new();
-    private static readonly CircularBuffer _readBuffer = new();
-    private static readonly CircularBuffer _writeBuffer = new();
-    private static readonly BufferPool _bufferPool = new();
-    private static bool _deleted;
-    private static bool _connected = true;
-    private static int _sendLock;
-
-    static SocketExtensions()
-    {
-        _readBuffer.Allocate(8192);
-        _writeBuffer.Allocate(8192);
-        _bufferPool.Init();
-    }
 
     public static void ReadCallback(this Socket socket, IAsyncResult ar)
     {
@@ -297,7 +274,7 @@ public static class SocketExtensions
     {
         if (len == 0)
         {
-            Disconnect();
+            socket.Disconnect();
             return;
         }
 
@@ -305,7 +282,7 @@ public static class SocketExtensions
         // This allows subclasses (like LogonCommServerSocket) to handle their own packet reading
         socket.OnRead();
 
-        if (!_connected)
+        if (!socket.IsConnected() || socket.IsDeleted())
             return;
 
         // Only setup read event if not already pending
@@ -315,11 +292,12 @@ public static class SocketExtensions
 
     public static void OnRecvData(Socket socket)
     {
-        int available = _readBuffer.GetContiguousBytes();
+        var readBuffer = socket.GetReadBuffer();
+        int available = readBuffer.GetContiguousBytes();
         if (available > 0)
         {
             byte[] data = new byte[available];
-            _readBuffer.Read(data, available);
+            readBuffer.Read(data, available);
         }
 
         while (true)
@@ -330,7 +308,7 @@ public static class SocketExtensions
                 break;
 
             byte[] header = new byte[headerSize];
-            _readBuffer.Read(header, headerSize);
+            readBuffer.Read(header, headerSize);
 
             ushort opcode = BitConverter.ToUInt16(header, 0);
             uint size = BitConverter.ToUInt32(header, 2);
@@ -344,13 +322,13 @@ public static class SocketExtensions
             }
 
             // Vérifie si tout le paquet est disponible dans le buffer
-            if (_readBuffer.GetContiguousBytes() < size)
+            if (readBuffer.GetContiguousBytes() < size)
             {
                 break;
             }
 
             byte[] payload = new byte[size];
-            _readBuffer.Read(payload, (int)size);
+            readBuffer.Read(payload, (int)size);
 
             // Construction du paquet et traitement
             WorldPacket packet = new(opcode, (int)size);
@@ -369,15 +347,23 @@ public static class SocketExtensions
         if (socket.IsDeleted() || !socket.IsConnected())
             return;
 
-        Monitor.Enter(_readMutex);
+        // Ensure only one async receive is pending per socket.
+        if (!_pendingRead.TryAdd(socket, true))
+            return;
+
+        // Do NOT use the global _readMutex here – it serialises BeginReceive for all
+        // sockets on the same lock, which causes hundreds-of-ms latency on loopback.
+        // _pendingRead.TryAdd already guarantees one pending read per socket.
+        bool beginReceivePosted = false;
         try
         {
-            int space = _readBuffer.GetSpace();
+            int space = socket.GetReadBuffer().GetSpace();
             if (space <= 0)
             {
                 CLog.Warning("[Socket]", "Read buffer space exhausted, reallocating.");
-                _readBuffer.Allocate(_readBuffer.GetSize() + 8192);
-                space = _readBuffer.GetSpace();
+                var socketReadBuffer = socket.GetReadBuffer();
+                socketReadBuffer.Allocate(socketReadBuffer.GetSize() + 8192);
+                space = socketReadBuffer.GetSpace();
             }
 
 #if CONFIG_USE_IOCP
@@ -450,50 +436,118 @@ public static class SocketExtensions
                 fd.BeginReceive(temp, 0, space, SocketFlags.None, ar =>
                 {
                     int bytesReceived = 0;
+                    bool disconnectSocket = false;
+                    bool rearmRead = false;
+
                     try
                     {
                         bytesReceived = fd.EndReceive(ar);
                         if (bytesReceived > 0)
                         {
-                            lock (_readMutex)
+                            // Use per-socket read buffer as lock target – avoids the global
+                            // _readMutex that would serialise reads across all sockets.
+                            var buf = socket.GetReadBuffer();
+                            lock (buf)
                             {
-                                // Write directly to the socket's instance buffer, not the static _readBuffer
-                                socket.GetReadBuffer().Write(temp, bytesReceived);                                
+                                buf.Write(temp, bytesReceived);
                             }
+                        }
+                        else
+                        {
+                            // 0 bytes = remote closed connection gracefully
+                            disconnectSocket = true;
                         }
                     }
                     catch (SocketException ex)
                     {
-                        if (ex.SocketErrorCode != SocketError.WouldBlock)
+                        if (ex.SocketErrorCode == SocketError.WouldBlock)
                         {
-                            CLog.Error("[SocketMgr]", $"SetupReadEvent SocketException on BeginReceive: {ex.Message} (Code: {ex.SocketErrorCode})");
-                            socket.Disconnect();
+                            // No data ready (rare on IOCP but possible).
+                            // Re-arm the read so the socket continues receiving.
+                            rearmRead = true;
+                        }
+                        else if (ex.SocketErrorCode == SocketError.OperationAborted ||
+                                 ex.SocketErrorCode == SocketError.ConnectionAborted ||
+                                 ex.SocketErrorCode == SocketError.ConnectionReset ||
+                                 ex.SocketErrorCode == SocketError.Interrupted ||
+                                 ex.SocketErrorCode == SocketError.Shutdown)
+                        {
+                            if (socket.IsConnected() && !socket.IsDeleted())
+                                CLog.Warning("[SocketMgr]", $"SetupReadEvent receive aborted on active socket: {ex.Message} (Code: {ex.SocketErrorCode})");
+                            disconnectSocket = true;
+                        }
+                        else
+                        {
+                            if (!socket.IsDeleted())
+                                CLog.Error("[SocketMgr]", $"SetupReadEvent SocketException on BeginReceive: {ex.Message} (Code: {ex.SocketErrorCode})");
+                            disconnectSocket = true;
                         }
                     }
                     catch (ObjectDisposedException)
                     {
                         CLog.Error("[SocketMgr]", "SetupReadEvent: Socket has been disposed.");
-                        socket.Disconnect();
+                        disconnectSocket = true;
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"ReadCallback error: {ex.Message}");
+                        CLog.Error("[SocketMgr]", $"ReadCallback unhandled error: {ex.Message}");
+                        disconnectSocket = true;
                     }
                     finally
                     {
                         _pendingRead.TryRemove(socket, out _);
                     }
-                    // Dispatch to IOCP worker thread via blocking queue (true async pattern)
-                    // Worker thread calls socket.OnRead() + SetupReadEvent() for next receive
-                    if (bytesReceived > 0)
-                        SocketManager.IOCompletionQueue.TryAdd((SocketManager.SocketIOEvent.ReadComplete, socket, (uint)bytesReceived));
-                    else
+
+                    // All post-receive actions are explicit here – no silent early returns above.
+                    if (disconnectSocket)
+                    {
                         socket.Disconnect();
+                    }
+                    else if (rearmRead)
+                    {
+                        // WouldBlock: re-arm the read directly without dispatching to the worker.
+                        System.Threading.ThreadPool.QueueUserWorkItem(_ => socket.SetupReadEvent());
+                    }
+                    else if (bytesReceived > 0)
+                    {
+                        // Dispatch to IOCP worker thread via blocking queue (true async pattern).
+                        // Worker thread calls socket.OnRead() + SetupReadEvent() for next receive.
+                        if (!SocketManager.IOCompletionQueue.TryAdd((SocketManager.SocketIOEvent.ReadComplete, socket, (uint)bytesReceived)))
+                        {
+                            CLog.Error("[SocketMgr]", "IOCompletionQueue is full; disconnecting socket to avoid stalled receive loop.");
+                            socket.Disconnect();
+                        }
+                    }
+                    else
+                    {
+                        // Should not reach here (bytesReceived==0 sets disconnectSocket), but guard anyway.
+                        socket.Disconnect();
+                    }
                 }, socket);
+                beginReceivePosted = true;
             }
             catch (SocketException ex)
             {
-                if (ex.SocketErrorCode != SocketError.WouldBlock)
+                if (ex.SocketErrorCode == SocketError.WouldBlock)
+                {
+                    return;
+                }
+
+                if (ex.SocketErrorCode == SocketError.OperationAborted ||
+                    ex.SocketErrorCode == SocketError.ConnectionAborted ||
+                    ex.SocketErrorCode == SocketError.ConnectionReset ||
+                    ex.SocketErrorCode == SocketError.Interrupted ||
+                    ex.SocketErrorCode == SocketError.Shutdown)
+                {
+                    if (socket.IsConnected() && !socket.IsDeleted())
+                    {
+                        CLog.Warning("[SocketMgr]", $"SetupReadEvent aborted on active socket: {ex.Message} (Code: {ex.SocketErrorCode})");
+                        socket.Disconnect();
+                    }
+                    return;
+                }
+
+                if (!socket.IsDeleted())
                 {
                     CLog.Error("[SocketMgr]", $"SetupReadEvent SocketException: {ex.Message} (Code: {ex.SocketErrorCode})");
                     socket.Disconnect();
@@ -517,10 +571,10 @@ public static class SocketExtensions
                         bytesReceived = socket.GetFd().EndReceive(ar);
                         if (bytesReceived > 0)
                         {
-                            lock (_readMutex)
+                            var buf = socket.GetReadBuffer();
+                            lock (buf)
                             {
-                                // Write directly to the socket's instance buffer, not the static _readBuffer.
-                                socket.GetReadBuffer().Write(temp, bytesReceived); 
+                                buf.Write(temp, bytesReceived);
                             }
                         }
                     }
@@ -542,6 +596,7 @@ public static class SocketExtensions
                         });
                     }
                 }, socket);
+                beginReceivePosted = true;
             }
             catch (SocketException ex)
             {
@@ -555,25 +610,29 @@ public static class SocketExtensions
         }
         finally
         {
-            Monitor.Exit(_readMutex);
+            if (!beginReceivePosted)
+            {
+                _pendingRead.TryRemove(socket, out _);
+            }
         }
     }
 
     public static void WriteCallback(this Socket socket)
     {
-        if (_deleted || !_connected)
+        if (socket.IsDeleted() || !socket.IsConnected())
             return;
 
-        lock (_writeMutex)
+        var writeBuffer = socket.GetWriteBuffer();
+        lock (writeBuffer)
         {
-            int toSend = _writeBuffer.GetContiguousBytes();
+            int toSend = writeBuffer.GetContiguousBytes();
             if (toSend > 0)
             {
                 try
                 {
                     byte[] sendBuf = new byte[toSend];
-                    _writeBuffer.Read(sendBuf, toSend);
-                    int bytesSent = socket.Send(sendBuf, 0, (SocketFlags)toSend);
+                    writeBuffer.Read(sendBuf, toSend);
+                    int bytesSent = socket.Send(sendBuf, toSend, SocketFlags.None);
                     if (bytesSent < toSend)
                     {
                         int unsent = toSend - bytesSent;
@@ -582,61 +641,48 @@ public static class SocketExtensions
                             byte[] unsentData = new byte[unsent];
                             Array.Copy(sendBuf, bytesSent, unsentData, 0, unsent);
 
-                            int currentAvailable = _writeBuffer.GetContiguousBytes();
+                            int currentAvailable = writeBuffer.GetContiguousBytes();
                             byte[] temp = new byte[currentAvailable];
 
-                            _writeBuffer.Read(temp, currentAvailable);
-                            _writeBuffer.Remove(_writeBuffer.GetContiguousBytes());
-                            _writeBuffer.Write(unsentData, unsent);
+                            writeBuffer.Read(temp, currentAvailable);
+                            writeBuffer.Remove(writeBuffer.GetContiguousBytes());
+                            writeBuffer.Write(unsentData, unsent);
 
                             if (currentAvailable > 0)
-                                _writeBuffer.Write(temp, currentAvailable);
+                                writeBuffer.Write(temp, currentAvailable);
                         }
                     }
-                    if (_writeBuffer.GetContiguousBytes() == 0)
+                    if (writeBuffer.GetContiguousBytes() == 0)
                     {
-                        DecSendLock(socket);
+                        socket.DecSendLock();
                     }
                 }
                 catch (SocketException ex)
                 {
                     if (ex.SocketErrorCode != SocketError.WouldBlock)
                     {
-                        DecSendLock(socket);
-                        Disconnect();
+                        socket.DecSendLock();
+                        socket.Disconnect();
                     }
                 }
             }
             else
             {
-                DecSendLock(socket);
+                socket.DecSendLock();
             }
         }
     }
 
     public static int GetWriteBufferSize(this Socket socket)
     {
-        return _writeBuffer.GetContiguousBytes();
+        return socket.GetWriteBuffer().GetContiguousBytes();
     }
 
     public static void BurstBegin(this Socket socket)
     {
-        if (AcqSendLock())
+        if (socket.AcquireSendLock())
         {
             WriteCallback(socket);
-        }
-    }
-
-    public static bool AcqSendLock()
-    {
-        lock (_writeMutex)
-        {
-            if (_sendLock == 0)
-            {
-                _sendLock = 1;
-                return true;
-            }
-            return false;
         }
     }
 
@@ -645,26 +691,4 @@ public static class SocketExtensions
         // Implementation for BurstEnd
     }
 
-    public static void DecSendLock(this Socket socket)
-    {
-        lock (_writeMutex)
-        {
-            _sendLock = 0;
-        }
-    }
-    public static void Close()
-    {
-        if (_deleted)
-            return;
-
-        _deleted = true;
-    }
-
-    public static void Disconnect()
-    {
-        if (!_connected)
-            return;
-
-        _connected = false;
-    }
 }

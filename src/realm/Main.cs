@@ -224,7 +224,6 @@ public class Master
 
         // Configuration du ThreadPool réseau
         StartThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "InitialThreads", 8);
-        NetworkThreadPool.Instance.Startup((byte)StartThreadCount);
 
         // Limites du ThreadPool réseau
         MinThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MinThreads", 8);

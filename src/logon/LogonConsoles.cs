@@ -87,7 +87,7 @@ public class LogonConsole
 
     public static void ReloadAccts(string str)
     {
-        AccountMgr.Instance.ReloadAccounts(false);
+        AccountMgr.ReloadAccounts(false);
         IPBanner.Reload();
     }
 

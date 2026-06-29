@@ -85,7 +85,7 @@ namespace WaadRealmServer
         public string AccountName { get => m_accountName; set => m_accountName = value; }
         public uint Language { get => language; set => language = value; }
 
-        public string GetRemoteIP()
+        public static string GetRemoteIP()
         {
             // TODO: Return real IP if m_socket is implemented
             return "0.0.0.0";

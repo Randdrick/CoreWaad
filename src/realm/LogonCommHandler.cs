@@ -20,6 +20,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.IO;
 using System.Threading;
@@ -42,7 +43,7 @@ public class LogonServer
     public string Address { get; set; }
     public uint Port { get; set; }
     public uint ServerID { get; set; }
-    public uint RetryTime { get; set; }
+    public long RetryTime { get; set; }
     public bool Registered { get; set; } = false;
 }
 
@@ -66,7 +67,7 @@ public enum RealmType
 
 public class LogonCommHandler : IDisposable
 {
-    private readonly Dictionary<string, string> forcedPermissions = [];
+    private readonly ConcurrentDictionary<string, string> forcedPermissions = new();
     private readonly Dictionary<LogonServer, LogonCommClientSocket> logons = [];
     private readonly Dictionary<uint, WorldSocket> pendingLogons = [];
     private readonly HashSet<Realm> realms = [];
@@ -154,18 +155,29 @@ public class LogonCommHandler : IDisposable
 
     public void ReloadForcedPermissions()
     {
-        // TODO: Query DB for forced permissions
-        forcedPermissions.Clear();
+        // Build the new table in a temporary dictionary, then swap atomically
+        // so that concurrent GetForcedPermissions calls never observe a half-cleared state.
+        var newPerms = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var result = CharacterDatabase.Query("SELECT * FROM account_forced_permissions");
         if (result != null)
         {
             do
             {
-                string acct = result.GetValue(0).ToString().ToUpperInvariant();
-                string perm = result.GetValue(1).ToString();
-                forcedPermissions[acct] = perm;
+                string acct = result.GetValue(0)?.ToString()?.ToUpperInvariant();
+                string perm = result.GetValue(1)?.ToString();
+                if (!string.IsNullOrEmpty(acct))
+                    newPerms[acct] = perm ?? string.Empty;
             } while (result.NextRow());
         }
+
+        // Replace all entries atomically: remove keys gone, add/update new ones.
+        foreach (var key in forcedPermissions.Keys)
+        {
+            if (!newPerms.ContainsKey(key))
+                forcedPermissions.TryRemove(key, out _);
+        }
+        foreach (var kvp in newPerms)
+            forcedPermissions[kvp.Key] = kvp.Value;
     }
 
     public void ConnectionDropped(uint id)
@@ -176,7 +188,7 @@ public class LogonCommHandler : IDisposable
             {
                 if (kvp.Key.ID == id && kvp.Value != null)
                 {
-                    kvp.Value.Disconnect();
+                    kvp.Key.RetryTime = Environment.TickCount64 + 10_000;
                     logons[kvp.Key] = null;
                     break;
                 }
@@ -204,9 +216,15 @@ public class LogonCommHandler : IDisposable
         if (_shuttingDown)
             return;
 
+        // Collect mutations outside the foreach to avoid InvalidOperationException
+        // (Dictionary version changes when a value is set during enumeration).
+        var toDisconnect = new List<(LogonServer server, LogonCommClientSocket socket, string reason)>();
+        var toConnect   = new List<LogonServer>();
+        var toPing      = new List<LogonCommClientSocket>();
+
         lock (mapLock)
         {
-            uint t = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long now_ms = Environment.TickCount64;
             foreach (var kvp in logons)
             {
                 var cs = kvp.Value;
@@ -215,31 +233,46 @@ public class LogonCommHandler : IDisposable
                     if (!pings) continue;
                     if (cs.IsDeleted() || !cs.IsConnected())
                     {
-                        cs._id = 0;
-                        logons[kvp.Key] = null;
+                        toDisconnect.Add((kvp.Key, cs, null));
                         continue;
                     }
-                    if (cs.last_pong < t && ((t - cs.last_pong) > 60))
+                    if (cs.last_pong_ms < now_ms && ((now_ms - cs.last_pong_ms) > 60_000))
                     {
-                        cs._id = 0;
-                        cs.Disconnect();
-                        logons[kvp.Key] = null;
+                        string reason = $"Disconnecting logon link due to heartbeat timeout. now={now_ms} last_ping_ms={cs.last_ping_ms} last_pong_ms={cs.last_pong_ms} delta={now_ms - cs.last_pong_ms}ms id={kvp.Key.ID} addr={kvp.Key.Address}:{kvp.Key.Port}";
+                        toDisconnect.Add((kvp.Key, cs, reason));
                         continue;
                     }
-                    if ((t - cs.last_ping) > 15)
+                    if ((now_ms - cs.last_ping_ms) > 15_000)
                     {
-                        cs.SendPing();
+                        toPing.Add(cs);
                     }
                 }
                 else
                 {
-                    if (t >= kvp.Key.RetryTime)
-                    {
-                        Connect(kvp.Key);
-                    }
+                    if (now_ms >= kvp.Key.RetryTime)
+                        toConnect.Add(kvp.Key);
                 }
             }
+
+            // Apply mutations now that enumeration is complete.
+            foreach (var (server, cs, reason) in toDisconnect)
+            {
+                if (reason != null)
+                    CLog.Warning("[LogonCommHandler]", reason);
+                cs._id = 0;
+                if (reason != null) // only full-disconnect on timeout; dead sockets just nulled
+                    cs.Disconnect();
+                logons[server] = null;
+            }
         }
+
+        // Pings and reconnections are done outside the lock to avoid holding
+        // mapLock during potentially blocking network I/O.
+        foreach (var cs in toPing)
+            cs.SendPing();
+
+        foreach (var server in toConnect)
+            Connect(server);
     }
     public void Connect(LogonServer server)
     {
@@ -247,7 +280,7 @@ public class LogonCommHandler : IDisposable
             return;
 
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_2, server.Name, server.Address, server.Port);
-        server.RetryTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
+        server.RetryTime = Environment.TickCount64 + 10_000;
         server.Registered = false;
         var conn = ConnectToLogon(server.Address, server.Port);
         logons[server] = conn;
@@ -262,7 +295,12 @@ public class LogonCommHandler : IDisposable
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_3);
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_PROMPT);
 
-        uint tt = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
+        // Set _id BEFORE SendChallenge so that AdditionAck (called asynchronously
+        // on the IOCP worker thread during HandleAuthResponse → RequestAddition →
+        // HandleRegister) can match kvp.Key.ID and set server.Registered = true.
+        conn._id = server.ID;
+
+        long tt = Environment.TickCount64 + 10_000;
         conn.SendChallenge();
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_4);
 
@@ -274,7 +312,7 @@ public class LogonCommHandler : IDisposable
                 logons[server] = null;
                 return;
             }
-            if ((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= tt)
+            if (Environment.TickCount64 >= tt)
             {
                 Logger.OutColor(LogColor.TYELLOW, R_Y_LOGCOMHAN);
                 conn.Disconnect();
@@ -297,9 +335,9 @@ public class LogonCommHandler : IDisposable
         conn.SendPing();
 
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_5);
-        conn._id = server.ID;
+        // conn._id already set above before SendChallenge – do not overwrite here.
         // RequestAddition(conn); removed, now called in HandleAuthResponse
-        var st = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10;
+        long st = Environment.TickCount64 + 10_000;
         while (!server.Registered)
         {
             if (_shuttingDown)
@@ -308,7 +346,7 @@ public class LogonCommHandler : IDisposable
                 conn.Disconnect();
                 break;
             }
-            if ((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= st)
+            if (Environment.TickCount64 >= st)
             {
                 CLog.Warning("[LogonCommHandler]", R_Y_LOGCOMHAN_1);
                 logons[server] = null;

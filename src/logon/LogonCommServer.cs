@@ -46,9 +46,8 @@ public class LogonPacket
 
 public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 {
-    private readonly AccountMgr AccountMgr = new();
-    public uint lastPing;
-    private uint nextServerPing;
+    public long lastPing_ms;
+    private long nextServerPing_ms;
     private Timer pingTimer;
     private uint remaining;
     private ushort opcode;
@@ -67,8 +66,8 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     // Constructeur sans paramètre public
     public LogonCommServerSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
     {
-        lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        nextServerPing = lastPing + 20;
+        lastPing_ms = Environment.TickCount64;
+        nextServerPing_ms = lastPing_ms + 20_000;
         remaining = opcode = 0;
         useCrypto = false;
         authenticated = 0;
@@ -79,8 +78,8 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public LogonCommServerSocket(Socket socket) : base(socket, 1024, 1024)
     {
-        lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        nextServerPing = lastPing + 20;
+        lastPing_ms = Environment.TickCount64;
+        nextServerPing_ms = lastPing_ms + 20_000;
         remaining = opcode = 0;
         // removed = false;
         useCrypto = false;
@@ -136,17 +135,26 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             
         try
         {
-            uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            if (now >= nextServerPing)
+            long now_ms = Environment.TickCount64;
+            if (now_ms >= nextServerPing_ms)
             {
                 SendPing();
-                nextServerPing = now + 20;
+                nextServerPing_ms = now_ms + 20_000;
+            }
+
+            // Read-event watchdog: ensure BeginReceive is always armed.
+            // SetupReadEvent is idempotent – returns immediately if a read is already
+            // pending (_pendingRead guard). If the read loop was silently dropped by any
+            // race condition, this re-arms it within the next 20-second tick.
+            if (IsConnected() && !IsDeleted())
+            {
+                WaadShared.Network.SocketExtensions.SetupReadEvent(this);
             }
         }
         catch { }
     }
 
-    public new void OnDisconnect()
+    public override void OnDisconnect()
     {
         // Prevent double-cleanup
         if (_disposed)
@@ -266,6 +274,14 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     public void HandlePacket(WorldPacket recvData)
     {
         CLog.Debug("[LogonCommServer]", $"HandlePacket called with opcode: {recvData.Opcode}");
+        
+        // Any inbound packet (except auth challenge) means the link is alive
+        // This must happen BEFORE the authenticated check to prevent timeouts
+        if (recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
+        {
+            lastPing_ms = Environment.TickCount64;
+        }
+        
         if (authenticated == 0 && recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
         {
             OnDisconnect();
@@ -326,7 +342,6 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public void HandleSessionRequest(WorldPacket recvData)
     {
-        var AccountMgr = new AccountMgr();
         uint requestId = recvData.ReadUInt32();
         string accountName = recvData.ReadString();
         Account acct = AccountMgr.GetAccount(accountName);
@@ -361,9 +376,16 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public void HandlePing(WorldPacket recvData)
     {
+        uint pingValue = 0;
+        if (recvData.Size >= 4)
+        {
+            pingValue = recvData.ReadUInt32();
+        }
+
         var pong = new WorldPacket((ushort)RSMSG_PONG, 4);
+        pong.WriteUInt32(pingValue);
         SendPacket(pong);
-        lastPing = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lastPing_ms = Environment.TickCount64;
     }
 
     public void SendPacket(WorldPacket data, bool noCrypto = false)
@@ -469,9 +491,16 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     SendPacket(data);
     }
 
-    public static void HandleServerPong(WorldPacket recvData)
+    public void HandleServerPong(WorldPacket recvData)
     {
-        // Nothing to do
+        // Accept and consume optional pong payload, then refresh liveness.
+        if (recvData.Size >= 4)
+        {
+            _ = recvData.ReadUInt32();
+        }
+
+        lastPing_ms = Environment.TickCount64;
+        nextServerPing_ms = lastPing_ms + 20_000; // Reset next ping timer
     }
 
     public static bool IsServerAllowed(IPAddress address)

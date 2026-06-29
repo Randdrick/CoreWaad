@@ -456,7 +456,7 @@ public class AuthSocket
         if (authSocket.challenge.I_len >= 0x50) { authSocket.Disconnect(); return; }
 
         string accountName = Encoding.ASCII.GetString(authSocket.challenge.I).TrimEnd('\0');
-        authSocket.account = AccountMgr.GetSingleton().GetAccount(accountName);
+        authSocket.account = AccountMgr.GetAccount(accountName);
 
         // Clear the shitty hash (for server)
         int index = accountName.LastIndexOf('#');
@@ -779,7 +779,7 @@ public class AuthSocket
 
         string accountName = Encoding.ASCII.GetString(authSocket.challenge.I).TrimEnd('\0');
         sLog.OutDebug(L_D_AUTHSOCK_C_9, accountName);
-        authSocket.account = AccountMgr.GetSingleton().GetAccount(accountName);
+        authSocket.account = AccountMgr.GetAccount(accountName);
         if (authSocket.account == null)
         {
             sLog.OutDebug(L_D_AUTHSOCK_C_4);

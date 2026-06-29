@@ -186,9 +186,9 @@ public class LogonServer
         CLog.Notice("[InfoCore]", L_N_MAIN_9);
         CLog.Notice("[AccountMgr]", L_N_MAIN_10);
 
-        AccountMgr.Instance.ReloadAccounts(true);
-        CLog.Notice("[AccountMgr]", string.Format(L_N_MAIN_11, AccountMgr.Instance.GetAccountCount()));
-        if (AccountMgr.Instance.GetAccountCount() == 0)
+        AccountMgr.ReloadAccounts(true);
+        CLog.Notice("[AccountMgr]", string.Format(L_N_MAIN_11, AccountMgr.GetAccountCount()));
+        if (AccountMgr.GetAccountCount() == 0)
         {
             CLog.Warning("[Main]", "No accounts were loaded. Please check the database and ReloadAccounts logic.");
         }
@@ -203,7 +203,7 @@ public class LogonServer
         };
 
         int atime = configMgr.MainConfig.GetInt32("Rates", "AccountRefresh", 600) * 1000;
-        var pfc = new PeriodicFunctionCaller<AccountMgr>(AccountMgr.Instance, AccountMgr.Instance.ReloadAccountsCallback, (uint)atime);
+        var pfc = new PeriodicFunctionCaller<AccountMgr>(AccountMgr.Instance, AccountMgr.ReloadAccountsCallback, (uint)atime);
         ThreadPool.ExecuteTask(pfc);
 
         if (!SocketManager.InitializeSockets(configMgr, sLog)) return;
