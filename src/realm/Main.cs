@@ -19,9 +19,12 @@
  */
 
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using WaadShared;
 using WaadShared.Config;
 using WaadShared.Network;
@@ -99,6 +102,8 @@ public class Master
     private static readonly string PID_FILE = "waad-realmserver.pid";
     private static volatile bool m_crashed = false;
     private static readonly object m_crashedMutex = new();
+    private static int s_fiveMinuteMaintenanceRunning = 0;
+    private static int s_fiveMinuteHeavyMaintenanceRunning = 0;
 
     private static void HandleSignal(string signal)
     {
@@ -731,11 +736,65 @@ public class Master
         // Toutes les 5 minutes
         if ((loopcounter % (300UL * (1000UL / (ulong)OBJECT_WAIT_TIME))) == 0)
         {
-            LogonCommHandler.Instance.ReloadForcedPermissions();
+            // Run DB-backed maintenance asynchronously so the main loop keeps heartbeats flowing.
+            TryRunFiveMinuteMaintenance();
             NetworkThreadPool.Instance.ShowStats();
-            NetworkThreadPool.Instance.IntegrityCheck();
-            BufferPool.Optimize();
+            TryRunFiveMinuteHeavyMaintenance();
         }
+    }
+
+    private static void TryRunFiveMinuteMaintenance()
+    {
+        if (Interlocked.CompareExchange(ref s_fiveMinuteMaintenanceRunning, 1, 0) != 0)
+        {
+            CLog.Warning("[Master]", "Skipping 5-minute permissions reload: previous run still in progress.");
+            return;
+        }
+
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                LogonCommHandler.Instance.ReloadForcedPermissions();
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("[Master]", $"5-minute permissions reload failed: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref s_fiveMinuteMaintenanceRunning, 0);
+            }
+        });
+    }
+
+    private static void TryRunFiveMinuteHeavyMaintenance()
+    {
+        if (Interlocked.CompareExchange(ref s_fiveMinuteHeavyMaintenanceRunning, 1, 0) != 0)
+        {
+            CLog.Warning("[Master]", "Skipping 5-minute heavy maintenance: previous run still in progress.");
+            return;
+        }
+
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                NetworkThreadPool.Instance.IntegrityCheck();
+                BufferPool.Optimize();
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("[Master]", $"5-minute heavy maintenance failed: {ex.Message}");
+            }
+            finally
+            {
+                sw.Stop();
+                CLog.Debug("[Master]", $"5-minute heavy maintenance completed in {sw.ElapsedMilliseconds} ms.");
+                Interlocked.Exchange(ref s_fiveMinuteHeavyMaintenanceRunning, 0);
+            }
+        });
     }
 
     private static void ShowNetworkStats()
@@ -755,6 +814,10 @@ public class Master
         sLog.OutDebug($"Taux d'envoi : {sdata:F5}{rateExtensions[sextensionoffset]}");
         sLog.OutDebug($"Taux de réception : {rdata:F5}{rateExtensions[rextensionoffset]}");
         sLog.OutDebug($"Taux total : {tdata:F5}{rateExtensions[textensionoffset]}");
+    #if CONFIG_USE_IOCP
+        sLog.OutDebug($"IOCP workers vivants : {SocketWorkerThread.RunningWorkers}");
+        sLog.OutDebug($"IOCP queue depth : {SocketManager.IOQueueDepth}");
+    #endif
         sLog.OutDebug("============================================");
 
         // Réinitialiser les compteurs après affichage
