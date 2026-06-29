@@ -260,7 +260,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             null,                        // RCMSG_REGISTER_REALM
             HandleRegister,              // RSMSG_REALM_REGISTERED
             null,                        // RCMSG_REQUEST_SESSION
-            HandleSessionInfo,           // RSMSG_SESSION_RESULT
+            (packet) => HandleSessionInfo(packet),           // RSMSG_SESSION_RESULT
             null,                        // RCMSG_PING
             HandlePong,                  // RSMSG_PONG
             null,                        // RCMSG_SQL_EXECUTE
@@ -270,9 +270,9 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             HandleRequestAccountMapping, // RSMSG_REQUEST_ACCOUNT_CHARACTER_MAPPING
             null,                        // RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY
             null,                        // RCMSG_UPDATE_CHARACTER_MAPPING_COUNT
-            HandleDisconnectAccount,     // RSMSG_DISCONNECT_ACCOUNT
+            (packet) => HandleDisconnectAccount(packet),     // RSMSG_DISCONNECT_ACCOUNT
             null,                        // RCMSG_TEST_CONSOLE_LOGIN
-            HandleConsoleAuthResult,     // RSMSG_CONSOLE_LOGIN_RESULT
+            (packet) => HandleConsoleAuthResult(packet),     // RSMSG_CONSOLE_LOGIN_RESULT
             null,                        // RCMSG_MODIFY_DATABASE
             HandleServerPing,            // RCMSG_SERVER_PING
             HandleServerPong,            // RSMSG_SERVER_PONG
@@ -406,7 +406,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         last_pong_ms = Environment.TickCount64;
     }
 
-    public static void HandleSessionInfo(WorldPacket recvData)
+    public void HandleSessionInfo(WorldPacket recvData)
     {
         // Read requestId first; recvData.Rpos now points to the error field.
         // Pass recvData directly — InformationRetreiveCallback reads from current Rpos.
@@ -473,7 +473,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         }
     }
 
-    public static void HandleDisconnectAccount(WorldPacket recvData)
+    public void HandleDisconnectAccount(WorldPacket recvData)
     {
         // Déconnexion d'un compte par son ID
         uint accountId = recvData.ReadUInt32();
@@ -481,7 +481,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         session?.Disconnect();
     }
 
-    public static void HandleConsoleAuthResult(WorldPacket recvData)        {
+    public void HandleConsoleAuthResult(WorldPacket recvData)        {
        
         uint requestId = recvData.ReadUInt32();
         uint result = recvData.ReadUInt32();
