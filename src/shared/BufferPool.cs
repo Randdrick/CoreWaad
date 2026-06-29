@@ -20,6 +20,7 @@
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace WaadShared;
@@ -56,8 +57,7 @@ public class BufferPool
         private readonly BufferPool m_pool;
         private readonly BufferBucketSize m_size;
         private readonly int m_byteSize;
-        private readonly List<WorldPacket> m_packetBuffer;
-        private int m_packetBufferCount;
+        private readonly ConcurrentBag<WorldPacket> m_packetBuffer = new();
         private int m_used;
         private int m_allocCounter;
 
@@ -66,84 +66,76 @@ public class BufferPool
             m_pool = parent;
             m_size = sz;
             m_byteSize = BufferSizes[(int)sz];
-            m_packetBufferCount = 100;
-            m_allocCounter = 0;
             m_used = 0;
-            m_packetBuffer = [];
+            m_allocCounter = 0;
             FillUp();
         }
 
         public void FillUp()
         {
-            int newSize = 100 + m_packetBufferCount;
-            while (m_packetBuffer.Count < newSize)
+            // Croissance exponentielle pour éviter la fragmentation
+            int targetCount = 100;
+            while (m_packetBuffer.Count < targetCount)
             {
-                m_packetBuffer.Add(new WorldPacket(m_byteSize));
-                m_packetBuffer[^1].m_bufferPool = (int)m_size;
+                var packet = new WorldPacket(m_byteSize)
+                {
+                    m_bufferPool = (int)m_size
+                };
+                m_packetBuffer.Add(packet);
             }
         }
 
         public void Queue(WorldPacket pData)
         {
-            m_allocCounter--;
-            m_used--;
-
-            if (m_packetBuffer.Count == m_packetBufferCount)
-            {
-                m_packetBuffer.Capacity = 100 + m_packetBuffer.Count;
-            }
+            Interlocked.Decrement(ref m_allocCounter);
+            Interlocked.Decrement(ref m_used);
 
             pData.Clear();
-            m_packetBuffer[m_packetBufferCount++] = pData;
+            m_packetBuffer.Add(pData);
         }
 
         public WorldPacket Dequeue()
         {
-            m_allocCounter++;
-            m_used++;
+            Interlocked.Increment(ref m_allocCounter);
+            Interlocked.Increment(ref m_used);
 
-            if (m_packetBufferCount == 0)
+            if (m_packetBuffer.TryTake(out var packet))
             {
-                WorldPacket ret = new(m_byteSize)
-                {
-                    m_bufferPool = (int)m_size
-                };
-                return ret;
+                return packet;
             }
 
-            return m_packetBuffer[--m_packetBufferCount];
+            // Si le pool est vide, créer un nouveau packet
+            return new WorldPacket(m_byteSize)
+            {
+                m_bufferPool = (int)m_size
+            };
         }
 
         public void Stats()
         {
-            int blocks = (int)((float)m_packetBufferCount / m_packetBuffer.Count * 50.0f / 2.0f);
-            int mem = (m_packetBufferCount + m_used) * m_byteSize;
-
-            Console.WriteLine($" Bucket[{m_size}]: {m_byteSize} bytes: sz = {m_packetBufferCount} resv = {m_packetBuffer.Count} alloc: {m_allocCounter} used: {m_used} mem: {mem / 1024.0f:F3} K");
-            Console.WriteLine(new string('=', blocks) + new string(' ', 50 - blocks));
+            int mem = (m_packetBuffer.Count + m_used) * m_byteSize;
+            Console.WriteLine($" Bucket[{m_size}]: {m_byteSize} bytes: sz = {m_packetBuffer.Count} used = {m_used} alloc: {m_allocCounter} mem: {mem / 1024.0f:F3} K");
         }
 
         public void Optimize()
         {
-            int y = Math.Abs(m_allocCounter) + 50;
-            int cnt;
-
-            if (m_allocCounter < 0)
+            // Garder une taille minimale de 50 buffers
+            int targetSize = Math.Max(50, m_used * 2);
+            
+            // Si on a trop de buffers, en supprimer
+            while (m_packetBuffer.Count > targetSize)
             {
-                cnt = y + m_packetBuffer.Count;
-                while (m_packetBuffer.Count < cnt)
-                {
-                    m_packetBuffer.Add(new WorldPacket(m_byteSize));
-                    m_packetBuffer[^1].m_bufferPool = -1;
-                }
+                m_packetBuffer.TryTake(out _);
             }
-            else
+            
+            // Si on en a trop peu, en ajouter
+            while (m_packetBuffer.Count < targetSize)
             {
-                cnt = (m_packetBufferCount > y) ? y : m_packetBufferCount;
-                while (m_packetBufferCount > cnt)
+                var packet = new WorldPacket(m_byteSize)
                 {
-                    m_packetBuffer.RemoveAt(--m_packetBufferCount);
-                }
+                    m_bufferPool = (int)m_size
+                };
+                m_packetBuffer.Add(packet);
             }
 
             m_allocCounter = 0;
@@ -153,9 +145,6 @@ public class BufferPool
     private class BufferBucketNode(BufferBucket bck)
     {
         public BufferBucket m_bucket = bck;
-        private readonly object m_lock = new();
-
-        public object Lock => m_lock;
     }
 
     private readonly BufferBucketNode[] m_buckets;
@@ -182,10 +171,7 @@ public class BufferPool
             return new WorldPacket(sz);
 
         BufferBucketNode bucketNode = m_buckets[bufPool];
-        lock (bucketNode.Lock)
-        {
-            return bucketNode.m_bucket.Dequeue();
-        }
+        return bucketNode.m_bucket.Dequeue();
     }
 
     public void Deallocate(WorldPacket pck)
@@ -197,10 +183,7 @@ public class BufferPool
         }
 
         BufferBucketNode b = m_buckets[pck.m_bufferPool];
-        lock (b.Lock)
-        {
-            b.m_bucket.Queue(pck);
-        }
+        b.m_bucket.Queue(pck);
     }
 
     public void Init()
@@ -224,10 +207,7 @@ public class BufferPool
         for (int x = 0; x < (int)BufferBucketSize.BufferBucketCount; ++x)
         {
             BufferBucketNode bucketNode = m_buckets[x];
-            lock (bucketNode.Lock)
-            {
-                bucketNode.m_bucket.Stats();
-            }
+            bucketNode.m_bucket.Stats();
         }
     }
 
@@ -236,10 +216,7 @@ public class BufferPool
         for (int x = 0; x < (int)BufferBucketSize.BufferBucketCount; ++x)
         {
             BufferBucketNode bucketNode = m_buckets[x];
-            lock (bucketNode.Lock)
-            {
-                bucketNode.m_bucket.Optimize();
-            }
+            bucketNode.m_bucket.Optimize();
         }
     }
 }

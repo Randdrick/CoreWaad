@@ -21,7 +21,7 @@
 
 using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using System.Data.SQLite;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -769,7 +769,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
     }
 
     /// <summary>
-    /// Optimized version that reads directly from SqlDataReader without creating Field[] arrays
+    /// Optimized version that reads directly from DbDataReader without creating Field[] arrays
     /// </summary>
     public void LoadBlockFromReader(dynamic reader, T allocated)
     {
@@ -1256,7 +1256,7 @@ public class SQLStorage<T, StorageType> : Storage<T, StorageType> where T : new(
         {
             using (var command = SLogonSQL.CreateCommand($"SELECT MAX(entry) FROM {indexName}", connection))
             {
-                using SqlDataReader reader = command.ExecuteReader();
+                using var reader = command.ExecuteReader();
                 if (reader.Read())
                 {
                     max = reader.GetInt32(0) + 1;

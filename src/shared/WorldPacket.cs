@@ -23,60 +23,34 @@
 using System;
 
 namespace WaadShared;
+
 public class WorldPacket : ByteBuffer
 {
-
-    public ushort Opcode
-    {
-        get { return m_opcode; }
-        set { m_opcode = value; }
-    }
-
-    private ushort m_opcode;
+    public ushort Opcode { get; set; }
     public int m_bufferPool;
-    private readonly byte[] data;
-
-    // Size property - with a setter that clears and re-initializes the buffer
-    public new int Size
-    {
-        get { return base.Size; }
-        set { 
-            // When Size is set, clear the buffer and advance write position
-            Clear();
-            for (int i = 0; i < value; i++)
-            {
-                Append((byte)0);
-            }
-        }
-    }
 
     public WorldPacket(int bufferSize) : base(bufferSize)
     {
-        data = new byte[bufferSize];
+        Opcode = 0;
+        m_bufferPool = -1;
     }
 
-    public WorldPacket(ushort opcode, int bufferSize) : this(bufferSize)
+    public WorldPacket(ushort opcode, int bufferSize) : base(bufferSize)
     {
-        m_opcode = opcode;
+        Opcode = opcode;
         m_bufferPool = -1;
-        // Contents is now managed by the base ByteBuffer class, don't override it
     }
 
     public WorldPacket(uint bufferSize) : base(bufferSize)
     {
-        m_opcode = 0;
+        Opcode = 0;
         m_bufferPool = -1;
     }
 
     public WorldPacket(WorldPacket packet, uint socket) : base(packet)
     {
-        m_opcode = packet.m_opcode;
+        Opcode = packet.Opcode;
         m_bufferPool = -1;
-    }
-
-    private int BufferSize()
-    {
-        return data.Length;
     }
 
     public void Initialize(ushort opcode)
@@ -87,12 +61,12 @@ public class WorldPacket : ByteBuffer
 
     public ushort GetOpcode()
     {
-        return m_opcode;
+        return Opcode;
     }
 
     public void SetOpcode(ushort opcode)
     {
-        m_opcode = opcode;
+        Opcode = opcode;
     }
 
     public static WorldPacket Create()
@@ -117,7 +91,6 @@ public class WorldPacket : ByteBuffer
 
     public new void Resize(int size)
     {
-        // Clear and pre-allocate space
         Clear();
         for (int i = 0; i < size; i++)
         {
@@ -155,10 +128,13 @@ public class WorldPacket : ByteBuffer
 
     public void Write(byte[] value, int offset, int count)
     {
-        // Extract the relevant portion and append
-        byte[] tmp = new byte[count];
-        Array.Copy(value, offset, tmp, 0, count);
-        Append(tmp, count);
+        // Optimisation : éviter la copie inutile
+        if (count > 0)
+        {
+            byte[] tmp = new byte[count];
+            Array.Copy(value, offset, tmp, 0, count);
+            Append(tmp, count);
+        }
     }
 
     public void WriteInt32(int value)

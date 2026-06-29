@@ -6,6 +6,9 @@
     <RootNamespace>waad-logonserver</RootNamespace>
     <AssemblyName>waad-logonserver</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -55,13 +58,5 @@
   <ItemGroup>
     <EmbeddedResource Include="GitInfo.txt" />
   </ItemGroup>
-
-  <!-- <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-    <AdditionalIncludeDirectories Include="..\..\lib\win\VC\;..\..\include;..\..\src\waad-shared;%(AdditionalIncludeDirectories)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
-    <AdditionalIncludeDirectories Include="../../lib/linux;../../include;../../src/waad-shared;%(AdditionalIncludeDirectories)" />
-  </ItemGroup> -->
 
 </Project>

@@ -38,7 +38,8 @@ public class ByteBuffer
     {
         return Write(value);
     }
-    protected List<byte> buffer;
+    
+    // Supprimer le champ 'buffer' redondant et utiliser uniquement '_storage'
     private readonly List<byte> _storage;
     private int _rpos;
     private int _wpos;
@@ -61,16 +62,17 @@ public class ByteBuffer
     {
         _rpos = buf._rpos;
         _wpos = buf._wpos;
-        _storage = [.. buf._storage];
+        _storage = new List<byte>(buf._storage);
     }
 
     public ByteBuffer(uint res)
     {
-        buffer = new List<byte>((int)res);
+        _storage = new List<byte>((int)res);
     }
+    
     public ByteBuffer(WorldPacket packet)
     {
-        buffer = [.. packet.buffer];
+        _storage = new List<byte>(packet.Contents);
     }
 
     public void Clear()
@@ -373,13 +375,17 @@ public class ByteBuffer
     {
         if (cnt == 0) return;
 
-        if (_storage.Count < _wpos + cnt)
-            _storage.Capacity = _wpos + cnt;
-
-        for (int i = 0; i < cnt; i++)
+        // Optimisation : utiliser AddRange au lieu d'une boucle manuelle
+        if (_wpos + cnt > _storage.Capacity)
         {
-            _storage.Add(src[i]);
+            // Croissance exponentielle pour éviter la fragmentation
+            int newCapacity = _storage.Capacity == 0 ? DEFAULT_SIZE : _storage.Capacity * 2;
+            while (newCapacity < _wpos + cnt)
+                newCapacity *= 2;
+            _storage.Capacity = newCapacity;
         }
+        
+        _storage.AddRange(src.AsSpan(0, cnt).ToArray());
         _wpos += cnt;
     }
 
@@ -496,6 +502,7 @@ public class ByteBuffer
         }
         return bytes;
     }
+    
     public void SetUInt16(int index, ushort value)
     {
         var bytes = BitConverter.GetBytes(value);
