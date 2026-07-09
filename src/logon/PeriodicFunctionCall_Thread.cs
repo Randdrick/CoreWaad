@@ -84,7 +84,7 @@ public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase, IDi
         _running = true;
         _cts = new CancellationTokenSource();
         _task = Task.Run(() => RunAsync(_cts.Token));
-        CLog.Debug(R_D_THREAD_START, _callbackName, _interval);
+        CLog.Debug("[THREADS] ", R_D_THREAD_START, _callbackName, _interval);
     }
 
     private async Task RunAsync(CancellationToken token)
@@ -101,7 +101,7 @@ public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase, IDi
             }
             catch (Exception ex)
             {
-                CLog.Error(R_E_THREAD_EXCEPTION, _callbackName, ex);
+                CLog.Error("[THREADS] ", R_E_THREAD_EXCEPTION, _callbackName, ex);
             }
         }
     }
@@ -119,7 +119,7 @@ public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase, IDi
             }
             catch (Exception ex)
             {
-                CLog.Error(R_E_THREAD_EXCEPTION, _callbackName, ex);
+                CLog.Error("[THREADS] ", R_E_THREAD_EXCEPTION, _callbackName, ex);
             }
         }
         return true;
@@ -134,11 +134,11 @@ public class PeriodicFunctionCaller<Type> : WaadShared.Threading.ThreadBase, IDi
         {
             if (_task != null && !_task.Wait(5000))
             {
-                CLog.Warning(R_W_THREAD_TIMEOUT, _callbackName);
+                CLog.Warning("[THREADS] ", R_W_THREAD_TIMEOUT, _callbackName);
             }
         }
         catch (AggregateException) { }
-        CLog.Debug(R_D_THREAD_STOP, _callbackName);
+        CLog.Debug("[THREADS] ", R_D_THREAD_STOP, _callbackName);
     }
 
     public void Dispose()

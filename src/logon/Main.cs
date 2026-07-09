@@ -453,8 +453,7 @@ public class LogonServer
 #endif
                 mrunning = false;
                 break;
-        }        
-        OnSignal(s);
+        }
     }
 
     public static void RunLS(string[] args)

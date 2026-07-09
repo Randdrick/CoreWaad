@@ -531,8 +531,8 @@ public static class Master
 
 public static class ThreadingLogs
 {
-    public const string R_D_THREAD_START = "[Threading] Démarrage du thread périodique pour {0} (intervalle: {1}ms).";
-    public const string R_D_THREAD_STOP = "[Threading] Arrêt du thread périodique pour {0}.";
-    public const string R_E_THREAD_EXCEPTION = "[Threading] Exception dans le thread périodique pour {0}: {1}";
-    public const string R_W_THREAD_TIMEOUT = "[Threading] Timeout lors de l'arrêt du thread pour {0}.";
+    public const string R_D_THREAD_START = "Démarrage du thread périodique pour {0} (intervalle: {1} ms).";
+    public const string R_D_THREAD_STOP = "Arrêt du thread périodique pour {0}.";
+    public const string R_E_THREAD_EXCEPTION = "Exception dans le thread périodique pour {0}: {1}";
+    public const string R_W_THREAD_TIMEOUT = "Timeout lors de l'arrêt du thread pour {0}."; 
 }

@@ -226,12 +226,18 @@ public class Logger : Singleton<Logger>
         {
             try
             {
+                m_file?.Close();
                 m_file = new StreamWriter("file.log", false);
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Error opening 'file.log': {ex.Message}");
             }
+        }
+        else
+        {
+            m_file?.Close();
+            m_file = null;
         }
     }
 
@@ -257,7 +263,7 @@ public class SessionLogWriter : IDisposable
 
     public void Open()
     {
-        m_file?.Dispose();
+        m_file?.Close();
         m_file = new StreamWriter(m_filename, true);
     }
 
@@ -364,6 +370,7 @@ public class WorldLog : Singleton<WorldLog>
     {
         m_file?.Close();
         m_xml?.Close();
+        mutex?.Dispose();
     }
 }
 

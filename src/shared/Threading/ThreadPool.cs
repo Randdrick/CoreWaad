@@ -89,7 +89,8 @@ public class ThreadPool : IDisposable
         lock (mutex)
         {
             ++_threadsRequestedSinceLastCheck;
-            --_threadsEaten;
+            if (_threadsEaten > 0)
+                --_threadsEaten;
 
             if (freeThreads.Count > 0)
             {

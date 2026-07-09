@@ -253,14 +253,7 @@ public class LogonCommHandler : IDisposable
                         toDisconnect.Add((kvp.Key, cs, reason));
                         continue;
                     }
-                    if (pongAge_ms > 30_000 && !cs.warningPingSent)
-                    {
-                        // Stage 1 : aucun pong depuis 30 s — ping d'avertissement avant déconnexion à 60 s.
-                        CLog.Warning("[LogonCommHandler]", $"No pong for {pongAge_ms / 1000}s from {kvp.Key.Address}:{kvp.Key.Port} (id={kvp.Key.ID}), sending warning ping (will disconnect at 60s).");
-                        cs.warningPingSent = true;
-                        toPing.Add(cs);
-                    }
-                    else if ((now_ms - lastPing) > 15_000)
+                    if ((now_ms - lastPing) > 15_000)
                     {
                         toPing.Add(cs);
                     }

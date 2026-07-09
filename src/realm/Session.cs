@@ -137,6 +137,25 @@ namespace WaadRealmServer
                 return null;
             return sAccountData[index];
         }
+
+        public void SendAccountDataTimes(uint mask)
+        {
+            // WotLK layout: uint32 timestamp + uint8 unk + uint32 mask + up to 8 uint32 entries.
+            var data = new WorldPacket((ushort)Opcodes.SMSG_ACCOUNT_DATA_TIMES, 4 + 1 + 4 + (NUM_ACCOUNT_DATA_TYPES * 4));
+
+            data.WriteUInt32((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            data.WriteByte(1);
+            data.WriteUInt32(mask);
+
+            for (uint i = 0; i < NUM_ACCOUNT_DATA_TYPES; ++i)
+            {
+                if ((mask & (1u << (int)i)) != 0)
+                    data.WriteUInt32(0);
+            }
+
+            SendPacket(data);
+        }
+
         public void SendPacket(WorldPacket packet)
         {
             if (m_socket != null && m_socket.IsConnected())
@@ -178,43 +197,44 @@ namespace WaadRealmServer
             }
 
             // Login
-            Handlers[(ushort)Opcodes.CMSG_CHAR_ENUM]                = (s, p) => s.HandleCharEnumOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_CHAR_CREATE]              = (s, p) => s.HandleCharacterCreate(p);
-            Handlers[(ushort)Opcodes.CMSG_CHAR_DELETE]              = (s, p) => s.HandleCharacterDelete(p);
-            Handlers[(ushort)Opcodes.CMSG_CHAR_RENAME]              = (s, p) => s.HandleCharacterRename(p);
-            Handlers[(ushort)Opcodes.CMSG_PLAYER_LOGIN]             = (s, p) => s.HandlePlayerLogin(p);
+            Handlers[(ushort)Opcodes.CMSG_CHAR_ENUM]                    = (s, p) => s.HandleCharEnumOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_CHAR_CREATE]                  = (s, p) => s.HandleCharacterCreate(p);
+            Handlers[(ushort)Opcodes.CMSG_CHAR_DELETE]                  = (s, p) => s.HandleCharacterDelete(p);
+            Handlers[(ushort)Opcodes.CMSG_CHAR_RENAME]                  = (s, p) => s.HandleCharacterRename(p);
+            Handlers[(ushort)Opcodes.CMSG_PLAYER_LOGIN]                 = (s, p) => s.HandlePlayerLogin(p);
             // Account Data
-            Handlers[(ushort)Opcodes.CMSG_UPDATE_ACCOUNT_DATA]      = (s, p) => s.HandleUpdateAccountData(p);
-            Handlers[(ushort)Opcodes.CMSG_REQUEST_ACCOUNT_DATA]     = (s, p) => s.HandleRequestAccountData(p);
+            Handlers[(ushort)Opcodes.CMSG_UPDATE_ACCOUNT_DATA]          = (s, p) => s.HandleUpdateAccountData(p);
+            Handlers[(ushort)Opcodes.CMSG_REQUEST_ACCOUNT_DATA]         = (s, p) => s.HandleRequestAccountData(p);
+            Handlers[(ushort)Opcodes.CMSG_READY_FOR_ACCOUNT_DATA_TIMES] = (s, p) => s.HandleReadyForAccountDataTimes(p);
             // Queries
-            Handlers[(ushort)Opcodes.CMSG_CREATURE_QUERY]           = (s, p) => s.HandleCreatureQueryOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_ITEM_QUERY_SINGLE]        = (s, p) => s.HandleItemQuerySingleOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_ITEM_NAME_QUERY]	        = (s, p) => s.HandleItemNameQueryOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_GAMEOBJECT_QUERY]         = (s, p) => s.HandleGameObjectQueryOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_PAGE_TEXT_QUERY] 	        = (s, p) => s.HandlePageTextQueryOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_NAME_QUERY]               = (s, p) => s.HandleNameQueryOpcode(p);
-            Handlers[(ushort)Opcodes.CMSG_REALM_SPLIT]              = (s, p) => s.HandleRealmSplitQuery(p);
-            Handlers[(ushort)Opcodes.CMSG_QUERY_TIME]               = (s, p) => s.HandleQueryTimeOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_CREATURE_QUERY]               = (s, p) => s.HandleCreatureQueryOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_ITEM_QUERY_SINGLE]            = (s, p) => s.HandleItemQuerySingleOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_ITEM_NAME_QUERY]	            = (s, p) => s.HandleItemNameQueryOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_GAMEOBJECT_QUERY]             = (s, p) => s.HandleGameObjectQueryOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_PAGE_TEXT_QUERY] 	            = (s, p) => s.HandlePageTextQueryOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_NAME_QUERY]                   = (s, p) => s.HandleNameQueryOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_REALM_SPLIT]                  = (s, p) => s.HandleRealmSplitQuery(p);
+            Handlers[(ushort)Opcodes.CMSG_QUERY_TIME]                   = (s, p) => s.HandleQueryTimeOpcode(p);
             // Channels
-            Handlers[(ushort)Opcodes.CMSG_JOIN_CHANNEL]             = (s, p) => s.HandleChannelJoin(p);
-            Handlers[(ushort)Opcodes.CMSG_LEAVE_CHANNEL]            = (s, p) => s.HandleChannelLeave(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_LIST]             = (s, p) => s.HandleChannelList(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_PASSWORD]         = (s, p) => s.HandleChannelPassword(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_SET_OWNER]        = (s, p) => s.HandleChannelSetOwner(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_OWNER]            = (s, p) => s.HandleChannelOwner(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_MODERATOR]        = (s, p) => s.HandleChannelModerator(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_UNMODERATOR]      = (s, p) => s.HandleChannelUnmoderator(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_MUTE]             = (s, p) => s.HandleChannelMute(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_UNMUTE]           = (s, p) => s.HandleChannelUnmute(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_INVITE]           = (s, p) => s.HandleChannelInvite(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_KICK]             = (s, p) => s.HandleChannelKick(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_BAN]              = (s, p) => s.HandleChannelBan(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_UNBAN]            = (s, p) => s.HandleChannelUnban(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_ANNOUNCEMENTS]    = (s, p) => s.HandleChannelAnnounce(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_MODERATE]         = (s, p) => s.HandleChannelModerate(p);
-            Handlers[(ushort)Opcodes.CMSG_GET_CHANNEL_MEMBER_COUNT] = (s, p) => s.HandleChannelNumMembersQuery(p);
-            Handlers[(ushort)Opcodes.CMSG_CHANNEL_DISPLAY_LIST]     = (s, p) => s.HandleChannelRosterQuery(p);
-            Handlers[(ushort)Opcodes.CMSG_MESSAGECHAT]              = (s, p) => s.HandleMessagechatOpcode(p);
+            Handlers[(ushort)Opcodes.CMSG_JOIN_CHANNEL]                 = (s, p) => s.HandleChannelJoin(p);
+            Handlers[(ushort)Opcodes.CMSG_LEAVE_CHANNEL]                = (s, p) => s.HandleChannelLeave(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_LIST]                 = (s, p) => s.HandleChannelList(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_PASSWORD]             = (s, p) => s.HandleChannelPassword(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_SET_OWNER]            = (s, p) => s.HandleChannelSetOwner(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_OWNER]                = (s, p) => s.HandleChannelOwner(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_MODERATOR]            = (s, p) => s.HandleChannelModerator(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_UNMODERATOR]          = (s, p) => s.HandleChannelUnmoderator(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_MUTE]                 = (s, p) => s.HandleChannelMute(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_UNMUTE]               = (s, p) => s.HandleChannelUnmute(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_INVITE]               = (s, p) => s.HandleChannelInvite(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_KICK]                 = (s, p) => s.HandleChannelKick(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_BAN]                  = (s, p) => s.HandleChannelBan(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_UNBAN]                = (s, p) => s.HandleChannelUnban(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_ANNOUNCEMENTS]        = (s, p) => s.HandleChannelAnnounce(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_MODERATE]             = (s, p) => s.HandleChannelModerate(p);
+            Handlers[(ushort)Opcodes.CMSG_GET_CHANNEL_MEMBER_COUNT]     = (s, p) => s.HandleChannelNumMembersQuery(p);
+            Handlers[(ushort)Opcodes.CMSG_CHANNEL_DISPLAY_LIST]         = (s, p) => s.HandleChannelRosterQuery(p);
+            Handlers[(ushort)Opcodes.CMSG_MESSAGECHAT]                  = (s, p) => s.HandleMessagechatOpcode(p);
 
             CLog.Success("[Session]", R_S_SESSION_HANDLERS_INITIALIZED, Handlers.Count);
         }

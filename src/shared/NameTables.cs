@@ -49,6 +49,7 @@ namespace WaadShared
             // Account Data
             new((uint)Opcodes.CMSG_UPDATE_ACCOUNT_DATA, "CMSG_UPDATE_ACCOUNT_DATA"),
             new((uint)Opcodes.CMSG_REQUEST_ACCOUNT_DATA, "CMSG_REQUEST_ACCOUNT_DATA"),
+            new((uint)Opcodes.CMSG_READY_FOR_ACCOUNT_DATA_TIMES, "CMSG_READY_FOR_ACCOUNT_DATA_TIMES"),
             // Queries
             new((uint)Opcodes.CMSG_CREATURE_QUERY, "CMSG_CREATURE_QUERY"),
             new((uint)Opcodes.CMSG_ITEM_QUERY_SINGLE, "CMSG_ITEM_QUERY_SINGLE"),
@@ -79,7 +80,7 @@ namespace WaadShared
             new((uint)Opcodes.CMSG_CHANNEL_DISPLAY_LIST, "CMSG_CHANNEL_DISPLAY_LIST"),
             new((uint)Opcodes.CMSG_MESSAGECHAT, "CMSG_MESSAGECHAT"),
         ];
-        public static NameTableEntry[] LogonOpcodeNames = [];
-        public static NameTableEntry[] PluginOpcodeNames = [];
+        public static readonly NameTableEntry[] LogonOpcodeNames = [];
+        public static readonly NameTableEntry[] PluginOpcodeNames = [];
     }
 }

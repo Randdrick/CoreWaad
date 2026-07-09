@@ -1103,6 +1103,12 @@ namespace WaadRealmServer
         }
         #endregion
 
+        private void HandleReadyForAccountDataTimes(WorldPacket p)
+        {
+            _ = p;
+            SendAccountDataTimes(GLOBAL_CACHE_MASK | PER_CHARACTER_CACHE_MASK);
+        }
+
         private void HandleRequestAccountData(WorldPacket p)
         {
             var sLog = new Logger();

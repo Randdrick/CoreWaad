@@ -34,7 +34,6 @@ public class WorldPacket : ByteBuffer
 
     private ushort m_opcode;
     public int m_bufferPool;
-    private readonly byte[] data;
 
     // Size property - with a setter that clears and re-initializes the buffer
     public new int Size
@@ -52,14 +51,15 @@ public class WorldPacket : ByteBuffer
 
     public WorldPacket(int bufferSize) : base(bufferSize)
     {
-        data = new byte[bufferSize];
+        // ByteBuffer base class already manages the buffer via Contents property
+        m_opcode = 0;
+        m_bufferPool = -1;
     }
 
     public WorldPacket(ushort opcode, int bufferSize) : this(bufferSize)
     {
         m_opcode = opcode;
         m_bufferPool = -1;
-        // Contents is now managed by the base ByteBuffer class, don't override it
     }
 
     public WorldPacket(uint bufferSize) : base(bufferSize)
@@ -72,11 +72,6 @@ public class WorldPacket : ByteBuffer
     {
         m_opcode = packet.m_opcode;
         m_bufferPool = -1;
-    }
-
-    private int BufferSize()
-    {
-        return data.Length;
     }
 
     public void Initialize(ushort opcode)
