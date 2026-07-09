@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using System.IO;
 using System.IO.Compression;
+using System.Threading;
 using WaadShared;
 
 using static WaadShared.LogonCommClient;
@@ -39,19 +40,21 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     private readonly RC4Engine _recvCrypto = new();
     public long last_ping_ms;
     public long last_pong_ms;
+    public long last_server_ping_ms;
     public long pingtime_ms;
     public uint latency;
     public uint _id;
     public uint authenticated;
     public bool use_crypto;
     public HashSet<uint> realm_ids = [];
+    public Action<bool> AuthCompleted { get; set; }
     
 
     // Constructeur sans paramètre pour compatibilité avec ConnectTCPSocket<T>
     public LogonCommClientSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp, 724288, 262444)
     {
         long now = Environment.TickCount64;
-        last_ping_ms = last_pong_ms = pingtime_ms = now;
+        last_ping_ms = last_pong_ms = last_server_ping_ms = pingtime_ms = now;
         remaining = opcode = 0;
         _id = 0;
         latency = 0;
@@ -62,7 +65,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         : base(fd, 724288, 262444)
     {
         long now = Environment.TickCount64;
-        last_ping_ms = last_pong_ms = pingtime_ms = now;
+        last_ping_ms = last_pong_ms = last_server_ping_ms = pingtime_ms = now;
         remaining = opcode = 0;
         _id = 0;
         latency = 0;
@@ -289,11 +292,12 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
     public void SendPing()
     {
-        pingtime_ms = Environment.TickCount64;
+        long now = Environment.TickCount64;
+        Interlocked.Exchange(ref pingtime_ms, now);
         var packet = new WorldPacket((ushort)RCMSG_PING, 4);
-        packet.WriteUInt32((uint)(pingtime_ms & 0xFFFFFFFF));
+        packet.WriteUInt32((uint)(now & 0xFFFFFFFF));
         SendPacket(packet);
-        last_ping_ms = Environment.TickCount64;
+        Interlocked.Exchange(ref last_ping_ms, Environment.TickCount64);
     }
 
     public void SendChallenge()
@@ -328,11 +332,13 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         {
             authenticated = 0xFFFFFFFF;
             CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_3);
+            AuthCompleted?.Invoke(false);
         }
         else
         {
             authenticated = 1;
             LogonCommHandler.Instance.RequestAddition(this);
+            AuthCompleted?.Invoke(true);
         }
         use_crypto = true;
     }
@@ -374,8 +380,8 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             long now = Environment.TickCount64;
             CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT, $"{now - pingtime_ms}");
         }
-        latency = (uint)(Environment.TickCount64 - pingtime_ms);
-        last_pong_ms = Environment.TickCount64;
+        latency = (uint)(Environment.TickCount64 - Interlocked.Read(ref pingtime_ms));
+        Interlocked.Exchange(ref last_pong_ms, Environment.TickCount64);
     }
 
     public void HandleServerPing(WorldPacket recvData)
@@ -387,12 +393,18 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             r = recvData.ReadUInt32();
         }
 
-        var packet = new WorldPacket((ushort)RCMSG_SERVER_PONG, 4);
-        packet.WriteUInt32(r);
-        SendPacket(packet, false);
+        SendServerPong(r);
 
-        // A server-initiated ping confirms the connection is alive.
-        // last_pong_ms = Environment.TickCount64;
+        // Un SERVER_PING reçu prouve que la connexion est vivante : réinitialiser le timer de pong.
+        Interlocked.Exchange(ref last_server_ping_ms, Environment.TickCount64);
+        Interlocked.Exchange(ref last_pong_ms, Environment.TickCount64);
+    }
+
+    public void SendServerPong(uint echo)
+    {
+        var packet = new WorldPacket((ushort)RCMSG_SERVER_PONG, 4);
+        packet.WriteUInt32(echo);
+        SendPacket(packet, false);
     }
 
     public void HandleServerPong(WorldPacket recvData)
@@ -402,8 +414,8 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             _ = recvData.ReadUInt32();
         }
         // Mise à jour du timestamp pour éviter le timeout
-        latency = (uint)(Environment.TickCount64 - pingtime_ms);
-        last_pong_ms = Environment.TickCount64;
+        latency = (uint)(Environment.TickCount64 - Interlocked.Read(ref pingtime_ms));
+        Interlocked.Exchange(ref last_pong_ms, Environment.TickCount64);
     }
 
     public static void HandleSessionInfo(WorldPacket recvData)
@@ -481,7 +493,8 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         session?.Disconnect();
     }
 
-    public static void HandleConsoleAuthResult(WorldPacket recvData)        {
+    public static void HandleConsoleAuthResult(WorldPacket recvData) 
+    {
        
         uint requestId = recvData.ReadUInt32();
         uint result = recvData.ReadUInt32();

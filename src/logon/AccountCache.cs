@@ -21,6 +21,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using MySql.Data.MySqlClient;
 using Npgsql;
 using System.Data.SQLite;
@@ -700,9 +701,10 @@ public class InformationCore
 
             foreach (var socket in serverSockets.ToList())
             {
-                if (socket.lastPing_ms < now_ms && (now_ms - socket.lastPing_ms) > 60_000)
+                long lastPing = Interlocked.Read(ref socket.lastPing_ms);
+                if (lastPing < now_ms && (now_ms - lastPing) > 60_000)
                 {
-                    CLog.Warning("[InfoCore]", $"Disconnecting realm socket due to ping timeout. now={now_ms} lastPing_ms={socket.lastPing_ms} delta={now_ms - socket.lastPing_ms}ms remote={socket.GetRemoteIP()}:{socket.GetRemotePort()}");
+                    CLog.Warning("[InfoCore]", $"Disconnecting realm socket due to ping timeout. now={now_ms} lastPing_ms={lastPing} delta={now_ms - lastPing}ms remote={socket.GetRemoteIP()}:{socket.GetRemotePort()}");
                     serverSockets.Remove(socket);
 
                     foreach (var serverId in socket.serverIds)

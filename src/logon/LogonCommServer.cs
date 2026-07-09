@@ -67,7 +67,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     public LogonCommServerSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
     {
         lastPing_ms = Environment.TickCount64;
-        nextServerPing_ms = lastPing_ms + 20_000;
+        nextServerPing_ms = lastPing_ms + 30_000;
         remaining = opcode = 0;
         useCrypto = false;
         authenticated = 0;
@@ -79,13 +79,13 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     public LogonCommServerSocket(Socket socket) : base(socket, 1024, 1024)
     {
         lastPing_ms = Environment.TickCount64;
-        nextServerPing_ms = lastPing_ms + 20_000;
+        nextServerPing_ms = lastPing_ms + 30_000;
         remaining = opcode = 0;
         // removed = false;
         useCrypto = false;
         authenticated = 0;
         InitializeHandlers();
-        pingTimer = new Timer(PingTimerCallback, null, 20000, 20000); // 20s interval
+        pingTimer = new Timer(PingTimerCallback, null, 30000, 30000); // 30s interval
         // NOTE: DO NOT call OnConnect() here - ListenSocket.SetConnected() will handle it
     }
 
@@ -139,19 +139,22 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             if (now_ms >= nextServerPing_ms)
             {
                 SendPing();
-                nextServerPing_ms = now_ms + 20_000;
+                nextServerPing_ms = now_ms + 30_000;
             }
 
             // Read-event watchdog: ensure BeginReceive is always armed.
             // SetupReadEvent is idempotent – returns immediately if a read is already
             // pending (_pendingRead guard). If the read loop was silently dropped by any
-            // race condition, this re-arms it within the next 20-second tick.
+            // race condition, this re-arms it within the next 30-second tick.
             if (IsConnected() && !IsDeleted())
             {
                 WaadShared.Network.SocketExtensions.SetupReadEvent(this);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            CLog.Error("[LogonCommServer]", string.Format("Ping timer error: {0}", ex.Message));
+        }
     }
 
     public override void OnDisconnect()
@@ -500,7 +503,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         }
 
         lastPing_ms = Environment.TickCount64;
-        nextServerPing_ms = lastPing_ms + 20_000; // Reset next ping timer
+        // nextServerPing_ms = lastPing_ms + 20_000; // Reset next ping timer
     }
 
     public static bool IsServerAllowed(IPAddress address)
@@ -582,14 +585,55 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     public void HandleMappingReply(WorldPacket recvData)
     {
         var sLog = new Logger();
-        uint realSize = recvData.ReadUInt32();
-        byte[] buffer = new byte[realSize];
-        Array.Resize(ref buffer, (int)realSize);
-
-        using (var ms = new MemoryStream(recvData.Contents, 4, recvData.Size - 4))
-        using (var ds = new DeflateStream(ms, CompressionMode.Decompress))
+        
+        // Validation de la taille du paquet
+        if (recvData.Size < 4)
         {
-            ds.Read(buffer, 0, buffer.Length);
+            CLog.Error("[LogonCommServer]", "Mapping reply too short");
+            return;
+        }
+        
+        uint realSize = recvData.ReadUInt32();
+        
+        // Limite de sécurité pour éviter les allocations excessives
+        const uint MAX_MAPPING_SIZE = 10 * 1024 * 1024; // 10 Mo
+        if (realSize > MAX_MAPPING_SIZE)
+        {
+            CLog.Error("[LogonCommServer]", 
+                string.Format("Mapping reply too large: {0} bytes (max: {1})", realSize, MAX_MAPPING_SIZE));
+            return;
+        }
+        
+        // Extraire les données compressées
+        int compressedSize = recvData.Size - 4;
+        if (compressedSize <= 0)
+        {
+            CLog.Error("[LogonCommServer]", "No compressed data in mapping reply");
+            return;
+        }
+        
+        byte[] compressedData = new byte[compressedSize];
+        recvData.Read(compressedData, 0, compressedSize);
+        
+        byte[] buffer;
+        try
+        {
+            // Décompresser les données
+            buffer = DecompressData(compressedData);
+            
+            // Vérifier que la taille décompressée correspond
+            if (buffer.Length != realSize)
+            {
+                CLog.Error("[LogonCommServer]", 
+                    string.Format("Decompressed size mismatch: expected {0}, got {1}", realSize, buffer.Length));
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[LogonCommServer]", 
+                string.Format("Decompression failed: {0}", ex.Message));
+            return;
         }
 
         uint accountId;
@@ -598,7 +642,11 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         uint realmId = BitConverter.ToUInt32(buffer, 0);
         Realm realm = sInfoCore.GetRealm(realmId);
         if (realm == null)
+        {
+            CLog.Warning("[LogonCommServer]", 
+                string.Format("Received mapping for unknown realm {0}", realmId));
             return;
+        }
 
         lock (sInfoCore)
         {
@@ -608,16 +656,19 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             {
                 accountId = BitConverter.ToUInt32(buffer, (int)(8 + (i * 5)));
                 numberOfCharacters = buffer[12 + (i * 5)];
-                if (realm.CharacterMap.ContainsKey(accountId))
-                {
-                    realm.CharacterMap[accountId] = numberOfCharacters;
-                }
-                else
-                {
-                    realm.CharacterMap[accountId] = numberOfCharacters;
-                }
+                realm.CharacterMap[accountId] = numberOfCharacters;
             }
         }
+    }
+    
+    private static byte[] DecompressData(byte[] compressedData)
+    {
+        using var ms = new MemoryStream(compressedData);
+        using var ds = new DeflateStream(ms, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        
+        ds.CopyTo(output);
+        return output.ToArray();
     }
 
     public void HandleUpdateMapping(WorldPacket recvData)

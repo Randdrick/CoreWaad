@@ -45,6 +45,9 @@ public class LogonServer
     public uint ServerID { get; set; }
     public long RetryTime { get; set; }
     public bool Registered { get; set; } = false;
+    public bool IsConnecting { get; set; } = false;
+    public long RegistrationTimeout { get; set; }
+    public Action RegistrationCompleted { get; set; }
 }
 
 public class Realm
@@ -189,6 +192,7 @@ public class LogonCommHandler : IDisposable
                 if (kvp.Key.ID == id && kvp.Value != null)
                 {
                     kvp.Key.RetryTime = Environment.TickCount64 + 10_000;
+                    kvp.Key.IsConnecting = false;  // Mark as no longer connecting so retry can work
                     logons[kvp.Key] = null;
                     break;
                 }
@@ -204,6 +208,7 @@ public class LogonCommHandler : IDisposable
             {
                 kvp.Key.ServerID = servId;
                 kvp.Key.Registered = true;
+                kvp.Key.RegistrationCompleted?.Invoke();
                 return;
             }
         }
@@ -236,20 +241,56 @@ public class LogonCommHandler : IDisposable
                         toDisconnect.Add((kvp.Key, cs, null));
                         continue;
                     }
-                    if (cs.last_pong_ms < now_ms && ((now_ms - cs.last_pong_ms) > 60_000))
+                    // Lecture atomique : last_pong_ms / last_ping_ms sont écrits par le thread IOCP.
+                    // Interlocked.Read garantit la visibilité mémoire cross-thread sans lock.
+                    long lastPong = Interlocked.Read(ref cs.last_pong_ms);
+                    long lastPing = Interlocked.Read(ref cs.last_ping_ms);
+                    long pongAge_ms = lastPong < now_ms ? now_ms - lastPong : 0;
+                    if (pongAge_ms > 60_000)
                     {
-                        string reason = $"Disconnecting logon link due to heartbeat timeout. now={now_ms} last_ping_ms={cs.last_ping_ms} last_pong_ms={cs.last_pong_ms} delta={now_ms - cs.last_pong_ms}ms id={kvp.Key.ID} addr={kvp.Key.Address}:{kvp.Key.Port}";
+                        // Stage 2 : aucun pong depuis 60 s — déconnexion définitive.
+                        string reason = $"Disconnecting logon link due to heartbeat timeout (no pong for {pongAge_ms}ms). now={now_ms} last_ping_ms={lastPing} last_pong_ms={lastPong} id={kvp.Key.ID} addr={kvp.Key.Address}:{kvp.Key.Port}";
                         toDisconnect.Add((kvp.Key, cs, reason));
                         continue;
                     }
-                    if ((now_ms - cs.last_ping_ms) > 15_000)
+                    if (pongAge_ms > 30_000 && !cs.warningPingSent)
+                    {
+                        // Stage 1 : aucun pong depuis 30 s — ping d'avertissement avant déconnexion à 60 s.
+                        CLog.Warning("[LogonCommHandler]", $"No pong for {pongAge_ms / 1000}s from {kvp.Key.Address}:{kvp.Key.Port} (id={kvp.Key.ID}), sending warning ping (will disconnect at 60s).");
+                        cs.warningPingSent = true;
+                        toPing.Add(cs);
+                    }
+                    else if ((now_ms - lastPing) > 15_000)
                     {
                         toPing.Add(cs);
                     }
                 }
                 else
                 {
-                    if (now_ms >= kvp.Key.RetryTime)
+                    // Check if connection is in progress and timed out
+                    if (kvp.Key.IsConnecting)
+                    {
+                        long timeLeft = kvp.Key.RegistrationTimeout - now_ms;
+                        if (timeLeft <= 0)
+                        {
+                            // Connection attempt timed out
+                            string reason = string.Format("Connection timeout for server {0} ({1}:{2})", 
+                                kvp.Key.Name, kvp.Key.Address, kvp.Key.Port);
+                            var connToCleanup = logons[kvp.Key];
+                            toDisconnect.Add((kvp.Key, connToCleanup, reason));
+                            kvp.Key.IsConnecting = false;
+                            continue;
+                        }
+                        else
+                        {
+                            // Connection still in progress, timeout not yet reached
+                            CLog.Debug("[LogonCommHandler]", 
+                                string.Format("Waiting for connection to {0} ({1}:{2}), {3:F1}s remaining",
+                                kvp.Key.Name, kvp.Key.Address, kvp.Key.Port, timeLeft / 1000.0));
+                        }
+                    }
+                    
+                    if (now_ms >= kvp.Key.RetryTime && !kvp.Key.IsConnecting)
                         toConnect.Add(kvp.Key);
                 }
             }
@@ -259,9 +300,14 @@ public class LogonCommHandler : IDisposable
             {
                 if (reason != null)
                     CLog.Warning("[LogonCommHandler]", reason);
-                cs._id = 0;
-                if (reason != null) // only full-disconnect on timeout; dead sockets just nulled
-                    cs.Disconnect();
+                
+                // Safely cleanup connection if it exists
+                if (cs != null)
+                {
+                    cs._id = 0;
+                    if (reason != null) // only full-disconnect on timeout; dead sockets just nulled
+                        cs.Disconnect();
+                }
                 logons[server] = null;
             }
         }
@@ -282,12 +328,20 @@ public class LogonCommHandler : IDisposable
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_2, server.Name, server.Address, server.Port);
         server.RetryTime = Environment.TickCount64 + 10_000;
         server.Registered = false;
+        
+        // Mark as connecting to prevent duplicate attempts
+        server.IsConnecting = true;
+        
+        // Set global timeout for the entire connection process (auth + registration)
+        // This will be checked in UpdateSockets() if callbacks fail to trigger
+        server.RegistrationTimeout = Environment.TickCount64 + 20_000; // 20 seconds total timeout
+        
         var conn = ConnectToLogon(server.Address, server.Port);
-        logons[server] = conn;
         if (conn == null)
         {
             Logger.OutColor(LogColor.TRED, R_E_LOGCOMHAN, server.Address, server.Port);
             Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_NEWLINE);
+            server.IsConnecting = false;
             return;
         }
 
@@ -295,73 +349,97 @@ public class LogonCommHandler : IDisposable
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_3);
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_PROMPT);
 
+        logons[server] = conn;
+        
         // Set _id BEFORE SendChallenge so that AdditionAck (called asynchronously
-        // on the IOCP worker thread during HandleAuthResponse → RequestAddition →
+        // on the IOCP worker thread during HandleAuthResponse -> RequestAddition ->
         // HandleRegister) can match kvp.Key.ID and set server.Registered = true.
         conn._id = server.ID;
 
-        long tt = Environment.TickCount64 + 10_000;
-        conn.SendChallenge();
-        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_4);
-
-        while (conn.authenticated == 0)
+        // Setup callbacks for async completion - DO NOT BLOCK THE MAIN THREAD
+        conn.AuthCompleted = (success) => 
         {
-            if (_shuttingDown)
-            {
-                conn.Disconnect();
-                logons[server] = null;
-                return;
-            }
-            if (Environment.TickCount64 >= tt)
-            {
-                Logger.OutColor(LogColor.TYELLOW, R_Y_LOGCOMHAN);
-                conn.Disconnect();
-                logons[server] = null;
-                return;
-            }
-            Thread.Sleep(10);
-        }
+            if (_shuttingDown) return;
+            conn.authenticated = success ? 1 : 0xFFFFFFFF;
+            HandleAuthCompletion(server, conn, success);
+        };
+        
+        server.RegistrationCompleted = () => 
+        {
+            if (_shuttingDown) return;
+            HandleRegistrationCompletion(server, conn);
+        };
 
-        if (conn.authenticated != 1)
+        // Start connection process - this will trigger callbacks asynchronously
+        conn.SendChallenge();
+
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_4);
+    }
+    
+    private void HandleAuthCompletion(LogonServer server, LogonCommClientSocket conn, bool success)
+    {
+        if (_shuttingDown)
+        {
+            CleanupConnection(server, conn);
+            return;
+        }
+        
+        if (!success)
         {
             Logger.OutColor(LogColor.TRED, R_E_LOGCOMHAN_1);
-            logons[server] = null;
-            conn.Disconnect();
+            CleanupConnection(server, conn);
             return;
         }
-        else
-            Logger.OutColor(LogColor.TGREEN, " Ok !\n");
-
+        
+        Logger.OutColor(LogColor.TGREEN, " Ok !\n");
         conn.SendPing();
-
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_5);
-        // conn._id already set above before SendChallenge – do not overwrite here.
-        // RequestAddition(conn); removed, now called in HandleAuthResponse
-        long st = Environment.TickCount64 + 10_000;
-        while (!server.Registered)
+        
+        // Start timeout timer for registration (10 seconds)
+        server.RegistrationTimeout = Environment.TickCount64 + 10_000;
+    }
+    
+    private void HandleRegistrationCompletion(LogonServer server, LogonCommClientSocket conn)
+    {
+        if (_shuttingDown)
         {
-            if (_shuttingDown)
-            {
-                logons[server] = null;
-                conn.Disconnect();
-                break;
-            }
-            if (Environment.TickCount64 >= st)
-            {
-                CLog.Warning("[LogonCommHandler]", R_Y_LOGCOMHAN_1);
-                logons[server] = null;
-                conn.Disconnect();
-                break;
-            }
-            Thread.Sleep(50);
-        }
-        if (!server.Registered)
+            CleanupConnection(server, conn);
             return;
-        Thread.Sleep(200);
-
-        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_6);
-        Logger.OutColor(LogColor.TYELLOW, R_N_LOGCOMHAN_LATENCE, conn.latency);
-        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_NEWLINE);
+        }
+        
+        if (!server.Registered)
+        {
+            // Registration failed or timeout
+            CleanupConnection(server, conn);
+            return;
+        }
+        
+        // Connection successful - mark as no longer connecting
+        server.IsConnecting = false;
+        
+        // Give some time for initial data to sync - use async delay to not block main thread
+        _ = System.Threading.Tasks.Task.Run(async () => 
+        {
+            await System.Threading.Tasks.Task.Delay(200);
+            if (!_shuttingDown && server.Registered)
+            {
+                Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_6);
+                Logger.OutColor(LogColor.TYELLOW, R_N_LOGCOMHAN_LATENCE, conn.latency);
+                Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_NEWLINE);
+            }
+        });
+    }
+    
+    private void CleanupConnection(LogonServer server, LogonCommClientSocket conn)
+    {
+        server.IsConnecting = false;
+        server.Registered = false;
+        if (conn != null)
+        {
+            conn._id = 0;
+            conn.Disconnect();
+        }
+        logons[server] = null;
     }
     //public void LogonDatabaseSQLExecute(string str, params object[] args) { /* ... */ }
     //public void LogonDatabaseReloadAccounts() { /* ... */ }
