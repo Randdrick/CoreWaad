@@ -136,11 +136,15 @@ namespace WaadRealmServer
         public void InformationRetreiveCallback(WorldPacket recvData, uint requestId)
         {
             if (requestId != mRequestID)
+            {
+                CLog.Error("[WorldSocket]", $"Session response request mismatch: expected={mRequestID}, received={requestId}");
                 return;
+            }
 
             uint error = recvData.ReadUInt32();
             if (error != 0 || pAuthenticationPacket == null)
             {
+                CLog.Error("[WorldSocket]", $"Logon session request failed: error={error}, authPacketPresent={pAuthenticationPacket != null}");
                 OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_FAILED]);
                 return;
             }
@@ -176,14 +180,6 @@ namespace WaadRealmServer
                 return;
             }
 
-            m_session = ClientMgr.Instance.CreateSession(accountId);
-            if (m_session == null)
-            {
-                OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_FAILED]);
-                CLog.Error("[WorldSocket]", R_E_WRDSOCK_2);
-                return;
-            }
-
             using (var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1))
             {
                 string authAccount = !string.IsNullOrEmpty(m_fullAccountName) ? m_fullAccountName : accountName;
@@ -197,9 +193,22 @@ namespace WaadRealmServer
 
                 if (!Enumerable.SequenceEqual(computedHash, mClientAuthDigest))
                 {
+                    CLog.Error("[WorldSocket]", $"WoW auth digest mismatch for account={accountName}, accountId={accountId}");
+                    mRequestID = 0;
+                    m_session = null;
                     OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_UNKNOWN_ACCOUNT]);
+                    Disconnect();
                     return;
                 }
+            }
+
+            m_session = ClientMgr.Instance.CreateSession(accountId);
+            if (m_session == null)
+            {
+                OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_FAILED]);
+                CLog.Error("[WorldSocket]", R_E_WRDSOCK_2);
+                Disconnect();
+                return;
             }
 
             // Réinitialisation de m_fullAccountName après utilisation
@@ -221,6 +230,7 @@ namespace WaadRealmServer
                 m_session.SetAccountData(i, null, true, 0);
 
             CLog.Notice("Auth", R_N_WRDSOCK_1, accountName, GetRemoteIP(), GetRemotePort(), _latency);
+            Authed = true;
             Authenticate();
         }
 

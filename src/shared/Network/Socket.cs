@@ -29,12 +29,13 @@ using System.Threading;
 
 namespace WaadShared.Network;
 
-public class Socket
+public class Socket : IDisposable
 {
     private readonly System.Net.Sockets.Socket _socket;
     public System.Net.Sockets.Socket GetSocket() => _socket;
     private bool m_connected;
     private bool m_deleted;
+    private bool _disposed = false;
 #if CONFIG_USE_IOCP    
     private int m_writeLock;
 #endif
@@ -117,8 +118,35 @@ public class Socket
 
     ~Socket()
     {
-        // No explicit cleanup needed, but call Disconnect for symmetry
-        Disconnect();
+        Dispose(false);
+    }
+
+    public virtual void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                // Libérer les buffers circulaires
+                try
+                {
+                    readBuffer?.Dispose();
+                    writeBuffer?.Dispose();
+                }
+                catch { }
+            }
+            
+            // Libérer le socket natif
+            Disconnect();
+            
+            _disposed = true;
+        }
     }
 
     public bool Connect(string address, int port)
@@ -290,16 +318,19 @@ public class Socket
     public void BurstPush()
     {
         // Flush all buffered write data to the socket
+        byte[] buffer = null;
+        int availableBytes = 0;
+        int totalSent = 0;
         try
         {
             if (_socket == null || !m_connected)
                 return;
 
-            int availableBytes = writeBuffer.GetSize();
+            availableBytes = writeBuffer.GetSize();
             if (availableBytes <= 0)
                 return;
 
-            byte[] buffer = new byte[availableBytes];
+            buffer = new byte[availableBytes];
             if (writeBuffer.Read(buffer, availableBytes))
             {
                 // Debug: log outgoing bytes summary
@@ -309,14 +340,24 @@ public class Socket
                 for (int i = 0; i < preview; i++) sb.AppendFormat("{0:X2} ", buffer[i]);
                 CLog.Debug("[SOCKET]", $"BurstPush preview ({preview} bytes): {sb}");
 
-                int totalSent = 0;
                 while (totalSent < availableBytes)
                 {
-                    int sent = _socket.Send(buffer, totalSent, availableBytes - totalSent, SocketFlags.None);
-                    if (sent <= 0)
-                        break;
+                    try
+                    {
+                        int sent = _socket.Send(buffer, totalSent, availableBytes - totalSent, SocketFlags.None);
+                        if (sent <= 0)
+                            break;
 
-                    totalSent += sent;
+                        totalSent += sent;
+                    }
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
+                    {
+                        // Connect() puts the socket in non-blocking mode. Do not
+                        // abandon the encrypted stream when the kernel send buffer
+                        // is temporarily full; wait for writability and retry.
+                        if (!_socket.Poll(100_000, SelectMode.SelectWrite))
+                            break;
+                    }
                 }
 
                 if (totalSent != availableBytes)
@@ -345,6 +386,14 @@ public class Socket
         }
         catch (SocketException ex)
         {
+            if (buffer != null && totalSent < availableBytes)
+            {
+                int unsent = availableBytes - totalSent;
+                byte[] pending = new byte[unsent];
+                Buffer.BlockCopy(buffer, totalSent, pending, 0, unsent);
+                if (!writeBuffer.Write(pending, unsent))
+                    Disconnect();
+            }
             CLog.Error("[SOCKET]", $"BurstPush SocketException: {ex.Message}");
         }
         catch (ObjectDisposedException)
@@ -360,6 +409,38 @@ public class Socket
     public void BurstEnd()
     {
         Monitor.Exit(m_writeMutex);
+    }
+
+    public bool SendPacketDirect(byte[] data, int size)
+    {
+        if (_socket == null || !m_connected)
+            return false;
+
+        try
+        {
+            int totalSent = 0;
+            while (totalSent < size)
+            {
+                try
+                {
+                    int sent = _socket.Send(data, totalSent, size - totalSent, SocketFlags.None);
+                    if (sent <= 0)
+                        return false;
+                    totalSent += sent;
+                }
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
+                {
+                    if (!_socket.Poll(100_000, SelectMode.SelectWrite))
+                        return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[SOCKET]", string.Format("SendPacketDirect error: {0}", ex.Message));
+            return false;
+        }
     }
 
     public string GetRemoteIP()

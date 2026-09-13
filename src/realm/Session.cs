@@ -27,7 +27,7 @@ using static WaadShared.Session;
 
 namespace WaadRealmServer
 {
-    public partial class Session(uint accountId, uint sessionId) 
+    public partial class Session(uint accountId, uint sessionId) : IDisposable
     {
         // --- Constants and Enums ---
         public const int NUM_ACCOUNT_DATA_TYPES = 8;
@@ -64,6 +64,7 @@ namespace WaadRealmServer
         public byte UpdateCount;
         public uint Muted;
         public uint LastPing;
+        private bool _disposed;
 
         // --- Extra fields for ConsoleCommands and ClientMgr compatibility ---
         public string Race { get; set; } = string.Empty;
@@ -102,7 +103,33 @@ namespace WaadRealmServer
         // --- Packet Queue ---
         public void QueuePacket(WorldPacket packet)
         {
+            if (_disposed || Deleted)
+            {
+                packet?.Dispose();
+                return;
+            }
+
             m_readQueue.Enqueue(packet);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            Deleted = true;
+
+            while (m_readQueue.TryDequeue(out var packet))
+                packet?.Dispose();
+
+            for (int index = 0; index < sAccountData.Length; index++)
+                sAccountData[index].Data = null;
+
+            m_currentPlayer = null;
+            m_socket = null;
+            m_server = null;
+            m_nextServer = null;
         }
 
         // (Removed duplicate SendPacket/QueuePacket methods)
@@ -242,6 +269,9 @@ namespace WaadRealmServer
         // Main packet dispatch loop (Update)
         public void Update()
         {
+            if (_disposed)
+                return;
+
             bool errorPacket = false;
             while (m_readQueue.TryDequeue(out var packet))
             {

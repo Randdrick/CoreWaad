@@ -23,7 +23,7 @@ using System;
 
 namespace WaadShared.Network;
 
-public class CircularBuffer
+public class CircularBuffer : IDisposable
 {
     private byte[] m_buffer;
     private int m_bufferEnd;
@@ -40,9 +40,26 @@ public class CircularBuffer
         m_regionASize = m_regionBSize = 0;
     }
 
-    ~CircularBuffer()
+
+    public void Dispose()
+    {
+        Free();
+        GC.SuppressFinalize(this);
+    }
+
+    public void Clear()
+    {
+        m_regionAPointer = 0;
+        m_regionBPointer = 0;
+        m_regionASize = 0;
+        m_regionBSize = 0;
+    }
+
+    public void Free()
     {
         m_buffer = null;
+        m_bufferEnd = 0;
+        Clear();
     }
 
     // Alloue le buffer avec une taille donnée
@@ -185,7 +202,6 @@ public class CircularBuffer
             int toRemove = Math.Min(remaining, m_regionBSize);
             m_regionBPointer += toRemove;
             m_regionBSize -= toRemove;
-            remaining -= toRemove;
         }
 
         if (m_regionASize == 0 && m_regionBSize > 0)

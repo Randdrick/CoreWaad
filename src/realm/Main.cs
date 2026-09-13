@@ -24,14 +24,12 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.Tasks;
 using WaadShared;
 using WaadShared.Config;
 using WaadShared.Network;
 using WaadShared.RandomGen;
 using WaadShared.Threading;
 
-using static System.Threading.Thread;
 using static WaadShared.Common;
 using static WaadShared.Main;
 using static WaadShared.Master;
@@ -95,8 +93,14 @@ public class Master
     private static int MinThreadCount { get; set; }
     private static int MaxThreadCount { get; set; }
     private static int StartThreadCount { get; set; }
+    private static int s_networkThreadCount;
+    private static int s_taskListThreadCount;
     private static uint rlport = 8129;
     private static uint rsport = 11010;
+    
+    // Gestion des threads et de l'annulation
+    private static readonly CancellationTokenSource s_cts = new();
+    private static readonly ManualResetEventSlim s_mainLoopDelay = new(false);
 
     // PID file (Unix only)
     private static readonly string PID_FILE = "waad-realmserver.pid";
@@ -126,6 +130,7 @@ public class Master
 # if WIN32
             case "SIGBREAK":
 #endif
+                s_cts.Cancel();
                 StopEvent = true;
                 break;
         }
@@ -225,9 +230,20 @@ public class Master
         // Configuration du ThreadPool réseau
         StartThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "InitialThreads", 8);
 
-        // Limites du ThreadPool réseau
-        MinThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MinThreads", 8);
-        MaxThreadCount = Config.ClusterConfig.GetInt32("Network.ThreadPool", "MaxThreads", 32);
+        // Limites du ThreadPool réseau avec validation
+        MinThreadCount = Math.Clamp(
+            Config.ClusterConfig.GetInt32("Network.ThreadPool", "MinThreads", 8),
+            1,
+            MAX_TOTAL_THREADS
+        );
+        MaxThreadCount = Math.Clamp(
+            Config.ClusterConfig.GetInt32("Network.ThreadPool", "MaxThreads", 32),
+            MinThreadCount,
+            MAX_TOTAL_THREADS
+        );
+        StartThreadCount = Math.Clamp(StartThreadCount, MinThreadCount, MaxThreadCount);
+
+        // Mettre à jour les limites du NetworkThreadPool (si déjà initialisé)
         NetworkThreadPool.Instance.SetThreadLimits(MinThreadCount, MaxThreadCount);
 
         // Ports du cluster
@@ -247,6 +263,40 @@ public class Master
 
         // Rechargement de la configuration des canaux
         Channel.LoadConfSettings();
+    }
+
+    /// <summary>
+    /// Configure les pools de threads avec validation des limites et répartition optimale.
+    /// </summary>
+    private static void ConfigureThreadPools()
+    {
+        // 1. Utiliser StartThreadCount comme nombre initial de threads pour NetworkThreadPool
+        s_networkThreadCount = StartThreadCount;
+
+        // 2. Calculer le nombre de threads pour TaskList en fonction des ressources disponibles
+        int logicalCoreCount = Environment.ProcessorCount;
+        int optimalTotalThreads = m_enableMultithreadedLoading
+            ? Math.Min(logicalCoreCount * 2, MAX_TOTAL_THREADS)
+            : 1;
+
+        // 3. Calculer s_taskListThreadCount en respectant la limite totale
+        //    On alloue le reste des threads disponibles à TaskList
+        s_taskListThreadCount = Math.Max(1, optimalTotalThreads - s_networkThreadCount);
+        
+        // Vérifier que le total ne dépasse pas MAX_TOTAL_THREADS
+        int totalThreads = s_networkThreadCount + s_taskListThreadCount;
+        if (totalThreads > MAX_TOTAL_THREADS)
+        {
+            sLog.OutWarning("[ThreadPool] Réduction du nombre de threads pour respecter MAX_TOTAL_THREADS.");
+            s_taskListThreadCount = Math.Max(1, MAX_TOTAL_THREADS - s_networkThreadCount);
+        }
+
+        // 4. Configurer NetworkThreadPool
+        NetworkThreadPool.Instance.SetThreadLimits(MinThreadCount, MaxThreadCount);
+        NetworkThreadPool.Instance.Startup((byte)s_networkThreadCount);
+
+        sLog.OutDebug($"[ThreadPool] NetworkThreadPool: Min={MinThreadCount}, Max={MaxThreadCount}, Démarré avec {s_networkThreadCount} threads.");
+        sLog.OutDebug($"[ThreadPool] TaskList: {s_taskListThreadCount} threads. Total: {s_networkThreadCount + s_taskListThreadCount}/{MAX_TOTAL_THREADS}");
     }
 
     public static void Main(string[] args)
@@ -415,6 +465,7 @@ public class Master
         Console.CancelKeyPress += (sender, e) =>
         {
             CLog.Notice("[Main]", L_N_MAIN_12_A);
+            s_cts.Cancel();
             m_stopEvent = true;
             e.Cancel = true; // Critique : empêche l'arrêt brutal
         };
@@ -422,32 +473,8 @@ public class Master
         MersenneTwister.InitRandomNumberGenerators();
         CLog.Success("[Rnd]", R_S_MASTER_1);
 
-        // === Gestion des threads (nouvelle logique) ===
-        // 1. Calcul du nombre total de threads disponibles
-        int totalAvailableThreads = CalculateOptimalThreadCount();
-
-        // 2. Répartition entre NetworkThreadPool et TaskList
-        int networkThreadCount = totalAvailableThreads / 2;
-        int taskListThreadCount = totalAvailableThreads - networkThreadCount;
- 
-        // Vérification des cas limites
-        if (totalAvailableThreads < 2)
-        {
-            sLog.OutWarning("[ThreadPool] Nombre de cœurs insuffisant. Allocation minimale de 1 thread par pool.");
-            networkThreadCount = 1;
-            taskListThreadCount = 1;
-        }
-
-        // Vérification de sécurité
-        if (networkThreadCount + taskListThreadCount > MAX_TOTAL_THREADS)
-        {
-            sLog.OutError($"[ThreadPool] Erreur : Le nombre total de threads ({networkThreadCount + taskListThreadCount}) dépasse la limite autorisée ({MAX_TOTAL_THREADS}).");
-            return;
-        }
-
-        // 3. Initialisation du NetworkThreadPool
-        NetworkThreadPool.Instance.Startup((byte)networkThreadCount);
-        sLog.OutDebug($"[ThreadPool] Démarrage avec {networkThreadCount} threads (réseau). Limite totale : {totalAvailableThreads} threads.");
+        // === Gestion des threads ===
+        ConfigureThreadPools();
 
         // 4. BufferPool (singleton, pour les buffers réseaux)
         BufferPool.Init();
@@ -499,11 +526,11 @@ public class Master
 
         // 8. Remplissage des données de stockage (doit être fait après DB et DBCs, avant les managers)
         TaskList tl = new();
-        StorageManager.FillTaskList(tl,Config);
+        StorageManager.FillTaskList(tl, Config);
 
-        // Démarrage des tâches de chargement en parallèle
-        CLog.Notice("[Storage]", R_S_MASTER_3_1, StartThreadCount);
-        tl.Start((uint)StartThreadCount);        
+        // Démarrage des tâches de chargement en parallèle avec le nombre de threads calculé
+        CLog.Notice("[Storage]", R_S_MASTER_3_1, s_taskListThreadCount);
+        tl.Start((uint)s_taskListThreadCount);        
 
         // Attente de la fin des tâches
         tl.Wait();
@@ -553,16 +580,44 @@ public class Master
         }
 
         // Start listener accept loops on background threads
-        var worldListenerThread = new System.Threading.Thread(
-            () => worldListener.Run(System.Threading.CancellationToken.None))
+        var worldListenerThread = new Thread(() =>
+        {
+            try
+            {
+                worldListener.Run(s_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                sLog.OutDebug("[WorldListener] Arrêt demandé.");
+            }
+            catch (Exception ex)
+            {
+                sLog.OutError($"[WorldListener] Exception : {ex}");
+                m_stopEvent = true;
+            }
+        })
         {
             IsBackground = true,
             Name = "WorldListener"
         };
         worldListenerThread.Start();
 
-        var wsListenerThread = new System.Threading.Thread(
-            () => wsListener.Run(System.Threading.CancellationToken.None))
+        var wsListenerThread = new Thread(() =>
+        {
+            try
+            {
+                wsListener.Run(s_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                sLog.OutDebug("[WorkerServerListener] Arrêt demandé.");
+            }
+            catch (Exception ex)
+            {
+                sLog.OutError($"[WorkerServerListener] Exception : {ex}");
+                m_stopEvent = true;
+            }
+        })
         {
             IsBackground = true,
             Name = "WorkerServerListener"
@@ -577,8 +632,22 @@ public class Master
         // Use a dedicated background thread so stdin remains responsive
         // even if the network thread pool is saturated or unavailable.
         ConsoleThread consoleThread = new();
-        var localConsoleThread = new System.Threading.Thread(() =>
-            consoleThread.Run(System.Threading.CancellationToken.None))
+        var localConsoleThread = new Thread(() =>
+        {
+            try
+            {
+                consoleThread.Run(s_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                sLog.OutDebug("[RealmConsole] Arrêt demandé.");
+            }
+            catch (Exception ex)
+            {
+                sLog.OutError($"[RealmConsole] Exception : {ex}");
+                m_stopEvent = true;
+            }
+        })
         {
             IsBackground = true,
             Name = "RealmConsole"
@@ -605,7 +674,7 @@ public class Master
             try
             {
                 PosixSignalRegistration.Create(PosixSignal.SIGHUP, ctx => { HandleSignal("SIGHUP"); ctx.Cancel = true; });
-                PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { m_stopEvent = true; ctx.Cancel = true; });
+                PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { s_cts.Cancel(); m_stopEvent = true; ctx.Cancel = true; });
             }
             catch
             {
@@ -617,7 +686,7 @@ public class Master
 
         // === Boucle principale ===
         ulong loopcounter = 0;
-        while (!m_stopEvent && !ServerShutdown)
+        while (!m_stopEvent && !ServerShutdown && !s_cts.IsCancellationRequested)
         {
             loopcounter++;
 
@@ -629,13 +698,17 @@ public class Master
             ClientMgr.Instance.Update();
             ClusterMgr.Instance.Update();
             SocketGarbageCollector.Instance.Update();
-            Sleep(OBJECT_WAIT_TIME);
+            
+            // Utiliser WaitHandle au lieu de Sleep pour libérer le CPU
+            s_mainLoopDelay.Wait(OBJECT_WAIT_TIME);
         }
 
         // Début de la séquence d'arrêt
         CLog.Notice("[Fermeture]", R_N_MASTER_6, UNIXTIME.ToString("yyyy-MM-dd HH:mm:ss"));
 
         bServerShutdown = true;
+        s_cts.Cancel(); // Signaler l'annulation à tous les threads
+        s_mainLoopDelay.Set(); // Réveiller la boucle principale si en attente
 
         // Suppression du fichier PID
         RemovePidFile();
@@ -750,7 +823,7 @@ public class Master
             return;
         }
 
-        _ = System.Threading.Tasks.Task.Run(() =>
+        NetworkThreadPool.Instance.ExecuteTask(ct =>
         {
             try
             {
@@ -764,6 +837,7 @@ public class Master
             {
                 Interlocked.Exchange(ref s_fiveMinuteMaintenanceRunning, 0);
             }
+            return true;
         });
     }
 
@@ -775,7 +849,7 @@ public class Master
             return;
         }
 
-        _ = System.Threading.Tasks.Task.Run(() =>
+        NetworkThreadPool.Instance.ExecuteTask(ct =>
         {
             var sw = Stopwatch.StartNew();
             try
@@ -793,6 +867,7 @@ public class Master
                 CLog.Debug("[Master]", $"5-minute heavy maintenance completed in {sw.ElapsedMilliseconds} ms.");
                 Interlocked.Exchange(ref s_fiveMinuteHeavyMaintenanceRunning, 0);
             }
+            return true;
         });
     }
 

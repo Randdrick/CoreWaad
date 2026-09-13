@@ -265,7 +265,7 @@ public class AuthSocket
         patch = null;
     }
 
-    private static void CleanupDeadSockets()
+    public static void CleanupDeadSockets()
     {
         // Remove sockets where removedFromSet should have been set but wasn't
         // This is a failsafe to catch sockets that disconnect without calling OnDisconnect

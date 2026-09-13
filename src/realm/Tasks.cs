@@ -65,41 +65,32 @@ public class TaskExecutor(TaskList starter)
 
 public class TaskList
 {
-    private readonly ConcurrentBag<Task> _tasks = [];
-    private readonly object _queueLock = new();
+    private readonly ConcurrentQueue<Task> _tasks = new();
     private int _threadCount;
+    private int _addedTasks = 0;
+    private int _completedTasks = 0;
     public bool Running { get; private set; }
 
     public void AddTask(Task task)
     {
-        lock (_queueLock)
-        {
-            _tasks.Add(task);
-        }
+        _tasks.Enqueue(task);
+        Interlocked.Increment(ref _addedTasks);
     }
 
     public Task? GetTask()
     {
-        lock (_queueLock)
+        if (_tasks.TryDequeue(out var task))
         {
-            foreach (var task in _tasks)
-            {
-                if (!task.InProgress)
-                {
-                    task.InProgress = true;
-                    return task;
-                }
-            }
-            return null;
+            task.InProgress = true;
+            return task;
         }
+        return null;
     }
 
     public void RemoveTask(Task task)
     {
-        lock (_queueLock)
-        {
-            _tasks.TryTake(out _);
-        }
+        task.Completed = true;
+        Interlocked.Increment(ref _completedTasks);
     }
     public void Start(uint threadCount)
     {
@@ -126,20 +117,9 @@ public class TaskList
             if (Master.StopEvent)
                 break;
 
-            bool hasTasks = false;
-            lock (_queueLock)
-            {
-                foreach (var task in _tasks)
-                {
-                    if (!task.Completed)
-                    {
-                        hasTasks = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!hasTasks)
+            // Check if all added tasks have been completed
+            // Use Volatile.Read to ensure we see the latest values
+            if (Volatile.Read(ref _completedTasks) >= Volatile.Read(ref _addedTasks))
                 break;  // All tasks completed
 
             // Sleep briefly to avoid busy-waiting CPU consumption

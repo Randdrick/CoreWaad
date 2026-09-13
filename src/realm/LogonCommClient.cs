@@ -32,7 +32,7 @@ using static WaadShared.RealmListOpcode;
 
 namespace WaadRealmServer;
 
-public class LogonCommClientSocket : WaadShared.Network.Socket
+public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
 {
     private uint remaining;
     private ushort opcode;
@@ -48,6 +48,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
     public bool use_crypto;
     public HashSet<uint> realm_ids = [];
     public Action<bool> AuthCompleted { get; set; }
+    private bool _disposed = false;
     
 
     // Constructeur sans paramètre pour compatibilité avec ConnectTCPSocket<T>
@@ -73,6 +74,26 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         authenticated = 0;
     }
 
+    // IDisposable implementation
+    public override void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            // Clear collections
+            if (disposing)
+            {
+                realm_ids.Clear();
+            }
+            _disposed = true;
+        }
+    }
+
     public override void OnRead()
     {
         // read header then payload, decrypt if needed, and dispatch
@@ -83,7 +104,11 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             if (remaining == 0)
             {
                 if (GetReadBuffer().GetSize() < 6)
+                {
+                    remaining = 0;
+                    opcode = 0;
                     return; // not even a header yet
+                }
 
                 // read 6-byte header first and check size field
                 byte[] encryptedHeader = new byte[6];
@@ -100,20 +125,19 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
                 // parse opcode and payload size from header
                 uint opcodeValue = BitConverter.ToUInt16(headerBytes, 0);  // bytes 0-1 = opcode
-                uint payloadSize = BitConverter.ToUInt32(headerBytes, 2);  // bytes 2-5 = size (network byte order)
-
-                // swap size from network byte order (big-endian) back to host byte order
-                if (BitConverter.IsLittleEndian)
-                {
-                    payloadSize = Swap32(payloadSize);
-                }
+                uint payloadSize = BitConverter.ToUInt32(headerBytes, 2);  // bytes 2-5 = size
 
                 CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_PARSED, payloadSize, opcodeValue);
+
+                // Nettoyer le buffer temporaire après utilisation
+                Array.Clear(encryptedHeader, 0, encryptedHeader.Length);
 
                 // sanity check
                 if (payloadSize > 65535)
                 {
                     CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_PAYLOAD_TOO_LARGE, payloadSize);
+                    remaining = 0;
+                    opcode = 0;
                     OnDisconnect();
                     return;
                 }
@@ -156,6 +180,10 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
                     packet.Append(payloadBytes, (int)payloadSize);
                     HandlePacket(packet);
 
+                    // Nettoyer le buffer temporaire
+                    Array.Clear(encryptedPayload, 0, encryptedPayload.Length);
+                    encryptedPayload = null;
+
                     remaining = 0;
                     opcode = 0;
                 }
@@ -164,7 +192,10 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             {
                 // remaining > 0: payload arrived in a subsequent read
                 if (GetReadBuffer().GetSize() < remaining)
+                {
+                    // Partial payload: keep state (opcode + remaining) and wait for more data
                     return; // still waiting for the rest of the payload
+                }
 
                 byte[] encryptedPayload = new byte[remaining];
                 GetReadBuffer().Read(encryptedPayload, (int)remaining);
@@ -179,6 +210,10 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
                 var packet = new WorldPacket(opcode, (int)remaining);
                 packet.Append(payloadBytes, (int)remaining);
                 HandlePacket(packet);
+
+                // Nettoyer le buffer temporaire
+                Array.Clear(encryptedPayload, 0, encryptedPayload.Length);
+                encryptedPayload = null;
 
                 remaining = 0;
                 opcode = 0;
@@ -212,12 +247,6 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         Array.Copy(BitConverter.GetBytes(header.Opcode), 0, headerBytes, 0, 2);
         uint sizeNet = header.Size;
 
-        // Envoyer la taille en ordre réseau (big-endian) sur le fil
-        if (BitConverter.IsLittleEndian)
-        {
-            sizeNet = Swap32(sizeNet);
-        }
-
         Array.Copy(BitConverter.GetBytes(sizeNet), 0, headerBytes, 2, 4);
 
         if (use_crypto && !noCrypto)
@@ -246,6 +275,68 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         BurstEnd();
     }
 
+    // Send packet directly without buffering (for PING/PONG packets)
+    public bool SendPacketDirect(WorldPacket data, bool noCrypto = false)
+    {
+        if (!IsConnected() || IsDeleted())
+            return false;
+
+        LogonPacket header = new()
+        {
+            Opcode = data.GetOpcode(),
+            Size = (uint)data.Size
+        };
+
+        // Conversion en bytes (endianness)
+        byte[] headerBytes = new byte[6];
+        Array.Copy(BitConverter.GetBytes(header.Opcode), 0, headerBytes, 0, 2);
+        uint sizeNet = header.Size;
+
+        Array.Copy(BitConverter.GetBytes(sizeNet), 0, headerBytes, 2, 4);
+
+        // Combine header and payload into a single buffer to send atomically
+        byte[] packetData;
+        if (use_crypto && !noCrypto)
+        {
+            byte[] tmp = new byte[6];
+            _sendCrypto.Process(headerBytes, tmp);
+            
+            if (data.Size > 0)
+            {
+                byte[] payload = data.Contents;
+                byte[] encPayload = new byte[payload.Length];
+                _sendCrypto.Process(payload, encPayload);
+                
+                // Combine encrypted header + encrypted payload
+                packetData = new byte[6 + payload.Length];
+                Array.Copy(tmp, 0, packetData, 0, 6);
+                Array.Copy(encPayload, 0, packetData, 6, payload.Length);
+            }
+            else
+            {
+                packetData = tmp;
+            }
+        }
+        else
+        {
+            // No encryption: combine header + payload directly
+            if (data.Size > 0)
+            {
+                byte[] payload = data.Contents;
+                packetData = new byte[6 + payload.Length];
+                Array.Copy(headerBytes, 0, packetData, 0, 6);
+                Array.Copy(payload, 0, packetData, 6, payload.Length);
+            }
+            else
+            {
+                packetData = headerBytes;
+            }
+        }
+
+        // Send the complete packet (header + payload) in a single atomic operation
+        return SendPacketDirect(packetData, packetData.Length);
+    }
+
     // Utilitaire pour swap32 (endianness)
     private static uint Swap32(uint v)
     {
@@ -254,31 +345,40 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
     public void HandlePacket(WorldPacket recvData)
     {
+        // Tout paquet entrant (sauf AUTH_CHALLENGE) prouve que la connexion est vivante
+        if (recvData.GetOpcode() != (ushort)RCMSG_AUTH_CHALLENGE)
+        {
+            long now = Environment.TickCount64;
+            Interlocked.Exchange(ref last_pong_ms, now);
+            Interlocked.Exchange(ref last_ping_ms, now);
+        }
+
         // Tableau des handlers, indexé par opcode (voir enum RMSG_*)
         // Attention : l'ordre doit correspondre à l'enum côté client/serveur
         // Les opcodes non gérés sont à null
+        // Note: Le tableau doit avoir au moins 20 éléments pour couvrir opcode 19 (RCMSG_SERVER_PONG)
         var handlers = new Action<WorldPacket>[]
         {
-            null,                        // RMSG_NULL
-            null,                        // RCMSG_REGISTER_REALM
-            HandleRegister,              // RSMSG_REALM_REGISTERED
-            null,                        // RCMSG_REQUEST_SESSION
-            HandleSessionInfo,           // RSMSG_SESSION_RESULT
-            null,                        // RCMSG_PING
-            HandlePong,                  // RSMSG_PONG
-            null,                        // RCMSG_SQL_EXECUTE
-            null,                        // RCMSG_RELOAD_ACCOUNTS
-            null,                        // RCMSG_AUTH_CHALLENGE
-            HandleAuthResponse,          // RSMSG_AUTH_RESPONSE
-            HandleRequestAccountMapping, // RSMSG_REQUEST_ACCOUNT_CHARACTER_MAPPING
-            null,                        // RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY
-            null,                        // RCMSG_UPDATE_CHARACTER_MAPPING_COUNT
-            HandleDisconnectAccount,     // RSMSG_DISCONNECT_ACCOUNT
-            null,                        // RCMSG_TEST_CONSOLE_LOGIN
-            HandleConsoleAuthResult,     // RSMSG_CONSOLE_LOGIN_RESULT
-            null,                        // RCMSG_MODIFY_DATABASE
-            HandleServerPing,            // RCMSG_SERVER_PING
-            HandleServerPong,            // RSMSG_SERVER_PONG
+            null,                        // 0 - RMSG_NULL
+            null,                        // 1 - RCMSG_REGISTER_REALM
+            HandleRegister,              // 2 - RSMSG_REALM_REGISTERED
+            null,                        // 3 - RCMSG_REQUEST_SESSION
+            HandleSessionInfo,           // 4 - RSMSG_SESSION_RESULT
+            null,                        // 5 - RCMSG_PING (le RealmServer ENVOIE ce PING, ne le reçoit pas)
+            HandlePong,                  // 6 - RSMSG_PONG (PONG reçu du LogonServer, réponse à notre PING opcode 5)
+            null,                        // 7 - RCMSG_SQL_EXECUTE
+            null,                        // 8 - RCMSG_RELOAD_ACCOUNTS
+            null,                        // 9 - RCMSG_AUTH_CHALLENGE
+            HandleAuthResponse,          // 10 - RSMSG_AUTH_RESPONSE
+            HandleRequestAccountMapping, // 11 - RSMSG_REQUEST_ACCOUNT_CHARACTER_MAPPING
+            null,                        // 12 - RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY
+            null,                        // 13 - RCMSG_UPDATE_CHARACTER_MAPPING_COUNT
+            HandleDisconnectAccount,     // 14 - RSMSG_DISCONNECT_ACCOUNT
+            null,                        // 15 - RCMSG_TEST_CONSOLE_LOGIN
+            HandleConsoleAuthResult,     // 16 - RSMSG_CONSOLE_LOGIN_RESULT
+            null,                        // 17 - RCMSG_MODIFY_DATABASE
+            HandleServerPing,            // 18 - RSMSG_SERVER_PING (PING reçu du LogonServer)
+            null,                        // 19 - RCMSG_SERVER_PONG (le RealmServer ENVOIE ce PONG, ne le reçoit pas)
         };
 
         ushort op = recvData.GetOpcode();
@@ -288,59 +388,93 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             return;
         }
         handlers[op](recvData);
+
+        recvData.Clear(); // Nettoyer le buffer après traitement
     }
 
     public void SendPing()
     {
         long now = Environment.TickCount64;
         Interlocked.Exchange(ref pingtime_ms, now);
+        // Rate-limit retries when a pong is delayed or lost. The timeout decision
+        // still uses last_pong_ms, so this does not make a dead link look alive.
+        Interlocked.Exchange(ref last_ping_ms, now);
         var packet = new WorldPacket((ushort)RCMSG_PING, 4);
         packet.WriteUInt32((uint)(now & 0xFFFFFFFF));
-        SendPacket(packet);
-        Interlocked.Exchange(ref last_ping_ms, Environment.TickCount64);
+        
+        // PING packets must be sent directly without buffering to prevent timeout issues
+        if (!SendPacketDirect(packet, false))
+        {
+            // Fallback: try normal buffered send if direct send fails
+            SendPacket(packet);
+        }
+        else
+        {
+            CLog.Debug("[LogonCommClient]", "PING sent directly (no buffer).");
+        }
     }
 
     public void SendChallenge()
     {
-        byte[] key = LogonCommHandler.Instance.SqlPassHash;
+        byte[] key = new byte[20];
+        byte[] sqlPassHash = LogonCommHandler.Instance.SqlPassHash;
 
-        Logger.OutColor(LogColor.TNORMAL, L_N_LOGCOMSE_6);
+        // Copier la clé pour éviter de modifier l'original
+        Array.Copy(sqlPassHash, key, 20);
 
-        for (int i = 0; i < 20; ++i)
-            Logger.OutColor(LogColor.TGREEN, $"{key[i]:X2} ");
+        try
+        {
+            Logger.OutColor(LogColor.TNORMAL, L_N_LOGCOMSE_6);
 
-        Logger.OutColor(LogColor.TNORMAL, "\n");
+            for (int i = 0; i < 20; ++i)
+                Logger.OutColor(LogColor.TGREEN, $"{key[i]:X2} ");
 
-        /* initialize rc4 keys */
-        _recvCrypto.Setup(key, 20);
-        _sendCrypto.Setup(key, 20);
+            Logger.OutColor(LogColor.TNORMAL, "\n");
 
-        /* packets are encrypted from now on */
-        use_crypto = true;
+            /* initialize rc4 keys */
+            _recvCrypto.Setup(key, 20);
+            _sendCrypto.Setup(key, 20);
 
-        var packet = new WorldPacket((ushort)RCMSG_AUTH_CHALLENGE, 20);
-        packet.Append(key, 20);
-        SendPacket(packet, true); // true = pas de chiffrement sur le challenge
+            /* packets are encrypted from now on */
+            use_crypto = true;
+
+            var packet = new WorldPacket((ushort)RCMSG_AUTH_CHALLENGE, 20);
+            packet.Append(key, 20);
+            SendPacket(packet, true); // true = pas de chiffrement sur le challenge
+        }
+        finally
+        {
+            // Nettoyer la clé de la mémoire
+            Array.Clear(key, 0, key.Length);
+            key = null;
+        }
     }
 
     public void HandleAuthResponse(WorldPacket recvData)
     {
-        // Lecture du résultat d'authentification
-        byte result = recvData.Contents[0];
-        CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_AUTH_RESULT, result);
-        if (result != 1)
+        try
         {
-            authenticated = 0xFFFFFFFF;
-            CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_3);
-            AuthCompleted?.Invoke(false);
+            // Lecture du résultat d'authentification
+            byte result = recvData.Contents[0];
+            CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_AUTH_RESULT, result);
+            if (result != 1)
+            {
+                authenticated = 0xFFFFFFFF;
+                CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_3);
+                AuthCompleted?.Invoke(false);
+            }
+            else
+            {
+                authenticated = 1;
+                LogonCommHandler.Instance.RequestAddition(this);
+                AuthCompleted?.Invoke(true);
+            }
+            use_crypto = true;
         }
-        else
+        finally
         {
-            authenticated = 1;
-            LogonCommHandler.Instance.RequestAddition(this);
-            AuthCompleted?.Invoke(true);
+            recvData.Clear(); // Nettoyer le buffer
         }
-        use_crypto = true;
     }
 
     public void HandleRegister(WorldPacket recvData)
@@ -375,13 +509,16 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         }
 
         // Gestion du pong reçu : calcul de la latence et mise à jour des timestamps
+        long now = Environment.TickCount64;
+        long pingtime = Interlocked.Read(ref pingtime_ms);
+        
         if (latency != 0)
         {
-            long now = Environment.TickCount64;
-            CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT, $"{now - pingtime_ms}");
+            CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT, $"{now - pingtime}");
         }
-        latency = (uint)(Environment.TickCount64 - Interlocked.Read(ref pingtime_ms));
-        Interlocked.Exchange(ref last_pong_ms, Environment.TickCount64);
+        
+        latency = (uint)(now - pingtime);
+        Interlocked.Exchange(ref last_pong_ms, now);
     }
 
     public void HandleServerPing(WorldPacket recvData)
@@ -396,15 +533,26 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
         SendServerPong(r);
 
         // Un SERVER_PING reçu prouve que la connexion est vivante : réinitialiser le timer de pong.
-        Interlocked.Exchange(ref last_server_ping_ms, Environment.TickCount64);
-        Interlocked.Exchange(ref last_pong_ms, Environment.TickCount64);
+        long now = Environment.TickCount64;
+        Interlocked.Exchange(ref last_server_ping_ms, now);
+        Interlocked.Exchange(ref last_pong_ms, now);
     }
 
     public void SendServerPong(uint echo)
     {
         var packet = new WorldPacket((ushort)RCMSG_SERVER_PONG, 4);
         packet.WriteUInt32(echo);
-        SendPacket(packet, false);
+        
+        // PONG packets must be sent directly without buffering to prevent timeout issues
+        if (!SendPacketDirect(packet, false))
+        {
+            // Fallback: try normal buffered send if direct send fails
+            SendPacket(packet, false);
+        }
+        else
+        {
+            CLog.Debug("[LogonCommClient]", string.Format("SERVER_PONG sent directly (no buffer)."));
+        }
     }
 
     public void HandleServerPong(WorldPacket recvData)
@@ -414,8 +562,10 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
             _ = recvData.ReadUInt32();
         }
         // Mise à jour du timestamp pour éviter le timeout
-        latency = (uint)(Environment.TickCount64 - Interlocked.Read(ref pingtime_ms));
-        Interlocked.Exchange(ref last_pong_ms, Environment.TickCount64);
+        long now = Environment.TickCount64;
+        long pingtime = Interlocked.Read(ref pingtime_ms);
+        latency = (uint)(now - pingtime);
+        Interlocked.Exchange(ref last_pong_ms, now);
     }
 
     public static void HandleSessionInfo(WorldPacket recvData)
@@ -503,8 +653,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket
 
     public override void OnDisconnect()
     {
-        uint droppedId = _id;
-        _id = 0;
+        uint droppedId = Interlocked.Exchange(ref _id, 0);
 
         if (droppedId != 0)
         {

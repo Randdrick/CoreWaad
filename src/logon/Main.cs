@@ -208,6 +208,9 @@ public class LogonServer
 
         if (!SocketManager.InitializeSockets(configMgr, sLog)) return;
 
+        // Démarrer le watchdog pour surveiller les connexions RealmServer
+        ConnectionWatchdog.Start();
+
         AppDomain.CurrentDomain.ProcessExit += (sender, e) => OnSignal();
 
 #if !WIN32
@@ -231,6 +234,8 @@ public class LogonServer
             {
                 InformationCore.Instance.TimeoutSockets();
                 CheckForDeadSockets();
+                SocketGarbageCollector.Instance.Update();
+                AuthSocket.CleanupDeadSockets();
                 uNIXTIME = DateTime.UtcNow;
                 g_localTime = DateTime.Now;
             }
@@ -284,8 +289,7 @@ public class LogonServer
         File.Delete("waad-logonserver.pid");
 
         AccountMgr.CloseSocket();
-        var serverSocket = new LogonCommServerSocket(); // Create or retrieve the appropriate instance
-        InformationCore.Instance.RemoveServerSocket(serverSocket);
+        ConnectionWatchdog.Stop();
         ThreadPool.Shutdown();
         Instance = null;
 
@@ -396,13 +400,14 @@ public class LogonServer
     private static void CheckForDeadSockets()
     {
         var deadSockets = new List<Socket>();
-        var Socket = new Socket();
 
-        foreach (var socket in GetSocketList())
+        // For IOCP, get sockets from SocketManager
+        var socketList = GetSocketList();
+        foreach (var socket in socketList)
         {
-            if (!Socket.IsConnected())
+            if (socket is Socket sock && !sock.IsConnected())
             {
-                deadSockets.Add((Socket)socket);
+                deadSockets.Add(sock);
             }
         }
 
@@ -410,7 +415,7 @@ public class LogonServer
         {
             RemoveSocket(deadSocket);
             deadSocket.Disconnect();
-            CLog.Warning("[LogonServer]", "Removed dead socket: " + deadSocket.RemoteEndPoint);
+            CLog.Warning("[LogonServer]", "Removed dead socket: " + deadSocket.GetRemoteIP());
         }
     }
 

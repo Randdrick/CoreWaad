@@ -122,8 +122,7 @@ public class SocketManager
     public void RemoveSocket(Socket s)
     {
         int key = s.GetFd().Handle.GetHashCode();
-        if (!fds.TryRemove(key, out _))
-            return;
+        fds.TryRemove(key, out _);
 
         lock (m_setLock)
         {
@@ -181,8 +180,11 @@ public class SocketManager
                     continue;
                 }
 
-                m_readableSet = [.. m_allSet];
-                writable = [.. m_writableSet];
+                m_readableSet.Clear();
+                foreach (var s in m_allSet)
+                    m_readableSet.Add(s);
+                
+                writable = new HashSet<Socket>(m_writableSet);
                 m_writableSet.Clear();
             }
 
@@ -357,13 +359,17 @@ public static class SocketExtensions
         bool beginReceivePosted = false;
         try
         {
-            int space = socket.GetReadBuffer().GetSpace();
-            if (space <= 0)
+            int space;
+            var socketReadBuffer = socket.GetReadBuffer();
+            lock (socketReadBuffer)
             {
-                CLog.Warning("[Socket]", "Read buffer space exhausted, reallocating.");
-                var socketReadBuffer = socket.GetReadBuffer();
-                socketReadBuffer.Allocate(socketReadBuffer.GetSize() + 8192);
                 space = socketReadBuffer.GetSpace();
+                if (space <= 0)
+                {
+                    CLog.Warning("[Socket]", "Read buffer space exhausted, reallocating.");
+                    socketReadBuffer.Allocate(socketReadBuffer.GetSize() + 8192);
+                    space = socketReadBuffer.GetSpace();
+                }
             }
 
 #if CONFIG_USE_IOCP
@@ -514,7 +520,8 @@ public static class SocketExtensions
                         // Worker thread calls socket.OnRead() + SetupReadEvent() for next receive.
                         if (!SocketManager.IOCompletionQueue.TryAdd((SocketManager.SocketIOEvent.ReadComplete, socket, (uint)bytesReceived)))
                         {
-                            CLog.Error("[SocketMgr]", "IOCompletionQueue is full; disconnecting socket to avoid stalled receive loop.");
+                            CLog.Error("[SocketMgr]", "IOCompletionQueue is full ({0}/{1} items); disconnecting socket to avoid stalled receive loop.", 
+                                SocketManager.IOCompletionQueue.Count, SocketManager.IOCompletionQueue.BoundedCapacity);
                             socket.Disconnect();
                         }
                     }

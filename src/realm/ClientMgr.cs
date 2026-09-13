@@ -264,6 +264,7 @@ public class ClientMgr : IDisposable
                 if (_sessions.TryGetValue(sessionId, out var session))
                 {
                     var player = session.GetPlayer();
+                    session.Dispose();
                     if (player != null && --player.References <= 0)
                     {
                         _sessionsByInfo.Remove(player);

@@ -187,26 +187,25 @@ public class SocketWorkerThread
         if (socket == null || socket.IsDeleted()) return;
         if (bytesTransferred > 0)
         {
-            NetworkThreadPool.Instance.ExecuteTask(_ =>
+            try
             {
-                try
+                // Process the receive on the IO worker itself. Queuing reads into
+                // the general network pool can leave BeginReceive unarmed forever
+                // when that pool is busy with database or maintenance work.
+                lock (socket.GetReadBuffer())
                 {
                     socket.OnRead(); // Virtual dispatch: process received packet(s)
                 }
-                catch (Exception ex)
-                {
-                    CLog.Error("[SOCKETMGR]", $"Read handler exception on {socket.GetRemoteIP()}:{socket.GetRemotePort()}: {ex.Message}");
-                    socket.Disconnect();
-                    return false;
-                }
+            }
+            catch (Exception ex)
+            {
+                CLog.Error("[SOCKETMGR]", $"Read handler exception on {socket.GetRemoteIP()}:{socket.GetRemotePort()}: {ex.Message}");
+                socket.Disconnect();
+                return;
+            }
 
-                if (!socket.IsDeleted() && socket.IsConnected())
-                {
-                    socket.SetupReadEvent(); // Queue next async BeginReceive
-                }
-
-                return true;
-            });
+            if (!socket.IsDeleted() && socket.IsConnected())
+                socket.SetupReadEvent(); // Queue next async BeginReceive
         }
         else
         {

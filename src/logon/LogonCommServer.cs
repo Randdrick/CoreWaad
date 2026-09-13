@@ -47,7 +47,6 @@ public class LogonPacket
 public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 {
     public long lastPing_ms;
-    private long nextServerPing_ms;
     private Timer pingTimer;
     private uint remaining;
     private ushort opcode;
@@ -62,30 +61,32 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     private static readonly object m_allowedIpLock = new();
     private static readonly bool ServerTrustMe = true;
     private bool _disposed = false;
+    private const long ConnectionTimeout_ms = 60_000; // 60 secondes sans PONG = timeout
 
     // Constructeur sans paramètre public
-    public LogonCommServerSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+    public LogonCommServerSocket() : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp, 262144, 262144)
     {
-        lastPing_ms = Environment.TickCount64;
-        nextServerPing_ms = lastPing_ms + 30_000;
+        long now = Environment.TickCount64;
+        Interlocked.Exchange(ref lastPing_ms, now);
         remaining = opcode = 0;
         useCrypto = false;
         authenticated = 0;
-        // removed = false;
         InitializeHandlers();
-        pingTimer = new Timer(PingTimerCallback, null, Timeout.Infinite, Timeout.Infinite); // Start disabled
+        pingTimer = new Timer(PingTimerCallback, null, 30_000, 30_000); // 30s interval
+        SetKeepAlive(true, 30_000, 1_000); // Activer TCP Keep-Alive (30s idle, 1s interval)
     }
 
-    public LogonCommServerSocket(Socket socket) : base(socket, 1024, 1024)
+    public LogonCommServerSocket(Socket socket) : base(socket, 262144, 262144)
     {
-        lastPing_ms = Environment.TickCount64;
-        nextServerPing_ms = lastPing_ms + 30_000;
+        long now = Environment.TickCount64;
+        Interlocked.Exchange(ref lastPing_ms, now);
         remaining = opcode = 0;
         // removed = false;
         useCrypto = false;
         authenticated = 0;
         InitializeHandlers();
-        pingTimer = new Timer(PingTimerCallback, null, 30000, 30000); // 30s interval
+        pingTimer = new Timer(PingTimerCallback, null, 30_000, 30_000); // 30s interval
+        SetKeepAlive(true, 30_000, 1_000); // Activer TCP Keep-Alive
         // NOTE: DO NOT call OnConnect() here - ListenSocket.SetConnected() will handle it
     }
 
@@ -94,15 +95,20 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         Dispose(false);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    protected override void Dispose(bool disposing)
     {
-        if (!_disposed)
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        if (disposing)
         {
             // Stop the timer BEFORE disposing it to prevent callbacks after dispose
             if (pingTimer != null)
@@ -118,13 +124,10 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             }
 
             // Clear collections
-            if (disposing)
-            {
-                serverIds.Clear();
-            }
-
-            _disposed = true;
+            serverIds.Clear();
         }
+
+        base.Dispose(disposing);
     }
 
     private void PingTimerCallback(object state)
@@ -136,20 +139,22 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         try
         {
             long now_ms = Environment.TickCount64;
-            if (now_ms >= nextServerPing_ms)
+            long lastPing = Interlocked.Read(ref lastPing_ms);
+            
+            // Vérifier si la connexion est toujours active (timeout après 60s sans PONG)
+            if (now_ms - lastPing > ConnectionTimeout_ms)
             {
-                SendPing();
-                nextServerPing_ms = now_ms + 30_000;
+                CLog.Error("[LogonCommServer]", 
+                    string.Format("Connection timeout: No PONG received for {0}ms from {1}. Disconnecting.", 
+                    now_ms - lastPing, GetRemoteIP()));
+                OnDisconnect();
+                return;
             }
-
-            // Read-event watchdog: ensure BeginReceive is always armed.
-            // SetupReadEvent is idempotent – returns immediately if a read is already
-            // pending (_pendingRead guard). If the read loop was silently dropped by any
-            // race condition, this re-arms it within the next 30-second tick.
-            if (IsConnected() && !IsDeleted())
-            {
-                WaadShared.Network.SocketExtensions.SetupReadEvent(this);
-            }
+            
+            // Envoyer un PING toutes les 30 secondes
+            // Note: lastPing_ms sera mis à jour quand le PONG sera reçu (dans HandleServerPong)
+            // ou dans HandlePacket pour tout autre paquet
+            SendPing();
         }
         catch (Exception ex)
         {
@@ -197,80 +202,93 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public override void OnRead()
     {
-        while (true)
+        try
         {
-            if (remaining == 0)
+            while (true)
             {
-                if (GetReadBuffer().GetSize() < 6)
-                    return;
-
-                // Read header (2 bytes opcode, 4 bytes size)
-                byte[] opcodeBytes = new byte[2];
-                byte[] sizeBytes = new byte[4];
-                GetReadBuffer().Read(opcodeBytes, 2);
-                GetReadBuffer().Read(sizeBytes, 4);
-
-                if (useCrypto)
+                if (remaining == 0)
                 {
-                    // Decrypt in separate calls (matches C++ original: Process(2), then Process(4))
-                    recvCrypto.Process(opcodeBytes, opcodeBytes);
-                    recvCrypto.Process(sizeBytes, sizeBytes);
+                    if (GetReadBuffer().GetSize() < 6)
+                    {
+                        // Réinitialiser pour éviter un état bloquant
+                        remaining = 0;
+                        opcode = 0;
+                        return;
+                    }
+
+                    // Read header (2 bytes opcode, 4 bytes size)
+                    byte[] opcodeBytes = new byte[2];
+                    byte[] sizeBytes = new byte[4];
+                    GetReadBuffer().Read(opcodeBytes, 2);
+                    GetReadBuffer().Read(sizeBytes, 4);
+
+                    if (useCrypto)
+                    {
+                        // Decrypt in separate calls (matches C++ original: Process(2), then Process(4))
+                        recvCrypto.Process(opcodeBytes, opcodeBytes);
+                        recvCrypto.Process(sizeBytes, sizeBytes);
+                    }
+
+                    // Parse opcode and size
+                    opcode = BitConverter.ToUInt16(opcodeBytes, 0);
+                    remaining = BitConverter.ToUInt32(sizeBytes, 0);
+
+                    // Prevent overly large packets
+                    if (remaining > 65535)
+                    {
+                        CLog.Error("[LogonCommServer]", L_E_LOGCOMSE);
+                        OnDisconnect();
+                        return;
+                    }
                 }
 
-                // Parse opcode and size
-                opcode = BitConverter.ToUInt16(opcodeBytes, 0);
-                remaining = BitConverter.ToUInt32(sizeBytes, 0);
-
-                // Handle endianness
-                if (!BitConverter.IsLittleEndian)
+                // Do we have a full packet?
+                if (GetReadBuffer().GetSize() < remaining)
                 {
-                    opcode = Swap16(opcode);
+                    CLog.Error("[LogonCommServer]", R_E_LOGCOMCLT);
+                    // Réinitialiser pour éviter un état bloquant
+                    remaining = 0;
+                    opcode = 0;
+                    return;
+                }
+                    
+
+                // Create the buffer
+                byte[] packetData = new byte[remaining];
+                if (remaining > 0)
+                {
+                    GetReadBuffer().Read(packetData, (int)remaining);
+
+                    if (useCrypto)
+                    {
+                        recvCrypto.Process(packetData, packetData);
+                    }
+
+                    WorldPacket buff = new(opcode, (int)remaining);
+                    buff.Append(packetData, (int)remaining);
+
+                    // Nettoyer le buffer temporaire après utilisation
+                    Array.Clear(packetData, 0, packetData.Length);
+                    packetData = null;
+
+                    // Handle the packet
+                    HandlePacket(buff);
                 }
                 else
                 {
-                    remaining = Swap32(remaining);
+                    WorldPacket buff = new(opcode, (int)remaining);
+                    // Handle the packet
+                    HandlePacket(buff);
                 }
 
-                // Prevent overly large packets
-                if (remaining > 65535)
-                {
-                    CLog.Error("[LogonCommServer]", L_E_LOGCOMSE);
-                    OnDisconnect();
-                    return;
-                }
+                remaining = 0;
+                opcode = 0;
             }
-
-            // Do we have a full packet?
-            if (GetReadBuffer().GetSize() < remaining)
-            {
-                CLog.Error("[LogonCommServer]", R_E_LOGCOMCLT);
-                return;
-            }
-                
-
-            // Create the buffer
-            byte[] packetData = new byte[remaining];
-            if (remaining > 0)
-            {
-                GetReadBuffer().Read(packetData, (int)remaining);
-
-                if (useCrypto)
-                {
-                    recvCrypto.Process(packetData, packetData);
-                }
-            }
-
-            WorldPacket buff = new(opcode, (int)remaining);
-            if (remaining > 0)
-            {
-                buff.Append(packetData, (int)remaining);
-            }
-
-            // Handle the packet
-            HandlePacket(buff);
-
-            remaining = 0;
-            opcode = 0;
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[LogonCommServer]", string.Format("OnRead error: {0}", ex.Message));
+            OnDisconnect();
         }
     }
 
@@ -278,11 +296,18 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     {
         CLog.Debug("[LogonCommServer]", $"HandlePacket called with opcode: {recvData.Opcode}");
         
-        // Any inbound packet (except auth challenge) means the link is alive
-        // This must happen BEFORE the authenticated check to prevent timeouts
-        if (recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
+        // Only update lastPing_ms for actual responses to OUR pings (opcode 19 = RCMSG_SERVER_PONG)
+        // or other "alive" packets, but NOT for incoming PINGS (opcode 5 = RCMSG_PING)
+        // This ensures we detect when the RealmServer stops responding to OUR pings
+        if (recvData.Opcode == (ushort)RCMSG_SERVER_PONG)
         {
-            lastPing_ms = Environment.TickCount64;
+            Interlocked.Exchange(ref lastPing_ms, Environment.TickCount64);
+        }
+        else if (recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE && 
+                 recvData.Opcode != (ushort)RCMSG_PING)
+        {
+            // Other packets (like session requests, etc.) also prove the link is alive
+            Interlocked.Exchange(ref lastPing_ms, Environment.TickCount64);
         }
         
         if (authenticated == 0 && recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
@@ -297,6 +322,8 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         }
 
         Handlers[recvData.Opcode](recvData);
+
+        recvData.Clear(); // Nettoyer le buffer du paquet après traitement
     }
 
     public void HandleRegister(WorldPacket recvData)
@@ -345,6 +372,11 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public void HandleSessionRequest(WorldPacket recvData)
     {
+        if (recvData.Size < 5) // at least 4 bytes for requestId + 1 byte for string length
+        {
+            CLog.Error("[LogonCommServer]", $"HandleSessionRequest: packet too small (expected at least 5 bytes, got {recvData.Size})");
+            return;
+        }
         uint requestId = recvData.ReadUInt32();
         string accountName = recvData.ReadString();
         Account acct = AccountMgr.GetAccount(accountName);
@@ -387,60 +419,174 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
         var pong = new WorldPacket((ushort)RSMSG_PONG, 4);
         pong.WriteUInt32(pingValue);
-        SendPacket(pong);
-        lastPing_ms = Environment.TickCount64;
-    }
-
-    public void SendPacket(WorldPacket data, bool noCrypto = false)
-    {
-        bool rv;
-        BurstBegin();
-
-        // Build 6-byte header: 2 bytes opcode, 4 bytes size
-        byte[] header = new byte[6];
-
-        ushort op = (ushort)data.GetOpcode();
-        uint size = (uint)data.Size;
-
-        if (BitConverter.IsLittleEndian)
+        
+        // PONG packets must be sent directly without buffering to prevent timeout issues
+        if (!SendPacketDirect(pong, false))
         {
-            // On little-endian machines, send size in network order (big-endian)
-            size = Swap32(size);
-        }
-
-        BlockCopy(BitConverter.GetBytes(op), 0, header, 0, 2);
-        BlockCopy(BitConverter.GetBytes(size), 0, header, 2, 4);
-
-        // Encrypt header into temporary buffer if needed (avoid in-place)
-        if (useCrypto && !noCrypto)
-        {
-            var encHeader = new byte[6];
-            sendCrypto.Process(header, encHeader);
-            rv = BurstSend(encHeader, 6);
+            // Fallback: try normal buffered send if direct send fails
+            SendPacket(pong);
         }
         else
         {
-            rv = BurstSend(header, 6);
+            CLog.Debug("[LogonCommServer]", "PONG sent directly (no buffer).");
+        }
+        
+        Interlocked.Exchange(ref lastPing_ms, Environment.TickCount64);
+    }
+
+    public bool SendPacket(WorldPacket data, bool noCrypto = false)
+    {
+        // Vérifier que le socket est toujours connecté
+        if (!IsConnected())
+        {
+            CLog.Error("[LogonCommServer]", string.Format("Cannot send packet: socket to {0} is disconnected.", GetRemoteIP()));
+            return false;
         }
 
-        if (data.Size > 0 && rv)
-        {
-            var payload = data.Contents; // get contents once
+        bool allSent = true;
+        BurstBegin();
 
+        try
+        {
+            // Build 6-byte header: 2 bytes opcode, 4 bytes size
+            byte[] header = new byte[6];
+
+            ushort op = (ushort)data.GetOpcode();
+            uint size = (uint)data.Size;
+
+            BlockCopy(BitConverter.GetBytes(op), 0, header, 0, 2);
+            BlockCopy(BitConverter.GetBytes(size), 0, header, 2, 4);
+
+            // Encrypt header into temporary buffer if needed (avoid in-place)
+            bool headerSent;
             if (useCrypto && !noCrypto)
             {
-                var encPayload = new byte[payload.Length];
-                sendCrypto.Process(payload, encPayload);
-                rv = BurstSend(encPayload, data.Size);
+                var encHeader = new byte[6];
+                sendCrypto.Process(header, encHeader);
+                headerSent = BurstSend(encHeader, 6);
             }
             else
             {
-                rv = BurstSend(payload, data.Size);
+                headerSent = BurstSend(header, 6);
+            }
+
+            if (data.Size > 0 && headerSent)
+            {
+                var payload = data.Contents; // get contents once
+
+                if (useCrypto && !noCrypto)
+                {
+                    var encPayload = new byte[payload.Length];
+                    sendCrypto.Process(payload, encPayload);
+                    allSent = BurstSend(encPayload, data.Size);
+                }
+                else
+                {
+                    allSent = BurstSend(payload, data.Size);
+                }
+            }
+            else if (data.Size > 0)
+            {
+                // Header failed to send, so payload cannot be sent
+                allSent = false;
+            }
+
+            // Toujours essayer de vider le buffer, même si ce paquet n'a pas pu être ajouté
+            // BurstPush gère l'envoi asynchrone des données bufferisées
+            BurstPush();
+
+            if (!allSent)
+            {
+                // BurstSend peut échouer si le buffer est plein - ce n'est pas une erreur fatale
+                // Le paquet sera réessayé plus tard
+                CLog.Debug("[LogonCommServer]", string.Format("Packet (opcode: {0}) queued for later send to {1} (buffer full).", op, GetRemoteIP()));
+                return false;
             }
         }
+        catch (Exception ex)
+        {
+            CLog.Error("[LogonCommServer]", string.Format("SendPacket error: {0}", ex.Message));
+            // Ne pas appeler OnDisconnect() ici - laisser le timeout global gérer la déconnexion
+            // Les exceptions peuvent être temporaires (ex: socket bloqué momentanément)
+            return false;
+        }
+        finally
+        {
+            BurstEnd();
+        }
 
-        if (rv) BurstPush();
-        BurstEnd();
+        return true;
+    }
+
+    // Send packet directly without buffering (for PING/PONG packets)
+    public bool SendPacketDirect(WorldPacket data, bool noCrypto = false)
+    {
+        // Vérifier que le socket est toujours connecté
+        if (!IsConnected())
+        {
+            CLog.Error("[LogonCommServer]", string.Format("Cannot send packet: socket to {0} is disconnected.", GetRemoteIP()));
+            return false;
+        }
+
+        try
+        {
+            // Build 6-byte header: 2 bytes opcode, 4 bytes size
+            byte[] header = new byte[6];
+
+            ushort op = (ushort)data.GetOpcode();
+            uint size = (uint)data.Size;
+
+            BlockCopy(BitConverter.GetBytes(op), 0, header, 0, 2);
+            BlockCopy(BitConverter.GetBytes(size), 0, header, 2, 4);
+
+            // Combine header and payload into a single buffer to send atomically
+            byte[] packetData;
+            if (useCrypto && !noCrypto)
+            {
+                // Need to encrypt header and payload separately, then combine
+                var encHeader = new byte[6];
+                sendCrypto.Process(header, encHeader);
+                
+                if (data.Size > 0)
+                {
+                    var payload = data.Contents;
+                    var encPayload = new byte[payload.Length];
+                    sendCrypto.Process(payload, encPayload);
+                    
+                    // Combine encrypted header + encrypted payload
+                    packetData = new byte[6 + payload.Length];
+                    BlockCopy(encHeader, 0, packetData, 0, 6);
+                    BlockCopy(encPayload, 0, packetData, 6, payload.Length);
+                }
+                else
+                {
+                    packetData = encHeader;
+                }
+            }
+            else
+            {
+                // No encryption: combine header + payload directly
+                if (data.Size > 0)
+                {
+                    var payload = data.Contents;
+                    packetData = new byte[6 + payload.Length];
+                    BlockCopy(header, 0, packetData, 0, 6);
+                    BlockCopy(payload, 0, packetData, 6, payload.Length);
+                }
+                else
+                {
+                    packetData = header;
+                }
+            }
+
+            // Send the complete packet (header + payload) in a single atomic operation
+            return SendPacketDirect(packetData, packetData.Length);
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[LogonCommServer]", string.Format("SendPacketDirect error: {0}", ex.Message));
+            return false;
+        }
     }
 
     public void HandleAuthChallenge(WorldPacket recvData)
@@ -448,50 +594,81 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         var sLog = new Logger();
         byte[] key = new byte[20];
 
-        uint result = 1;
-        recvData.Read(key, 0, 20);
-
-        // Debug: log received key      
-        if (!key.SequenceEqual(SocketManager.sql_hash))
+        try
         {
-            sLog.OutError(L_N_LOGCOMSE_2, GetRemoteIP(), "ECHEC");
-            result = 0;
+            uint result = 1;
+            if (recvData.Size < 20)
+            {
+                sLog.OutError("[LogonCommServer]", "AuthChallenge: received packet too small (expected 20 bytes, got {0})", recvData.Size);
+                OnDisconnect();
+                return;
+            }
+            recvData.Read(key, 0, 20);
+
+            // Debug: log received key      
+            if (!key.SequenceEqual(SocketManager.sql_hash))
+            {
+                sLog.OutError(L_N_LOGCOMSE_2, GetRemoteIP(), "ECHEC");
+                result = 0;
+            }
+
+            sLog.OutString(L_N_LOGCOMSE_3, GetRemoteIP(), result == 1 ? "OK" : "ECHEC");
+
+            Logger.OutColor(LogColor.TNORMAL, L_N_LOGCOMSE_6);
+
+            for (int i = 0; i < 20; ++i)
+                Logger.OutColor(LogColor.TGREEN, $"{key[i]:X2} ");
+
+            Logger.OutColor(LogColor.TNORMAL, "\n");
+
+            Logger.OutColor(LogColor.TNORMAL, "Expected: ");
+            for (int i = 0; i < 20; ++i)
+                Logger.OutColor(LogColor.TGREEN, $"{SocketManager.sql_hash[i]:X2} ");
+
+            Logger.OutColor(LogColor.TNORMAL, "\n");
+
+            recvCrypto.Setup(key, 20);
+            sendCrypto.Setup(key, 20);
+
+            /* packets are encrypted from now on */
+            useCrypto = true;
+
+            WorldPacket data = new((ushort)RSMSG_AUTH_RESPONSE, 1);
+            data.WriteByte((byte)result);
+
+            SendPacket(data);
+
+            authenticated = result;
         }
-
-        sLog.OutString(L_N_LOGCOMSE_3, GetRemoteIP(), result == 1 ? "OK" : "ECHEC");
-
-        Logger.OutColor(LogColor.TNORMAL, L_N_LOGCOMSE_6);
-
-        for (int i = 0; i < 20; ++i)
-            Logger.OutColor(LogColor.TGREEN, $"{key[i]:X2} ");
-
-        Logger.OutColor(LogColor.TNORMAL, "\n");
-
-        Logger.OutColor(LogColor.TNORMAL, "Expected: ");
-        for (int i = 0; i < 20; ++i)
-            Logger.OutColor(LogColor.TGREEN, $"{SocketManager.sql_hash[i]:X2} ");
-
-        Logger.OutColor(LogColor.TNORMAL, "\n");
-
-        recvCrypto.Setup(key, 20);
-        sendCrypto.Setup(key, 20);
-
-        /* packets are encrypted from now on */
-        useCrypto = true;
-
-        WorldPacket data = new((ushort)RSMSG_AUTH_RESPONSE, 1);
-        data.WriteByte((byte)result);
-
-        SendPacket(data);
-
-        authenticated = result;
+        finally
+        {
+            // ⚡ Nettoyage SÉCURISÉ de la clé en mémoire
+            Array.Clear(key, 0, key.Length);
+        }
     }
 
     public void SendPing()
     {
-    WorldPacket data = new((ushort)RSMSG_SERVER_PING, 4);
-    data.WriteUInt32(0);
-    SendPacket(data);
+        CLog.Debug("[LogonCommServer]", string.Format("Sending PING to {0}", GetRemoteIP()));
+        
+        // PING packets must be sent directly without buffering to prevent timeout issues
+        // when the buffer is full
+        WorldPacket data = new((ushort)RSMSG_SERVER_PING, 4);
+        data.WriteUInt32(0);
+        
+        if (!SendPacketDirect(data, false))
+        {
+            // Fallback: try normal buffered send if direct send fails
+            bool success = SendPacket(data);
+            if (!success)
+            {
+                CLog.Debug("[LogonCommServer]", string.Format("PING queued for later send to {0} (buffer full).", GetRemoteIP()));
+            }
+        }
+        else
+        {
+            CLog.Debug("[LogonCommServer]", string.Format("PING sent directly to {0} (no buffer).", GetRemoteIP()));
+        }
     }
 
     public void HandleServerPong(WorldPacket recvData)
@@ -502,8 +679,8 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             _ = recvData.ReadUInt32();
         }
 
-        lastPing_ms = Environment.TickCount64;
-        // nextServerPing_ms = lastPing_ms + 20_000; // Reset next ping timer
+        CLog.Debug("[LogonCommServer]", string.Format("Received PONG from {0}. Connection is alive.", GetRemoteIP()));
+        Interlocked.Exchange(ref lastPing_ms, Environment.TickCount64);
     }
 
     public static bool IsServerAllowed(IPAddress address)
@@ -549,6 +726,34 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
     private static uint Swap32(uint value)
     {
         return ((value >> 24) & 0x000000FF) | ((value >> 8) & 0x0000FF00) | ((value << 8) & 0x00FF0000) | ((value << 24) & 0xFF000000);
+    }
+
+    // Activer les Keep-Alive TCP pour détecter les connexions mortes au niveau OS
+    public void SetKeepAlive(bool enable, int timeMs, int intervalMs)
+    {
+        try
+        {
+            // Structure pour les valeurs Keep-Alive (Windows)
+            uint on = enable ? 1u : 0u;
+            byte[] inOptionValues = new byte[12];
+            
+            // Activer/désactiver Keep-Alive
+            BitConverter.GetBytes(on).CopyTo(inOptionValues, 0);
+            // Temps d'inactivité avant le premier Keep-Alive (ms)
+            BitConverter.GetBytes((uint)timeMs).CopyTo(inOptionValues, 4);
+            // Intervalle entre les Keep-Alive (ms)
+            BitConverter.GetBytes((uint)intervalMs).CopyTo(inOptionValues, 8);
+            
+            // Appliquer les paramètres Keep-Alive via le socket sous-jacent
+#pragma warning disable CA1416 // 'IOControlCode.KeepAliveValues' est spécifique à Windows
+            GetSocket().IOControl(IOControlCode.KeepAliveValues, inOptionValues, null);
+#pragma warning restore CA1416
+            CLog.Debug("[LogonCommServer]", string.Format("TCP Keep-Alive enabled: {0}, time={1}ms, interval={2}ms", enable, timeMs, intervalMs));
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[LogonCommServer]", string.Format("Failed to set TCP Keep-Alive: {0}", ex.Message));
+        }
     }
 
     // Initialize the handlers array
@@ -635,6 +840,16 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
                 string.Format("Decompression failed: {0}", ex.Message));
             return;
         }
+        finally
+        {
+            Array.Clear(compressedData, 0, compressedData.Length);
+        }
+
+        if (buffer.Length < 8)
+        {
+            CLog.Error("[LogonCommServer]", "Mapping reply decompressed payload is too short");
+            return;
+        }
 
         uint accountId;
         byte numberOfCharacters;
@@ -651,6 +866,13 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         lock (sInfoCore)
         {
             count = BitConverter.ToUInt32(buffer, 4);
+            if (count > (buffer.Length - 8) / 5)
+            {
+                CLog.Error("[LogonCommServer]", 
+                    string.Format("Mapping count is invalid: {0} entries for {1} bytes", count, buffer.Length));
+                return;
+            }
+
             sLog.OutString(L_N_LOGCOMSE_5, realmId, count);
             for (uint i = 0; i < count; ++i)
             {
@@ -673,6 +895,11 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 
     public void HandleUpdateMapping(WorldPacket recvData)
     {
+        if (recvData.Size < 9) // 4 + 4 + 1
+        {
+            CLog.Error("[LogonCommServer]"," HandleUpdateMapping: packet too small (expected 9 bytes, got {0})", recvData.Size);
+            return;
+        }
         uint realmId = recvData.ReadUInt32();
         uint accountId = recvData.ReadUInt32();
         byte charsToAdd = recvData.ReadByte();
@@ -815,6 +1042,88 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
                         SLogonSQL.Execute($"UPDATE `accounts` SET `AlreadyDK` = 0 WHERE `AlreadyDK` = {guid}");
                 }
                 break;
+        }
+    }
+}
+
+// Classe statique pour surveiller toutes les connexions RealmServer
+public static class ConnectionWatchdog
+{
+    private static Timer watchdogTimer;
+    private static readonly object startLock = new object();
+    private static bool isRunning = false;
+
+    // Démarrer le watchdog (appelé une seule fois)
+    public static void Start()
+    {
+        lock (startLock)
+        {
+            if (isRunning) return;
+            isRunning = true;
+            watchdogTimer = new Timer(CheckAllConnections, null, 10_000, 10_000); // Toutes les 10 secondes
+            CLog.Notice("[ConnectionWatchdog]", "Started. Monitoring all RealmServer connections every 10 seconds.");
+        }
+    }
+
+    // Arrêter le watchdog
+    public static void Stop()
+    {
+        lock (startLock)
+        {
+            if (!isRunning) return;
+            isRunning = false;
+            if (watchdogTimer != null)
+            {
+                try
+                {
+                    watchdogTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                    watchdogTimer.Dispose();
+                }
+                catch { }
+                watchdogTimer = null;
+            }
+            CLog.Notice("[ConnectionWatchdog]", "Stopped.");
+        }
+    }
+
+    // Vérifier toutes les connexions actives
+    private static void CheckAllConnections(object state)
+    {
+        try
+        {
+            var sInfoCore = InformationCore.Instance;
+            var sockets = sInfoCore.GetAllServerSockets();
+            long now_ms = Environment.TickCount64;
+            
+            foreach (var socket in sockets)
+            {
+                if (socket == null) continue;
+                
+                // Vérifier si le socket est encore valide
+                if (!socket.IsConnected())
+                {
+                    CLog.Warning("[ConnectionWatchdog]",
+                        string.Format("Socket to {0} is disconnected. Removing.", socket.GetRemoteIP()));
+                    socket.OnDisconnect();
+                    continue;
+                }
+                
+                long lastPing = Interlocked.Read(ref socket.lastPing_ms);
+                long timeSinceLastPong = now_ms - lastPing;
+                
+                // Si pas de PONG reçu depuis 60 secondes, forcer la déconnexion
+                if (timeSinceLastPong > 60_000)
+                {
+                    CLog.Error("[ConnectionWatchdog]",
+                        string.Format("Socket to {0} is dead (last PONG: {1}ms ago). Forcing disconnect.",
+                        socket.GetRemoteIP(), timeSinceLastPong));
+                    socket.OnDisconnect();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[ConnectionWatchdog]", string.Format("Error in connection check: {0}", ex.Message));
         }
     }
 }

@@ -76,7 +76,7 @@ public class LogonCommHandler : IDisposable
     private readonly HashSet<Realm> realms = [];
     private readonly HashSet<LogonServer> servers = [];
     private uint idHigh;
-    private uint nextRequest;
+    private int nextRequest;  // Changed to int for Interlocked.Increment
     private readonly object mapLock = new();
     private readonly object pendingLock = new();
     private readonly bool pings;
@@ -122,7 +122,6 @@ public class LogonCommHandler : IDisposable
             }
 
             // Extraction des infos de session (fait côté WorldSocket)
-            sock.Authed = true;
             RemoveUnauthedSocket(requestId);
             sock.InformationRetreiveCallback(recvData, requestId);
         }
@@ -187,29 +186,35 @@ public class LogonCommHandler : IDisposable
     {
         lock (mapLock)
         {
-            foreach (var kvp in logons)
+            var serverToRemove = logons.Keys.FirstOrDefault(k => k.ID == id);
+            if (serverToRemove != null && logons.TryGetValue(serverToRemove, out var socket) && socket != null)
             {
-                if (kvp.Key.ID == id && kvp.Value != null)
+                // Disposer de la socket avant de la retirer
+                try
                 {
-                    kvp.Key.RetryTime = Environment.TickCount64 + 10_000;
-                    kvp.Key.IsConnecting = false;  // Mark as no longer connecting so retry can work
-                    logons[kvp.Key] = null;
-                    break;
+                    socket.Dispose();
                 }
+                catch { }
+
+                serverToRemove.RetryTime = Environment.TickCount64 + 10_000;
+                serverToRemove.IsConnecting = false;
+                logons.Remove(serverToRemove);
             }
         }
     }
-
     public void AdditionAck(uint id, uint servId)
     {
-        foreach (var kvp in logons)
+        lock (mapLock)
         {
-            if (kvp.Key.ID == id)
+            foreach (var kvp in logons)
             {
-                kvp.Key.ServerID = servId;
-                kvp.Key.Registered = true;
-                kvp.Key.RegistrationCompleted?.Invoke();
-                return;
+                if (kvp.Key.ID == id)
+                {
+                    kvp.Key.ServerID = servId;
+                    kvp.Key.Registered = true;
+                    kvp.Key.RegistrationCompleted?.Invoke();
+                    return;
+                }
             }
         }
     }
@@ -253,7 +258,7 @@ public class LogonCommHandler : IDisposable
                         toDisconnect.Add((kvp.Key, cs, reason));
                         continue;
                     }
-                    if ((now_ms - lastPing) > 15_000)
+                    if ((now_ms - lastPing) > 5_000)
                     {
                         toPing.Add(cs);
                     }
@@ -295,13 +300,16 @@ public class LogonCommHandler : IDisposable
                     CLog.Warning("[LogonCommHandler]", reason);
                 
                 // Safely cleanup connection if it exists
+                // Note: We must NOT call Disconnect() here as it would call ConnectionDropped()
+                // which tries to acquire mapLock -> DEADLOCK!
+                // Instead, remove the entry and dispose the socket directly.
                 if (cs != null)
                 {
-                    cs._id = 0;
-                    if (reason != null) // only full-disconnect on timeout; dead sockets just nulled
-                        cs.Disconnect();
+                    Interlocked.Exchange(ref cs._id, 0);
+                    // Dispose without triggering OnDisconnect callbacks
+                    cs.Dispose();
                 }
-                logons[server] = null;
+                logons.Remove(server);
             }
         }
 
@@ -342,18 +350,20 @@ public class LogonCommHandler : IDisposable
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_3);
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_PROMPT);
 
-        logons[server] = conn;
-        
-        // Set _id BEFORE SendChallenge so that AdditionAck (called asynchronously
-        // on the IOCP worker thread during HandleAuthResponse -> RequestAddition ->
-        // HandleRegister) can match kvp.Key.ID and set server.Registered = true.
-        conn._id = server.ID;
+        lock (mapLock)
+        {
+            logons[server] = conn;
+            // Set _id BEFORE SendChallenge so that AdditionAck (called asynchronously
+            // on the IOCP worker thread during HandleAuthResponse -> RequestAddition ->
+            // HandleRegister) can match kvp.Key.ID and set server.Registered = true.
+            Interlocked.Exchange(ref conn._id, server.ID);
+        }
 
         // Setup callbacks for async completion - DO NOT BLOCK THE MAIN THREAD
         conn.AuthCompleted = (success) => 
         {
             if (_shuttingDown) return;
-            conn.authenticated = success ? 1 : 0xFFFFFFFF;
+            Interlocked.Exchange(ref conn.authenticated, success ? 1 : 0xFFFFFFFF);
             HandleAuthCompletion(server, conn, success);
         };
         
@@ -429,10 +439,16 @@ public class LogonCommHandler : IDisposable
         server.Registered = false;
         if (conn != null)
         {
-            conn._id = 0;
-            conn.Disconnect();
+            Interlocked.Exchange(ref conn._id, 0);
+            // Note: We must NOT call Disconnect() here as it would call OnDisconnect()
+            // which tries to acquire mapLock -> DEADLOCK!
+            // Instead, just dispose the socket directly.
+            conn.Dispose();
         }
-        logons[server] = null;
+        lock (mapLock)
+        {
+            logons[server] = null;
+        }
     }
     //public void LogonDatabaseSQLExecute(string str, params object[] args) { /* ... */ }
     //public void LogonDatabaseReloadAccounts() { /* ... */ }
@@ -442,13 +458,20 @@ public class LogonCommHandler : IDisposable
 
     public uint ClientConnected(string accountName, WorldSocket socket)
     {
-        uint requestId = nextRequest++;
+        // Thread-safe increment using Interlocked
+        uint requestId = (uint)Interlocked.Increment(ref nextRequest);
         Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_8, accountName, requestId);
-        if (logons.Count == 0)
-            return uint.MaxValue;
-        var s = logons.Values.FirstOrDefault();
-        if (s == null)
-            return uint.MaxValue;
+        
+        LogonCommClientSocket s;
+        lock (mapLock)
+        {
+            if (logons.Count == 0)
+                return uint.MaxValue;
+            s = logons.Values.FirstOrDefault();
+            if (s == null)
+                return uint.MaxValue;
+        }
+        
         lock (pendingLock)
         {
             var data = new WorldPacket((ushort)RCMSG_REQUEST_SESSION, 100);
@@ -456,8 +479,8 @@ public class LogonCommHandler : IDisposable
             var acct = accountName.Split('#')[0];
             data.WriteString(acct);
             data.WriteByte(0);
-            s.SendPacket(data, false);
             pendingLogons[requestId] = socket;
+            s.SendPacket(data, false);
         }
         return requestId;
     }
@@ -472,7 +495,10 @@ public class LogonCommHandler : IDisposable
 
     public void RemoveUnauthedSocket(uint id)
     {
-        _ = pendingLogons.Remove(id);
+        lock (pendingLock)
+        {
+            _ = pendingLogons.Remove(id);
+        }
     }
     public void LoadRealmConfiguration()
     {

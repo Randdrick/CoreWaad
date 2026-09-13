@@ -31,7 +31,7 @@ public class ByteBufferException(bool add, uint pos, uint esize, uint size) : Ex
 {
 }
 
-public class ByteBuffer
+public class ByteBuffer : IDisposable
 {
     // Added for compatibility with C++ style WriteUInt32 usage
     public ByteBuffer WriteUInt32(uint value)
@@ -39,11 +39,12 @@ public class ByteBuffer
         return Write(value);
     }
     protected List<byte> buffer;
-    private readonly List<byte> _storage;
+    protected List<byte> _storage;
     private int _rpos;
     private int _wpos;
     public string Opcodename { get; set; }
     public int Size => _storage.Count;
+    private bool _disposed = false;
 
     public const int DEFAULT_SIZE = 0x1000;
 
@@ -78,6 +79,38 @@ public class ByteBuffer
         _storage.Clear();
         _rpos = _wpos = 0;
         Opcodename = "";
+    }
+
+    public void Free()
+    {
+        _storage?.Clear();
+        _storage = null;
+        buffer = null;
+        _rpos = _wpos = 0;
+        Opcodename = "";
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                Free();
+            }
+            _disposed = true;
+        }
+    }
+
+    ~ByteBuffer()
+    {
+        Dispose(false);
     }
 
     public void Append<T>(T value)

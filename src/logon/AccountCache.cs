@@ -602,6 +602,15 @@ public class InformationCore
         }
     }
 
+    // Retourne une copie de la liste des sockets pour éviter les problèmes de thread-safety
+    public List<LogonCommServerSocket> GetAllServerSockets()
+    {
+        lock (serverSocketLock)
+        {
+            return [.. serverSockets];
+        }
+    }
+
     private static InformationCore _instance;
     public static InformationCore Instance => _instance ??= new InformationCore();
 
@@ -695,24 +704,36 @@ public class InformationCore
         if (!usepings)
             return;
 
+        long now_ms = Environment.TickCount64;
+        List<LogonCommServerSocket> socketsToRemove;
+        
         lock (serverSocketLock)
         {
-            long now_ms = Environment.TickCount64;
-
-            foreach (var socket in serverSockets.ToList())
+            socketsToRemove = [.. serverSockets.Where(s =>
+                (now_ms - Interlocked.Read(ref s.lastPing_ms)) > 60_000)];
+        }
+        
+        // Traiter les sockets à supprimer EN DEHORS du lock pour éviter les deadlocks
+        foreach (var socket in socketsToRemove)
+        {
+            // Collecter les realm IDs à supprimer
+            var realmIdsToRemove = new List<uint>(socket.serverIds);
+            
+            lock (realmLock)
             {
-                long lastPing = Interlocked.Read(ref socket.lastPing_ms);
-                if (lastPing < now_ms && (now_ms - lastPing) > 60_000)
+                foreach (var serverId in realmIdsToRemove)
                 {
-                    CLog.Warning("[InfoCore]", $"Disconnecting realm socket due to ping timeout. now={now_ms} lastPing_ms={lastPing} delta={now_ms - lastPing}ms remote={socket.GetRemoteIP()}:{socket.GetRemotePort()}");
-                    serverSockets.Remove(socket);
-
-                    foreach (var serverId in socket.serverIds)
-                    {
-                        RemoveRealm(serverId);
-                    }
-
-                    socket.Disconnect();
+                    realms.Remove(serverId);
+                }
+            }
+            
+            // Supprimer et disposer du socket (sans appeler Disconnect() pour éviter le deadlock)
+            lock (serverSocketLock)
+            {
+                if (serverSockets.Remove(socket))
+                {
+                    CLog.Warning("[InfoCore]", $"Disconnecting realm socket due to ping timeout. now={now_ms} lastPing_ms={Interlocked.Read(ref socket.lastPing_ms)} delta={now_ms - Interlocked.Read(ref socket.lastPing_ms)}ms remote={socket.GetRemoteIP()}:{socket.GetRemotePort()}");
+                    socket.Dispose();
                 }
             }
         }
@@ -728,7 +749,7 @@ public class InformationCore
 
             foreach (var socket in serverSockets)
             {
-                var remoteAddress = WaadShared.Network.Socket.GetRemoteAddress(socket);
+                var remoteAddress = Socket.GetRemoteAddress(socket);
                 if (remoteAddress != null && !LogonCommServerSocket.IsServerAllowed(remoteAddress))
                 {
                     sLog.OutError(L_E_ACCOUNT_S_1, socket.GetRemoteIP());
