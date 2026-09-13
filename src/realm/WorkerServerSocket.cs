@@ -19,6 +19,7 @@
  */
 
 using System;
+using System.Threading;
 using WaadShared;
 using WaadShared.Network;
 
@@ -32,6 +33,7 @@ namespace WaadRealmServer
         private int _remaining = 0;
         private ushort _cmd = 0;
         private WorkerServer _ws = null;
+        private int _disconnectHandled;
         private WorldSocket Ws { get; set; }
         private readonly int REVISION = Master.REVISION;
 
@@ -73,10 +75,11 @@ namespace WaadRealmServer
                     ushort op = GetReadBuffer().ReadUInt16();
                     uint sz = GetReadBuffer().ReadUInt32();
                     var session = ClientMgr.Instance.GetSession(sid);
-                    if (session != null && session.GetSocket() != null)
+                    var sessionSocket = session?.GetSocket();
+                    if (sessionSocket != null)
                     {
                         byte[] buf = GetReadBuffer().ReadBytes(sz);
-                        Ws.OutPacket(op, (int)sz, buf);
+                        sessionSocket.OutPacket(op, (int)sz, buf);
                     }
                     else
                     {
@@ -180,7 +183,12 @@ namespace WaadRealmServer
 
         public override void OnDisconnect()
         {
-            ClusterMgr.Instance.OnServerDisconnect(_ws);
+            if (Interlocked.Exchange(ref _disconnectHandled, 1) != 0)
+                return;
+
+            var workerServer = Interlocked.Exchange(ref _ws, null);
+            if (workerServer != null)
+                ClusterMgr.Instance.OnServerDisconnect(workerServer);
         }
 
         protected override void OnConnect()

@@ -730,12 +730,6 @@ public class RPlayerInfo
     public uint SessionId { get; set; }
     private Session _session;
 
-    // Constructeur par défaut
-    public RPlayerInfo()
-    {
-        _session = new Session(0, 0);
-    }
-
     // Méthode pour initialiser ou réinitialiser _session
     public void InitializeSession(uint accountId, uint sessionId)
     {
@@ -878,8 +872,8 @@ public class RPlayerInfo
 
     public Session GetSession()
     {
-        // Vérifie que _session est correctement initialisé
-        if (_session.GetAccountId() == 0 && _session.GetSessionId() == 0)
+        // _session reste null tant qu'InitializeSession() n'a pas été appelée
+        if (_session == null || (_session.GetAccountId() == 0 && _session.GetSessionId() == 0))
         {
             throw new InvalidOperationException("La session n'a pas été initialisée. Appeler InitializeSession() avant d'utiliser GetSession().");
         }

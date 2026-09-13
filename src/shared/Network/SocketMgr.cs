@@ -374,7 +374,7 @@ public static class SocketExtensions
 
 #if CONFIG_USE_IOCP
 
-            byte[] temp = new byte[space];
+            byte[] temp = socket.GetRecvScratchBuffer(space);
             try
             {
                 var fd = socket.GetFd();
@@ -567,7 +567,7 @@ public static class SocketExtensions
             }
 #else
             // Non-IOCP fallback (not used on Windows)
-            byte[] temp = new byte[space];
+            byte[] temp = socket.GetRecvScratchBuffer(space);
             try
             {
                 socket.GetFd().BeginReceive(temp, 0, space, SocketFlags.None, ar =>

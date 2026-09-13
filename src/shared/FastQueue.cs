@@ -64,6 +64,16 @@ public class FastQueue<T, LOCK> where LOCK : IDisposable, new()
             Pop();
     }
 
+    public void ClearAndDispose()
+    {
+        while (last != null)
+        {
+            var item = Pop();
+            if (item is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
     public void Push(T elem)
     {
         m_lock.Dispose();

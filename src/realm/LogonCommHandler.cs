@@ -145,6 +145,7 @@ public class LogonCommHandler : IDisposable
             data.WriteUInt32(realm.TimeZone);
             data.WriteFloat(realm.Population);
             socket.SendPacket(data, false);
+            data.Dispose();
         }
     }
     public void Startup()
@@ -481,6 +482,7 @@ public class LogonCommHandler : IDisposable
             data.WriteByte(0);
             pendingLogons[requestId] = socket;
             s.SendPacket(data, false);
+            data.Dispose();
         }
         return requestId;
     }
@@ -630,6 +632,7 @@ public class LogonCommHandler : IDisposable
         data.WriteString(account);
         data.WriteUInt32(banned);
         logons.Values.First().SendPacket(data, false);
+        data.Dispose();
     }
     public void Account_SetGM(string account, string flags)
     {
@@ -640,6 +643,7 @@ public class LogonCommHandler : IDisposable
         data.WriteString(account);
         data.WriteString(flags);
         logons.Values.First().SendPacket(data, false);
+        data.Dispose();
     }
     public void Account_SetMute(string account, uint muted)
     {
@@ -650,6 +654,7 @@ public class LogonCommHandler : IDisposable
         data.WriteString(account);
         data.WriteUInt32(muted);
         logons.Values.First().SendPacket(data, false);
+        data.Dispose();
     }
     public void IPBan_Add(string ip, uint duration)
     {
@@ -660,6 +665,7 @@ public class LogonCommHandler : IDisposable
         data.WriteString(ip);
         data.WriteUInt32(duration);
         logons.Values.First().SendPacket(data, false);
+        data.Dispose();
     }
     public void IPBan_Remove(string ip)
     {
@@ -669,6 +675,7 @@ public class LogonCommHandler : IDisposable
         data.WriteUInt32(5);
         data.WriteString(ip);
         logons.Values.First().SendPacket(data, false);
+        data.Dispose();
     }
     public void Account_SetOneDK(uint guidPlayer, bool oneDKCreated)
     {
@@ -679,6 +686,7 @@ public class LogonCommHandler : IDisposable
         data.WriteUInt32(guidPlayer);
         data.WriteUInt32(oneDKCreated ? 1u : 0u);
         logons.Values.First().SendPacket(data, false);
+        data.Dispose();
     }
 
     public void Dispose()

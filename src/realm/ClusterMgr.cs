@@ -346,6 +346,9 @@ public class ClusterMgr : IDisposable
 
     public void OnServerDisconnect(WorkerServer s)
     {
+        if (s == null)
+            return;
+
         lock (_lock)
         {
             // Nettoyage des instances

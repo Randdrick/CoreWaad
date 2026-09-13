@@ -44,6 +44,16 @@ public class Socket : IDisposable
     private readonly CircularBuffer writeBuffer;
     private readonly object m_writeMutex = new();
     private readonly object m_readMutex = new();
+    // Réutilisé par SetupReadEvent pour éviter une allocation (souvent proche de la taille
+    // du buffer de réception, ex: ~256 Ko) à chaque réarmement de BeginReceive.
+    private byte[] _recvScratch;
+
+    public byte[] GetRecvScratchBuffer(int minSize)
+    {
+        if (_recvScratch == null || _recvScratch.Length < minSize)
+            _recvScratch = new byte[minSize];
+        return _recvScratch;
+    }
 
     public Socket(System.Net.Sockets.Socket socket, int sendbuffersize, int recvbuffersize)
     {

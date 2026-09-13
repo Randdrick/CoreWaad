@@ -385,11 +385,19 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
         if (op >= handlers.Length || handlers[op] == null)
         {
             CLog.Error("[LogonCommClient]", R_E_LOGCOMCLT_1, $"{op}");
+            recvData.Dispose();
             return;
         }
-        handlers[op](recvData);
 
-        recvData.Clear(); // Nettoyer le buffer après traitement
+        try
+        {
+            handlers[op](recvData);
+        }
+        finally
+        {
+            // Dispose (pas seulement Clear) pour éviter la mise en file de finalisation de chaque paquet reçu.
+            recvData.Dispose();
+        }
     }
 
     public void SendPing()
@@ -402,15 +410,22 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
         var packet = new WorldPacket((ushort)RCMSG_PING, 4);
         packet.WriteUInt32((uint)(now & 0xFFFFFFFF));
         
-        // PING packets must be sent directly without buffering to prevent timeout issues
-        if (!SendPacketDirect(packet, false))
+        try
         {
-            // Fallback: try normal buffered send if direct send fails
-            SendPacket(packet);
+            // PING packets must be sent directly without buffering to prevent timeout issues
+            if (!SendPacketDirect(packet, false))
+            {
+                // Fallback: try normal buffered send if direct send fails
+                SendPacket(packet);
+            }
+            else
+            {
+                CLog.Debug("[LogonCommClient]", "PING sent directly (no buffer).");
+            }
         }
-        else
+        finally
         {
-            CLog.Debug("[LogonCommClient]", "PING sent directly (no buffer).");
+            packet.Dispose();
         }
     }
 
@@ -441,6 +456,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
             var packet = new WorldPacket((ushort)RCMSG_AUTH_CHALLENGE, 20);
             packet.Append(key, 20);
             SendPacket(packet, true); // true = pas de chiffrement sur le challenge
+            packet.Dispose();
         }
         finally
         {
@@ -543,15 +559,22 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
         var packet = new WorldPacket((ushort)RCMSG_SERVER_PONG, 4);
         packet.WriteUInt32(echo);
         
-        // PONG packets must be sent directly without buffering to prevent timeout issues
-        if (!SendPacketDirect(packet, false))
+        try
         {
-            // Fallback: try normal buffered send if direct send fails
-            SendPacket(packet, false);
+            // PONG packets must be sent directly without buffering to prevent timeout issues
+            if (!SendPacketDirect(packet, false))
+            {
+                // Fallback: try normal buffered send if direct send fails
+                SendPacket(packet, false);
+            }
+            else
+            {
+                CLog.Debug("[LogonCommClient]", string.Format("SERVER_PONG sent directly (no buffer)."));
+            }
         }
-        else
+        finally
         {
-            CLog.Debug("[LogonCommClient]", string.Format("SERVER_PONG sent directly (no buffer)."));
+            packet.Dispose();
         }
     }
 
@@ -619,6 +642,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
             }
             remaining -= batchCount;
             CompressAndSend(uncompressed);
+            uncompressed.Dispose();
         }
     }
 
@@ -632,6 +656,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
             packet.WriteUInt32(accountId);
             packet.Write(add);
             SendPacket(packet, false);
+            packet.Dispose();
         }
     }
 
@@ -691,5 +716,6 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
         packet.Size = compressedSize + 4;
 
         SendPacket(packet, false);
+        packet.Dispose();
     }
 }

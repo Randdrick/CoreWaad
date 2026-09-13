@@ -49,7 +49,9 @@
   </ItemGroup>
 
   <Target Name="GenerateGitInfo" BeforeTargets="BeforeBuild">
-    <Exec Command="dotnet run --project ..\..\extras\GitExtractor\GitExtractor.csproj -- GenerateGitInfo $(MSBuildProjectDirectory)\GitInfo.txt &gt; $(MSBuildProjectDirectory)\GitInfoLog.txt 2&gt;&amp;1" />
+          <Exec WorkingDirectory="$(MSBuildThisFileDirectory)"
+        Command="dotnet run --project &quot;$(MSBuildThisFileDirectory)..\..\extras\GitExtractor\GitExtractor.csproj&quot; -- GenerateGitInfo &quot;$(MSBuildProjectDirectory)\GitInfo.txt&quot; &gt; &quot;$(MSBuildProjectDirectory)\GitInfoLog.txt&quot; 2&gt;&amp;1"
+          ContinueOnError="WarnAndContinue" />
   </Target>
 
   <ItemGroup>

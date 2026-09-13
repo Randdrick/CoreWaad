@@ -71,19 +71,36 @@ namespace WaadRealmServer
         public int GetInstanceCount() => _instances.Count;
         public uint GetID() => _id;
         public void AddInstance(Instance instance) => _instances.Add(instance); // Use real Instance type
-        public void QueuePacket(WorldPacket packet) => _recvQueue.Enqueue(packet);
+        public void QueuePacket(WorldPacket packet)
+        {
+            if (_disposed)
+            {
+                packet?.Dispose();
+                return;
+            }
+
+            _recvQueue.Enqueue(packet);
+        }
         public void Update()
         {
             while (_recvQueue.Count > 0)
             {
                 var packet = _recvQueue.Dequeue();
-                var opcode = (WorkerServerOpcodes)packet.GetOpcode();
-                if (PHandlers.TryGetValue(opcode, out var handler))
+                if (packet == null)
+                    continue;
+
+                try
                 {
-                    handler(this, packet);
+                    var opcode = (WorkerServerOpcodes)packet.GetOpcode();
+                    if (PHandlers.TryGetValue(opcode, out var handler))
+                        handler(this, packet);
+                    else
+                        CLog.Error("[WServer]", R_E_WORKMGR_2, opcode);
                 }
-                else
-                    CLog.Error("[WServer]", R_E_WORKMGR_2, opcode);
+                finally
+                {
+                    packet.Dispose();
+                }
             }
 
             uint currentTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -883,7 +900,8 @@ namespace WaadRealmServer
                     {
                         lock (_recvQueue)
                         {
-                            _recvQueue.Clear();
+                            while (_recvQueue.Count > 0)
+                                _recvQueue.Dequeue()?.Dispose();
                         }
                     }
                     catch (Exception ex)

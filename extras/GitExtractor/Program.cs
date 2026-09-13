@@ -64,6 +64,9 @@ public class GitExtractor
 
     public static void GenerateGitInfoFile(string outputFilePath)
     {
+        outputFilePath = Path.GetFullPath(outputFilePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(outputFilePath)!);
+
         string branchName = GetBranchName();
         int commitCount = GetCommitCount();
 

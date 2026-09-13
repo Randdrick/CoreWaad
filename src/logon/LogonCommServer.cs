@@ -313,17 +313,25 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         if (authenticated == 0 && recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
         {
             OnDisconnect();
+            recvData.Dispose();
             return;
         }
         if (recvData.Opcode >= (ushort)RMSG_COUNT || Handlers == null || Handlers[recvData.Opcode] == null)
         {
             CLog.Error("[LogonCommServer]", L_N_LOGCOMSE_1, recvData.Opcode);
+            recvData.Dispose();
             return;
         }
 
-        Handlers[recvData.Opcode](recvData);
-
-        recvData.Clear(); // Nettoyer le buffer du paquet après traitement
+        try
+        {
+            Handlers[recvData.Opcode](recvData);
+        }
+        finally
+        {
+            // Dispose (pas seulement Clear) pour éviter la mise en file de finalisation de chaque paquet reçu.
+            recvData.Dispose();
+        }
     }
 
     public void HandleRegister(WorldPacket recvData)
@@ -368,6 +376,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         data.Initialize((ushort)RSMSG_REQUEST_ACCOUNT_CHARACTER_MAPPING);
         data.WriteUInt32(myId);
         SendPacket(data);
+        data.Dispose();
     }
 
     public void HandleSessionRequest(WorldPacket recvData)
@@ -407,6 +416,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         }
 
         SendPacket(data);
+        data.Dispose();
     }
 
     public void HandlePing(WorldPacket recvData)
@@ -420,15 +430,22 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         var pong = new WorldPacket((ushort)RSMSG_PONG, 4);
         pong.WriteUInt32(pingValue);
         
-        // PONG packets must be sent directly without buffering to prevent timeout issues
-        if (!SendPacketDirect(pong, false))
+        try
         {
-            // Fallback: try normal buffered send if direct send fails
-            SendPacket(pong);
+            // PONG packets must be sent directly without buffering to prevent timeout issues
+            if (!SendPacketDirect(pong, false))
+            {
+                // Fallback: try normal buffered send if direct send fails
+                SendPacket(pong);
+            }
+            else
+            {
+                CLog.Debug("[LogonCommServer]", "PONG sent directly (no buffer).");
+            }
         }
-        else
+        finally
         {
-            CLog.Debug("[LogonCommServer]", "PONG sent directly (no buffer).");
+            pong.Dispose();
         }
         
         Interlocked.Exchange(ref lastPing_ms, Environment.TickCount64);
@@ -637,6 +654,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             data.WriteByte((byte)result);
 
             SendPacket(data);
+            data.Dispose();
 
             authenticated = result;
         }
@@ -669,6 +687,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         {
             CLog.Debug("[LogonCommServer]", string.Format("PING sent directly to {0} (no buffer).", GetRemoteIP()));
         }
+        data.Dispose();
     }
 
     public void HandleServerPong(WorldPacket recvData)
@@ -939,6 +958,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         {
             data.WriteUInt32(0);
             SendPacket(data);
+            data.Dispose();
             return;
         }
 
@@ -947,11 +967,13 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             sLog.OutError(L_E_LOGCOMSE_R, account.UsernamePtr, account.GMFlags);
             data.WriteUInt32(0);
             SendPacket(data);
+            data.Dispose();
             return;
         }
 
         data.WriteUInt32(1);
         SendPacket(data);
+        data.Dispose();
     }
 
     public void HandleDatabaseModify(WorldPacket recvData)
@@ -1050,7 +1072,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
 public static class ConnectionWatchdog
 {
     private static Timer watchdogTimer;
-    private static readonly object startLock = new object();
+    private static readonly object startLock = new();
     private static bool isRunning = false;
 
     // Démarrer le watchdog (appelé une seule fois)

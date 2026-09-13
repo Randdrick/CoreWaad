@@ -55,6 +55,7 @@ namespace WaadRealmServer
         private readonly WowCrypt _crypt;
         private readonly FastQueue<WorldPacket, DummyLock> _queue;
         private readonly object queueLock = new();
+        private bool _resourcesDisposed;
 
         // Packet header structures
         internal struct ClientPktHeader(ushort size = 0, uint cmd = 0)
@@ -117,6 +118,17 @@ namespace WaadRealmServer
 
         public override void OnDisconnect()
         {
+            lock (queueLock)
+            {
+                _queue.ClearAndDispose();
+            }
+
+            if (!_resourcesDisposed)
+            {
+                _crypt.Dispose();
+                _resourcesDisposed = true;
+            }
+
             if (m_session != null)
             {
                 m_session.SetServer(null);
@@ -131,6 +143,13 @@ namespace WaadRealmServer
             }
             // Nettoyage des ressources
             pAuthenticationPacket = null;
+        }
+
+        public override void Dispose()
+        {
+            OnDisconnect();
+            base.Dispose();
+            GC.SuppressFinalize(this);
         }
 
         public void InformationRetreiveCallback(WorldPacket recvData, uint requestId)
@@ -300,9 +319,17 @@ namespace WaadRealmServer
 
                 byte[] uncompressed = new byte[realsize];
                 using (var ms = new MemoryStream(addonData))
-                using (var deflate = new DeflateStream(ms, CompressionMode.Decompress))
+                using (var zlib = new ZLibStream(ms, CompressionMode.Decompress))
                 {
-                    int decompressedBytes = deflate.Read(uncompressed, 0, uncompressed.Length);
+                    int decompressedBytes = 0;
+                    while (decompressedBytes < uncompressed.Length)
+                    {
+                        int bytesRead = zlib.Read(uncompressed, decompressedBytes, uncompressed.Length - decompressedBytes);
+                        if (bytesRead == 0)
+                            break;
+                        decompressedBytes += bytesRead;
+                    }
+
                     if (decompressedBytes != realsize)
                     {
                         CLog.Debug("CMSG_AUTH_SESSION", R_D_WRDSOCK_3_1);
@@ -337,7 +364,8 @@ namespace WaadRealmServer
 
                 for (uint i = 0; i < addoncount && addonBuffer.Rpos < addonBuffer.Size; ++i)
                 {
-                    string addonName = addonBuffer.Read<string>();
+                    string addonName = string.Empty;
+                    addonBuffer.Read(ref addonName);
                     byte enable = addonBuffer.Read<byte>();
                     uint crc = addonBuffer.Read<uint>();
                     uint unknown = addonBuffer.Read<uint>();
