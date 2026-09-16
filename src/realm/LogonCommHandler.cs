@@ -199,7 +199,10 @@ public class LogonCommHandler : IDisposable
 
                 serverToRemove.RetryTime = Environment.TickCount64 + 10_000;
                 serverToRemove.IsConnecting = false;
-                logons.Remove(serverToRemove);
+                serverToRemove.Registered = false;
+                // Ne pas supprimer l'entrée du dictionnaire, mais mettre la socket à null
+                // pour permettre à UpdateSockets() de déclencher la reconnexion
+                logons[serverToRemove] = null;
             }
         }
     }
@@ -303,14 +306,17 @@ public class LogonCommHandler : IDisposable
                 // Safely cleanup connection if it exists
                 // Note: We must NOT call Disconnect() here as it would call ConnectionDropped()
                 // which tries to acquire mapLock -> DEADLOCK!
-                // Instead, remove the entry and dispose the socket directly.
+                // Instead, set entry to null and dispose the socket directly.
                 if (cs != null)
                 {
                     Interlocked.Exchange(ref cs._id, 0);
                     // Dispose without triggering OnDisconnect callbacks
                     cs.Dispose();
                 }
-                logons.Remove(server);
+                // Ne pas supprimer l'entrée, mais mettre à null pour permettre la reconnexion
+                logons[server] = null;
+                server.IsConnecting = false;
+                server.Registered = false;
             }
         }
 
@@ -337,6 +343,14 @@ public class LogonCommHandler : IDisposable
         // Set global timeout for the entire connection process (auth + registration)
         // This will be checked in UpdateSockets() if callbacks fail to trigger
         server.RegistrationTimeout = Environment.TickCount64 + 20_000; // 20 seconds total timeout
+        
+        // Add server to logons dictionary with null value before attempting connection
+        // This ensures that UpdateSockets() can retry if connection fails
+        lock (mapLock)
+        {
+            if (!logons.ContainsKey(server))
+                logons[server] = null;
+        }
         
         var conn = ConnectToLogon(server.Address, server.Port);
         if (conn == null)
@@ -468,7 +482,7 @@ public class LogonCommHandler : IDisposable
         {
             if (logons.Count == 0)
                 return uint.MaxValue;
-            s = logons.Values.FirstOrDefault();
+            s = logons.Values.FirstOrDefault(v => v != null);
             if (s == null)
                 return uint.MaxValue;
         }
@@ -604,9 +618,10 @@ public class LogonCommHandler : IDisposable
     }
     public void UpdateAccountCount(uint accountId, byte add)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
-        logons.Values.First().UpdateAccountCount(accountId, add);
+        firstSocket.UpdateAccountCount(accountId, add);
     }
 
     public WorldSocket GetSocketByRequest(uint id)
@@ -625,67 +640,73 @@ public class LogonCommHandler : IDisposable
 
     public void Account_SetBanned(string account, uint banned)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
         var data = new WorldPacket((ushort)RCMSG_MODIFY_DATABASE, 50);
         data.WriteUInt32(1);
         data.WriteString(account);
         data.WriteUInt32(banned);
-        logons.Values.First().SendPacket(data, false);
+        firstSocket.SendPacket(data, false);
         data.Dispose();
     }
     public void Account_SetGM(string account, string flags)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
         var data = new WorldPacket((ushort)RCMSG_MODIFY_DATABASE, 50);
         data.WriteUInt32(2);
         data.WriteString(account);
         data.WriteString(flags);
-        logons.Values.First().SendPacket(data, false);
+        firstSocket.SendPacket(data, false);
         data.Dispose();
     }
     public void Account_SetMute(string account, uint muted)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
         var data = new WorldPacket((ushort)RCMSG_MODIFY_DATABASE, 50);
         data.WriteUInt32(3);
         data.WriteString(account);
         data.WriteUInt32(muted);
-        logons.Values.First().SendPacket(data, false);
+        firstSocket.SendPacket(data, false);
         data.Dispose();
     }
     public void IPBan_Add(string ip, uint duration)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
         var data = new WorldPacket((ushort)RCMSG_MODIFY_DATABASE, 50);
         data.WriteUInt32(4);
         data.WriteString(ip);
         data.WriteUInt32(duration);
-        logons.Values.First().SendPacket(data, false);
+        firstSocket.SendPacket(data, false);
         data.Dispose();
     }
     public void IPBan_Remove(string ip)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
         var data = new WorldPacket((ushort)RCMSG_MODIFY_DATABASE, 50);
         data.WriteUInt32(5);
         data.WriteString(ip);
-        logons.Values.First().SendPacket(data, false);
+        firstSocket.SendPacket(data, false);
         data.Dispose();
     }
     public void Account_SetOneDK(uint guidPlayer, bool oneDKCreated)
     {
-        if (logons.Count == 0 || logons.Values.FirstOrDefault() == null)
+        var firstSocket = logons.Count == 0 ? null : logons.Values.FirstOrDefault(s => s != null);
+        if (firstSocket == null)
             return;
         var data = new WorldPacket((ushort)RCMSG_MODIFY_DATABASE, 50);
         data.WriteUInt32(6);
         data.WriteUInt32(guidPlayer);
         data.WriteUInt32(oneDKCreated ? 1u : 0u);
-        logons.Values.First().SendPacket(data, false);
+        firstSocket.SendPacket(data, false);
         data.Dispose();
     }
 

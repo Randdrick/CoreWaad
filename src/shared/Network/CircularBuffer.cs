@@ -112,6 +112,14 @@ public class CircularBuffer : IDisposable
             m_regionBPointer = 0;
             m_regionBSize = 0;
         }
+        else if (m_regionASize == 0 && m_regionBSize == 0)
+        {
+            // Buffer fully drained: reset pointers so a stale non-zero
+            // m_regionBPointer doesn't make Write() take the region-B
+            // branch and falsely report the buffer as full.
+            m_regionAPointer = 0;
+            m_regionBPointer = 0;
+        }
 
         return true;
     }
@@ -211,6 +219,14 @@ public class CircularBuffer : IDisposable
             m_regionASize = m_regionBSize;
             m_regionBPointer = 0;
             m_regionBSize = 0;
+        }
+        else if (m_regionASize == 0 && m_regionBSize == 0)
+        {
+            // Buffer fully drained: reset pointers so a stale non-zero
+            // m_regionBPointer doesn't make Write() take the region-B
+            // branch and falsely report the buffer as full.
+            m_regionAPointer = 0;
+            m_regionBPointer = 0;
         }
     }
 
