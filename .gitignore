@@ -8,6 +8,7 @@ binaries/logon/git*.*
 binaries/realm/obj/**
 binaries/realm/bin/**
 binaries/realm/git*.*
+binaries/world/git*.*
 extras/GitExtractor/obj/**
 extras/GitExtractor/bin/**
 .continue/**

@@ -297,12 +297,14 @@ public class ConfigMgr
     public ConfigFile MainConfig { get; set; }
     public ConfigFile RealmConfig { get; set; }
     public ConfigFile ClusterConfig { get; set; }
+    public ConfigFile WorldConfig { get; set; }
 
     public ConfigMgr()
     {
         MainConfig = new ConfigFile();
         RealmConfig = new ConfigFile();
         ClusterConfig = new ConfigFile();
+        WorldConfig = new ConfigFile();
     }
 }
 

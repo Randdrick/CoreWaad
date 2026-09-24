@@ -21,6 +21,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using WaadShared;
 
 public static partial class DBCStores
 {
@@ -322,7 +323,7 @@ public static partial class DBCStores
     public static bool LoaderStub<T>(string dbcPath, string filename, string format, bool ind, ref DBCStorage<T> storage, bool loadStrs) where T : new()
     {
         string dbcPathFile = Path.Combine(dbcPath, filename);
-        Console.WriteLine($"Loading {dbcPathFile}.");
+        CLog.Notice("[DBC]", $"Loading {dbcPathFile}.");
         return storage.Load(dbcPathFile, format, ind, loadStrs);
     }
 

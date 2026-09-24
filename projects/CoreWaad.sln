@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-logonserver", "..\bina
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-realmserver", "..\binaries\realm\waad-realmserver.csproj", "{1505C5FB-2089-4DEB-8048-58FE300FA106}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "waad-world", "..\binaries\world\waad-world.csproj", "{7B75D2A9-6D21-4E35-9406-B4F435A8A7B6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1505C5FB-2089-4DEB-8048-58FE300FA106}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B75D2A9-6D21-4E35-9406-B4F435A8A7B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B75D2A9-6D21-4E35-9406-B4F435A8A7B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B75D2A9-6D21-4E35-9406-B4F435A8A7B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B75D2A9-6D21-4E35-9406-B4F435A8A7B6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

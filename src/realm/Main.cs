@@ -217,7 +217,6 @@ public class Master
             _ = ClusterMgr.Instance;
 
         string dbcPath = Config.ClusterConfig.GetString("Path", "DBCPath", "dbc");
-        DBCStores.DbcPath = dbcPath;
         DBCStores.RsdbcPath = dbcPath;
 
         // Timeout du chargement des DBCs        
@@ -491,7 +490,7 @@ public class Master
         CLog.Success("[Database]", R_S_MASTER_2);
 
         // 6. Vérification du répertoire DBC
-        string RSDBCPath = Config.ClusterConfig.GetString("Path", "DBCPath", "dbc");
+        string RSDBCPath = DBCStores.RsdbcPath;
         if (!Directory.Exists(RSDBCPath))
         {
             sLog.OutError($"[Storage] Le répertoire DBC est introuvable : {RSDBCPath}");
