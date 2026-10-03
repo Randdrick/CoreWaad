@@ -13,3 +13,5 @@ extras/GitExtractor/obj/**
 extras/GitExtractor/bin/**
 .continue/**
 .vscode/**
+.editorconfig
+.gitattributes
