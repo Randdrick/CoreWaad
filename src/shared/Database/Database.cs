@@ -21,6 +21,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
@@ -36,6 +37,87 @@ public abstract class SQLCallbackBase
 
 public abstract class Database : CThread
 {
+    public virtual string QuoteIdentifier(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
+    protected virtual DbConnection CreateTransactionalConnection() => throw new NotSupportedException("Transactions parametrees indisponibles pour ce fournisseur.");
+    protected virtual object NormalizeParameterValue(object value) => value ?? DBNull.Value;
+
+    protected QueryResult QueryMaterialized(string sql)
+    {
+        try
+        {
+            using var connection = CreateTransactionalConnection();
+            connection.Open();
+            return QueryMaterialized(connection, sql);
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[Database]", "Echec de lecture: {0}", ex.Message);
+            return null;
+        }
+    }
+
+    protected QueryResult QueryMaterialized(DbConnection connection, string sql)
+    {
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            using var reader = command.ExecuteReader();
+            return BufferedQueryResult.ReadAll(reader);
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[Database]", "Echec de lecture: {0}", ex.Message);
+            return null;
+        }
+    }
+
+    public virtual bool ExecuteTransaction(IReadOnlyList<DatabaseStatement> statements)
+    {
+        try
+        {
+            using var connection = CreateTransactionalConnection();
+            connection.Open();
+            return ExecuteTransactionOnConnection(connection, statements);
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[Database]", "Echec de sauvegarde transactionnelle: {0}", ex.Message);
+            return false;
+        }
+    }
+
+    protected bool ExecuteTransactionOnConnection(DbConnection connection, IReadOnlyList<DatabaseStatement> statements)
+    {
+        try
+        {
+            using var transaction = connection.BeginTransaction();
+            foreach (var statement in statements)
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = statement.Sql;
+                foreach (var entry in statement.Parameters)
+                {
+                    var parameter = command.CreateParameter();
+                    parameter.ParameterName = entry.Key;
+                    parameter.Value = NormalizeParameterValue(entry.Value);
+                    command.Parameters.Add(parameter);
+                }
+                int affected = command.ExecuteNonQuery();
+                if (statement.RequireAffectedRow && affected == 0)
+                    throw new InvalidOperationException("Personnage absent ou compte incorrect.");
+            }
+            transaction.Commit();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CLog.Error("[Database]", "Echec de sauvegarde transactionnelle: {0}", ex.Message);
+            return false;
+        }
+    }
+
     protected int _counter;
     protected int mPort;
     protected DatabaseConnection[] Connections;
@@ -379,6 +461,8 @@ public abstract class Database : CThread
 
     // public abstract bool Initialize(string lhostname, uint lport, string lusername, string lpassword, string ldatabase, int v1, int v2);
 }
+
+public sealed record DatabaseStatement(string Sql, IReadOnlyDictionary<string, object> Parameters, bool RequireAffectedRow = false);
 
 public class QueryBuffer : IDisposable
 {

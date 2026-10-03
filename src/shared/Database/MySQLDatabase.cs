@@ -37,6 +37,9 @@ public class MySQLDatabase : Database
     private string _connStr;
     private string _queryConnStr; // non-pooled variant for short-lived Query() calls
 
+    protected override System.Data.Common.DbConnection CreateTransactionalConnection() => new MySqlConnection(_queryConnStr);
+    public override string QuoteIdentifier(string identifier) => "`" + identifier.Replace("`", "``") + "`";
+
     public bool DumpDatabase(string filePath)
     {
         // Utilise mysqldump (doit être dans le PATH)
@@ -116,6 +119,10 @@ public class MySQLDatabase : Database
             }
         }
 
+        base.mConnectionCount = mConnectionCount;
+        base.Connections = new DatabaseConnection[mConnectionCount];
+        for (int i = 0; i < mConnectionCount; i++)
+            base.Connections[i] = new DatabaseConnection { MySql = Connections[i] };
         Initialize();
         return true;
     }
@@ -138,6 +145,9 @@ public class MySQLDatabase : Database
             }
         }
         Connections = null;
+        base.Connections = null;
+        base.mConnectionCount = -1;
+        _queryConnStr = null;
         CLog.Notice("[MySQLDatabase]", "All connections have been shut down.");
     }
 
@@ -271,6 +281,9 @@ public class MySQLDatabase : Database
             using var reader = cmd.ExecuteReader();
 
             int fc = reader.FieldCount;
+            var names = new string[fc];
+            for (int i = 0; i < fc; i++)
+                names[i] = reader.GetName(i);
             var allRows = new List<Field[]>();
             while (reader.Read())
             {
@@ -283,7 +296,7 @@ public class MySQLDatabase : Database
                 allRows.Add(row);
             }
             if (allRows.Count == 0) return null;
-            return new MySQLInMemoryResult(allRows, (uint)fc);
+            return new MySQLInMemoryResult(allRows, names);
         }
         catch (Exception ex)
         {
@@ -297,13 +310,17 @@ public class MySQLDatabase : Database
     private sealed class MySQLInMemoryResult : QueryResult
     {
         private readonly List<Field[]> _rows;
+        private readonly string[] _names;
         private int _index = -1;
 
-        internal MySQLInMemoryResult(List<Field[]> rows, uint fieldCount)
-            : base(fieldCount, (uint)rows.Count)
+        internal MySQLInMemoryResult(List<Field[]> rows, string[] names)
+            : base((uint)names.Length, (uint)rows.Count)
         {
             _rows = rows;
+            _names = names;
         }
+
+        public override string GetFieldName(int index) => _names[index];
 
         public override bool NextRow()
         {

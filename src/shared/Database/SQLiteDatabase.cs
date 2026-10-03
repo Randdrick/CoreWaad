@@ -20,6 +20,7 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Data.SQLite;
 
@@ -35,6 +36,38 @@ private string mUsername;
 private string mPassword;
 private string mDatabaseName;
 private new int mConnectionCount;
+private readonly object _connectionLock = new();
+
+protected override object NormalizeParameterValue(object value) => value switch
+{
+    ushort number => (int)number,
+    uint number => (long)number,
+    ulong number when number <= long.MaxValue => (long)number,
+    ulong => throw new OverflowException("SQLite ne peut pas stocker un UInt64 superieur a Int64.MaxValue sans perte dans une colonne INTEGER."),
+    _ => base.NormalizeParameterValue(value)
+};
+
+public override QueryResult Query(string QueryString, params object[] args)
+{
+    lock (_connectionLock)
+    {
+        if (Connection == null || Connection.State != System.Data.ConnectionState.Open)
+            return null;
+        return QueryMaterialized(Connection, args.Length == 0 ? QueryString : string.Format(QueryString, args));
+    }
+}
+
+public override QueryResult QueryNA(string QueryString) => Query(QueryString);
+
+public override bool ExecuteTransaction(IReadOnlyList<DatabaseStatement> statements)
+{
+    lock (_connectionLock)
+    {
+        if (Connection == null || Connection.State != System.Data.ConnectionState.Open)
+            return false;
+        return ExecuteTransactionOnConnection(Connection, statements);
+    }
+}
 
 public bool DumpDatabase(string filePath)
 {
@@ -67,14 +100,7 @@ public SQLiteDatabase() : base()
 
 protected override void Dispose(bool disposing)
 {
-    if (disposing)
-    {
-        // Cleanup managed resources if needed
-        Connection?.Dispose();
-    }
-
-    // Cleanup unmanaged resources
-    Connection?.Close();
+    Shutdown();
 }
 
 public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
@@ -103,25 +129,32 @@ public bool Initialize(string Hostname, uint port, string Username, string Passw
         return false;
     }
 
+    base.Connections = [new DatabaseConnection()];
+    base.mConnectionCount = 1;
     Initialize();
     return true;
 }
 
 public void Shutdown()
 {
-    try
+    lock (_connectionLock)
     {
-        Connection?.Close();
-        Connection?.Dispose();
-    }
-    catch (Exception ex)
-    {
-        Log.Error("SQLiteDatabase", $"Error shutting down connection: {ex.Message}");
-    }
-    finally
-    {
-        Connection = null;
-        Log.Notice("SQLiteDatabase", "Connection has been shut down.");
+        try
+        {
+            Connection?.Close();
+            Connection?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SQLiteDatabase", $"Error shutting down connection: {ex.Message}");
+        }
+        finally
+        {
+            Connection = null;
+            base.Connections = null;
+            base.mConnectionCount = -1;
+            Log.Notice("SQLiteDatabase", "Connection has been shut down.");
+        }
     }
 }
 
@@ -136,9 +169,12 @@ protected override bool SendQuery(DatabaseConnection con, string sql, bool self)
 
     try
     {
-        using var cmd = new SQLiteCommand(sql, Connection);
-        cmd.ExecuteNonQuery();
-        return true;
+        lock (_connectionLock)
+        {
+            using var cmd = new SQLiteCommand(sql, Connection);
+            cmd.ExecuteNonQuery();
+            return true;
+        }
     }
     catch (SQLiteException ex)
     {

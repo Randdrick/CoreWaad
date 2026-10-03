@@ -434,11 +434,14 @@ namespace WaadRealmServer
             uint mapid = p.ReadUInt32();
             uint instanceid = p.ReadUInt32();
             
-            // Read LocationVector (x, y, z) and orientation (o)
+            // Read LocationVector (x, y, z) and orientation (o); not forwarded in ISMSG_PLAYER_LOGIN
+            // to keep the same layout as CharacterHandler.SendPlayerLoginDataToWorldServer (world doesn't
+            // parse position on login; it already receives it via ISMSG_PLAYER_INFO/RPlayerInfo.Pack).
             float x = BitConverter.ToSingle(p.Contents, p.Size); p.Size += 4;
             float y = BitConverter.ToSingle(p.Contents, p.Size); p.Size += 4;
             float z = BitConverter.ToSingle(p.Contents, p.Size); p.Size += 4;
             float o = BitConverter.ToSingle(p.Contents, p.Size); p.Size += 4;
+            _ = (x, y, z, o);
             
             var session = ClientMgr.Instance.GetSession(sessionid);
             if (session == null) return;
@@ -449,10 +452,6 @@ namespace WaadRealmServer
             data.WriteUInt32(guid);
             data.WriteUInt32(mapid);
             data.WriteUInt32(instanceid);
-            data.WriteFloat(x);
-            data.WriteFloat(y);
-            data.WriteFloat(z);
-            data.WriteFloat(o);
             data.WriteUInt32(session.AccountId);
             data.WriteUInt32(session.AccountFlags);
             data.WriteUInt32(session.SessionId);

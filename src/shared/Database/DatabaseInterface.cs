@@ -20,6 +20,8 @@
  */
 
 using System;
+using System.Collections.Generic;
+using System.Data.Common;
 
 namespace WaadShared.Database;
 public abstract class DatabaseInterface
@@ -62,6 +64,8 @@ public abstract class DatabaseInterface
 
 public abstract class QueryResult(uint fieldCount, uint rowCount)
 {
+    public uint FieldCount => mFieldCount;
+    public virtual string GetFieldName(int index) => throw new NotSupportedException("Noms des colonnes indisponibles.");
     protected uint mFieldCount = fieldCount;
     protected uint mRowCount = rowCount;
     protected Field[] mCurrentRow;
@@ -74,6 +78,40 @@ public abstract class QueryResult(uint fieldCount, uint rowCount)
         if (mCurrentRow == null || index < 0 || index >= mCurrentRow.Length)
             throw new IndexOutOfRangeException();
         return mCurrentRow[index].GetValue();
+    }
+}
+
+internal sealed class BufferedQueryResult(List<Field[]> rows, string[] names) : QueryResult((uint)names.Length, (uint)rows.Count)
+{
+    private int _index = -1;
+
+    public static QueryResult ReadAll(DbDataReader reader)
+    {
+        var names = new string[reader.FieldCount];
+        for (int index = 0; index < names.Length; index++)
+            names[index] = reader.GetName(index);
+        var rows = new List<Field[]>();
+        while (reader.Read())
+        {
+            var fields = new Field[names.Length];
+            for (int index = 0; index < fields.Length; index++)
+            {
+                fields[index] = new Field();
+                fields[index].SetValue(reader.IsDBNull(index) ? null : reader.GetValue(index));
+            }
+            rows.Add(fields);
+        }
+        return rows.Count == 0 ? null : new BufferedQueryResult(rows, names);
+    }
+
+    public override string GetFieldName(int index) => names[index];
+
+    public override bool NextRow()
+    {
+        if (_index + 1 >= rows.Count)
+            return false;
+        mCurrentRow = rows[++_index];
+        return true;
     }
 }
 

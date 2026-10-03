@@ -216,6 +216,18 @@ public static partial class DBCStores
 
         public uint GetNumRows() => m_numrows;
 
+        public bool HasEntry(uint entryId)
+        {
+            if (m_entries != null)
+            {
+                return entryId <= m_max && m_entries[entryId] != null;
+            }
+            else
+            {
+                return entryId < m_numrows && m_heapBlock[entryId] != null;
+            }
+        }
+
         public T LookupEntry(uint i)
         {
 #if SAFE_DBC_CODE_RETURNS

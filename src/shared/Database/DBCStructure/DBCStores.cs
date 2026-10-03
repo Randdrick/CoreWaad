@@ -229,6 +229,44 @@ public static partial class DBCStores
 
     public static ref DBCStorage<object> DbcQuestFactionReward => ref dbcQuestFactionReward;
 
+    /// <summary>
+    /// Valide qu'une race existe dans ChrRaces.dbc
+    /// </summary>
+    public static bool IsValidRace(byte race)
+    {
+        if (race == 0) return false;
+        return dbcCharRace.HasEntry(race);
+    }
+
+    /// <summary>
+    /// Valide qu'une classe existe dans ChrClasses.dbc
+    /// </summary>
+    public static bool IsValidClass(byte classId)
+    {
+        if (classId == 0) return false;
+        return dbcCharClass.HasEntry(classId);
+    }
+
+    /// <summary>
+    /// Récupère l'équipe (TeamId) pour une race donnée depuis ChrRaces.dbc
+    /// </summary>
+    public static uint GetTeamIdForRace(byte race)
+    {
+        var raceEntry = dbcCharRace.LookupEntry(race);
+        if (raceEntry.RaceId != 0) // CharRaceEntry est une struct, on vérifie RaceId
+        {
+            // TeamId dans ChrRaces.dbc: 0 = Alliance, 1 = Horde
+            return raceEntry.TeamId;
+        }
+        // Fallback sur la méthode originale si le DBC n'a pas l'information
+        // 0 = Alliance, 1 = Horde
+        return race switch
+        {
+            1 or 3 or 4 or 7 or 11 => 0, // humain, nain, elfe de la nuit, gnome, draeneï - Alliance
+            _ => 1, // Horde
+        };
+    }
+
     public static float GetScale(CreatureDisplayInfo scale) => scale.Scale;
 
     public static float GetRadius(SpellRadius radius) => radius.Radius;

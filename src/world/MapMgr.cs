@@ -19,6 +19,7 @@
  *
  */
 
+using System.Collections.Generic;
 using WaadShared;
 
 namespace WaadWorldServer;
@@ -26,6 +27,20 @@ namespace WaadWorldServer;
 public sealed class MapMgr : Singleton<MapMgr>
 {
     private readonly Logger sLog = new();
+
+    // Portage minimal de ClusterInterface::HandleCreateInstance (MapMgr* mgr = sInstanceMgr.ClusterCreateInstance(...)).
+    // TODO: charger réellement la carte/instance une fois le système de cartes (Map/InstanceMgr) porté.
+    private readonly HashSet<(uint MapId, uint InstanceId)> _clusterInstances = [];
+    private readonly object _clusterInstancesLock = new();
+
+    public bool ClusterCreateInstance(uint mapId, uint instanceId)
+    {
+        lock (_clusterInstancesLock)
+        {
+            _clusterInstances.Add((mapId, instanceId));
+            return true;
+        }
+    }
 
     public void Update()
     {

@@ -28,8 +28,24 @@ using static System.Threading.Thread;
 namespace WaadShared.Database;
 public class PostgresDatabase : Database
 {
-    private new IDatabaseConnection[] Connections;
+    private new NpgsqlConnectionWrapper[] Connections;
     private new int mConnectionCount;
+    private string _queryConnectionString;
+
+    protected override System.Data.Common.DbConnection CreateTransactionalConnection() => new NpgsqlConnection(_queryConnectionString);
+
+    protected override object NormalizeParameterValue(object value) => value switch
+    {
+        ushort number => (int)number,
+        uint number => (long)number,
+        ulong number => (decimal)number,
+        _ => base.NormalizeParameterValue(value)
+    };
+
+    public override QueryResult Query(string QueryString, params object[] args) =>
+        _queryConnectionString == null ? null : QueryMaterialized(args.Length == 0 ? QueryString : string.Format(QueryString, args));
+
+    public override QueryResult QueryNA(string QueryString) => Query(QueryString);
 
     public bool DumpDatabase(string filePath)
     {
@@ -89,19 +105,24 @@ public class PostgresDatabase : Database
         }
 
         // Cleanup unmanaged resources
-        for (int i = 0; i < mConnectionCount; ++i)
+        for (int i = 0; Connections != null && i < Connections.Length; ++i)
         {
             Connections[i]?.Close();
             Connections[i]?.Dispose();
         }
 
         Connections = null;
+        base.Connections = null;
+        base.mConnectionCount = -1;
+        _queryConnectionString = null;
     }
 
     public bool Initialize(string Hostname, uint port, string Username, string Password, string DatabaseName, uint ConnectionCount, uint BufferSize)
     {
         mConnectionCount = (int)ConnectionCount;
-        Connections = new IDatabaseConnection[mConnectionCount];
+        if (mConnectionCount <= 0)
+            return false;
+        Connections = new NpgsqlConnectionWrapper[mConnectionCount];
 
         for (int i = 0; i < mConnectionCount; ++i)
         {
@@ -123,23 +144,28 @@ public class PostgresDatabase : Database
             try
             {
                 wrapper.Open();
-                Connections[i] = (IDatabaseConnection)wrapper;
+                Connections[i] = wrapper;
+                if (i == 0)
+                    _queryConnectionString = new NpgsqlConnectionStringBuilder(connString) { Pooling = false }.ToString();
             }
             catch (NpgsqlException ex)
             {
                 Log.Error("PostgresDatabase", $"Connection failed due to: `{ex.Message}`");
                 conn.Dispose();
+                Shutdown();
                 return false;
             }
         }
 
+        base.Connections = Connections;
+        base.mConnectionCount = mConnectionCount;
         Initialize();
         return true;
     }
 
     public void Shutdown()
     {
-        for (int i = 0; i < mConnectionCount; ++i)
+        for (int i = 0; Connections != null && i < Connections.Length; ++i)
         {
             if (Connections[i] != null)
             {
@@ -155,6 +181,9 @@ public class PostgresDatabase : Database
             }
         }
         Connections = null;
+        base.Connections = null;
+        base.mConnectionCount = -1;
+        _queryConnectionString = null;
         Log.Notice("PostgresDatabase", "All connections have been shut down.");
     }
 
