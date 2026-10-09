@@ -327,7 +327,7 @@ namespace WaadRealmServer
             uint mapid = p.ReadUInt32();
             uint instanceid = p.ReadUInt32();
 
-            CLog.Debug("TeleportRequest", $"session {sessionid}, mapid {mapid}, instanceid {instanceid}");
+            CLog.Debug("TeleportRequest", string.Format(WaadShared.WorkerServer.R_D_WORKMGR_TELEPORT_REQUEST, sessionid, mapid, instanceid));
             var session = ClientMgr.Instance.GetSession(sessionid);
             if (session != null)
             {
@@ -570,7 +570,7 @@ namespace WaadRealmServer
         {
             uint accountid = p.ReadUInt32();
             byte result = p.ReadByte();
-            CLog.Debug("[WServer]", $"Received ICMSG_CREATE_PLAYER, result {result}");
+            CLog.Debug("[WServer]", string.Format(WaadShared.WorkerServer.R_D_WORKMGR_CREATE_PLAYER_RESULT, result));
             var session = ClientMgr.Instance.GetSessionByAccountId(accountid);
             if (session == null)
             {
@@ -653,7 +653,7 @@ namespace WaadRealmServer
         protected static void HandleChannelUpdate(WorldPacket p)
         {
             byte updatetype = p.ReadByte();
-            CLog.Debug("[WServer]", $"ChannelUpdate type: {updatetype}");
+            CLog.Debug("[WServer]", string.Format(WaadShared.WorkerServer.R_D_WORKMGR_CHANNEL_UPDATE_TYPE, updatetype));
             uint guid = p.ReadUInt32();
             CLog.Debug("[WServer]", R_D_WORKMGR_4, guid);
             
@@ -875,7 +875,7 @@ namespace WaadRealmServer
             var chn = ChannelMgr.GetOrCreateChannel(channelname, player, dbc_id);
             if (chn == null) return;
             chn.AttemptJoin(player, pass);
-            CLog.Debug("LfgChannelJoin", $"{channelname}, unk {unk}");
+            CLog.Debug("LfgChannelJoin", string.Format(WaadShared.WorkerServer.R_D_WORKMGR_LFG_CHANNEL_JOIN, channelname, unk));
         }
 
         public void Dispose()
@@ -890,7 +890,7 @@ namespace WaadRealmServer
 
             try
             {
-                CLog.Debug("[WServer]", $"Disposing WorkerServer {_id}");
+                CLog.Debug("[WServer]", string.Format(WaadShared.WorkerServer.R_D_WORKMGR_DISPOSING, _id));
 
                 if (disposing)
                 {

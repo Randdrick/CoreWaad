@@ -222,7 +222,7 @@ public static class ConsoleListener
         bool enabled = enabledStr == "1" || enabledStr.Equals("true", StringComparison.OrdinalIgnoreCase);
         if (!enabled)
         {
-            CLog.Notice("[ConsoleListener]", "Remote console is disabled in config.");
+            CLog.Notice("[ConsoleListener]", R_N_CONLIS_REMOTE_DISABLED);
             return;
         }
 

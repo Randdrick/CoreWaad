@@ -287,7 +287,7 @@ public class LogonCommHandler : IDisposable
                         {
                             // Connection still in progress, timeout not yet reached
                             CLog.Debug("[LogonCommHandler]", 
-                                string.Format("Waiting for connection to {0} ({1}:{2}), {3:F1}s remaining",
+                                string.Format(R_D_LOGCOMHAN_WAITING_FOR_CONNECTION,
                                 kvp.Key.Name, kvp.Key.Address, kvp.Key.Port, timeLeft / 1000.0));
                         }
                     }

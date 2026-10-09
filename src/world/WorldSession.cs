@@ -22,6 +22,8 @@
 using System;
 using WaadShared;
 
+using static WaadShared.WorldSessionMessages;
+
 namespace WaadWorldServer;
 
 public static partial class WorldSession
@@ -45,7 +47,7 @@ public static partial class WorldSession
                 if (save && player.IsLoaded && !player.SaveToDB())
                 {
                     session.SetLogoutTimer(10000);
-                    CLog.Error("[WorldSession]", "Deconnexion differee: sauvegarde echouee pour le joueur {0}.", player.Guid);
+                    CLog.Error("[WorldSession]", string.Format(W_E_WORLDSESS_DELAYED_DISCONNECT_SAVE_FAILED, player.Guid));
                     return false;
                 }
 
@@ -131,7 +133,7 @@ public static partial class WorldSession
         ushort opcode = packet.GetOpcode();
         if (opcode >= (ushort)Opcodes.NUM_MSG_TYPES)
         {
-            CLog.Error("[WorldSession]", "Opcode hors limites 0x{0:X4}, session {1}.", opcode, session.SessionId);
+            CLog.Error("[WorldSession]", string.Format(W_E_WORLDSESS_OUT_OF_RANGE_OPCODE, opcode, session.SessionId));
             return;
         }
 
@@ -139,8 +141,7 @@ public static partial class WorldSession
 
         if (!PacketHandlers.TryGetValue(opcode, out var handler))
         {
-            CLog.Warning("[WorldSession]", "Aucun gestionnaire pour le paquet {0} (0x{1:X4}), session {2}.",
-                opcodeName, opcode, session.SessionId);
+            CLog.Warning("[WorldSession]", string.Format(W_W_WORLDSESS_NO_HANDLER, opcodeName, opcode, session.SessionId));
             return;
         }
 
@@ -159,21 +160,18 @@ public static partial class WorldSession
         packet.Opcodename = opcodeName;
         try
         {
-            CLog.Debug("[WorldSession]", "Traitement du paquet {0} (0x{1:X4}) pour la session {2}.",
-                opcodeName, opcode, session.SessionId);
+            CLog.Debug("[WorldSession]", string.Format(W_D_WORLDSESS_PROCESSING_PACKET, opcodeName, opcode, session.SessionId));
             handler.Callback(session, packet);
             if (handler.Status == SessionStatus.STATUS_AUTHED && opcode != (ushort)Opcodes.CMSG_SET_ACTIVE_VOICE_CHANNEL)
                 session.RecentLogout = false;
         }
         catch (ByteBufferException ex)
         {
-            CLog.Error("[WorldSession]", "Paquet mal formé {0} (0x{1:X4}), session {2}: {3}",
-                opcodeName, opcode, session.SessionId, ex.Message);
+            CLog.Error("[WorldSession]", string.Format(W_E_WORLDSESS_MALFORMED_PACKET, opcodeName, opcode, session.SessionId, ex.Message));
         }
         catch (Exception ex)
         {
-            CLog.Error("[WorldSession]", "Exception dans le gestionnaire du paquet {0} (0x{1:X4}), session {2}: {3}",
-                opcodeName, opcode, session.SessionId, ex);
+            CLog.Error("[WorldSession]", string.Format(W_E_WORLDSESS_EXCEPTION_IN_HANDLER, opcodeName, opcode, session.SessionId, ex));
         }
     }
 }

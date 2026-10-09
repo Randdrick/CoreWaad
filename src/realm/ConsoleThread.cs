@@ -63,7 +63,7 @@ public class ConsoleThread : WaadShared.Threading.ThreadBase
         finally
         {
             m_running = false;
-            CLog.Notice("[ConsoleThread]", "Console thread exiting");
+            CLog.Notice("[ConsoleThread]", R_N_CONTHR_EXITING);
         }
 
         return true;

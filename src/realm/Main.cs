@@ -652,7 +652,7 @@ public class Master
             Name = "RealmConsole"
         };
         localConsoleThread.Start();
-        CLog.Notice("[Console]", "Thread de console local démarré.");
+        CLog.Notice("[Console]", R_N_MAIN_CONSOLE_THREAD_STARTED);
 
         // 14. Listener de console à distance (si activé dans la configuration)
         try
@@ -818,7 +818,7 @@ public class Master
     {
         if (Interlocked.CompareExchange(ref s_fiveMinuteMaintenanceRunning, 1, 0) != 0)
         {
-            CLog.Warning("[Master]", "Skipping 5-minute permissions reload: previous run still in progress.");
+            CLog.Warning("[Master]", R_W_MAIN_SKIPPING_PERMISSIONS_RELOAD);
             return;
         }
 
@@ -830,7 +830,7 @@ public class Master
             }
             catch (Exception ex)
             {
-                CLog.Error("[Master]", $"5-minute permissions reload failed: {ex.Message}");
+                CLog.Error("[Master]", string.Format(R_E_MAIN_PERMISSIONS_RELOAD_FAILED, ex.Message));
             }
             finally
             {
@@ -844,7 +844,7 @@ public class Master
     {
         if (Interlocked.CompareExchange(ref s_fiveMinuteHeavyMaintenanceRunning, 1, 0) != 0)
         {
-            CLog.Warning("[Master]", "Skipping 5-minute heavy maintenance: previous run still in progress.");
+            CLog.Warning("[Master]", R_W_MAIN_SKIPPING_HEAVY_MAINTENANCE);
             return;
         }
 
@@ -858,12 +858,12 @@ public class Master
             }
             catch (Exception ex)
             {
-                CLog.Error("[Master]", $"5-minute heavy maintenance failed: {ex.Message}");
+                CLog.Error("[Master]", string.Format(R_E_MAIN_HEAVY_MAINTENANCE_FAILED, ex.Message));
             }
             finally
             {
                 sw.Stop();
-                CLog.Debug("[Master]", $"5-minute heavy maintenance completed in {sw.ElapsedMilliseconds} ms.");
+                CLog.Debug("[Master]", string.Format(R_D_MAIN_HEAVY_MAINTENANCE_COMPLETED, sw.ElapsedMilliseconds));
                 Interlocked.Exchange(ref s_fiveMinuteHeavyMaintenanceRunning, 0);
             }
             return true;

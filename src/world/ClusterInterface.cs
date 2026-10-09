@@ -28,6 +28,8 @@ using WaadShared;
 using WaadShared.AuthCodes;
 using WaadShared.Network;
 
+using static WaadShared.ClusterInterface;
+
 namespace WaadWorldServer;
 
 // Socket client utilisé par ClusterInterface pour se connecter au WorkerServerSocket du RealmServer.
@@ -43,14 +45,14 @@ public sealed class ClusterClientSocket : Socket
 
     public override void OnConnectVirtual()
     {
-        CLog.Success("[ClusterInterface]", "Connecté au serveur de Royaume(s) ({0}).", GetRemoteIP());
+        CLog.Success("[ClusterInterface]", R_S_CLUSTER_CONNECTED, GetRemoteIP());
     }
 
     public override void OnDisconnect()
     {
         Authenticated = false;
         _owner?.OnSocketDisconnected(this);
-        CLog.Warning("[ClusterInterface]", "Connexion au serveur de Royaume(s) perdue.");
+        CLog.Warning("[ClusterInterface]", R_W_CLUSTER_CONNECTION_LOST);
     }
 
     public override void OnRead()
@@ -68,7 +70,7 @@ public sealed class ClusterClientSocket : Socket
                 _remaining = buffer.ReadInt32();
                 if (_remaining < 0 || _remaining > 16 * 1024 * 1024)
                 {
-                    CLog.Error("[ClusterInterface]", "Taille de paquet invalide: {0}.", _remaining);
+                    CLog.Error("[ClusterInterface]", R_E_CLUSTER_INVALID_PACKET_SIZE, _remaining);
                     Disconnect();
                     return;
                 }
@@ -237,7 +239,7 @@ public sealed class ClusterInterface : IDisposable
         var socket = Socket.ConnectTCPSocket<ClusterClientSocket>(_host, checked((ushort)_port));
         if (socket == null)
         {
-            CLog.Error("[ClusterInterface]", "Impossible de se connecter au serveur de Royaume(s) {0}:{1}.", _host, _port);
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_CONNECTION_FAILED, _host, _port);
             return;
         }
 
@@ -253,9 +255,9 @@ public sealed class ClusterInterface : IDisposable
     {
         uint realmBuild = packet.ReadUInt32();
         long latencyMs = Environment.TickCount64 - _connectTimestampMs;
-        CLog.Debug("[ClusterInterface]", "Demande d'authentification reçue de {0} (build {1}).", _socket?.GetRemoteIP(), realmBuild);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_AUTH_REQUEST_RECEIVED, _socket?.GetRemoteIP(), realmBuild);
         SendAuthReply();
-        CLog.Notice("[ClusterInterface]", "Latence entre les serveurs de royaume(s) : {0} ms.", latencyMs);
+        CLog.Notice("[ClusterInterface]", R_N_CLUSTER_LATENCY, latencyMs);
     }
 
 
@@ -271,7 +273,12 @@ public sealed class ClusterInterface : IDisposable
 
     private static string GenerateVersionString()
     {
-        return $"WAAD r{Master.REVISION}/Debug-{Environment.OSVersion.Platform}-{(Environment.Is64BitProcess ? "amd64" : "x86")}";
+#if DEBUG
+        const string configuration = "Debug";
+#else
+        const string configuration = "Release";
+#endif
+        return $"WAAD r{Master.REVISION}/{configuration}-{Environment.OSVersion.Platform}-{(Environment.Is64BitProcess ? "amd64" : "x86")}";
     }
 
     internal void OnSocketDisconnected(ClusterClientSocket socket)
@@ -331,7 +338,7 @@ public sealed class ClusterInterface : IDisposable
             if (PHandlers.TryGetValue(opcode, out var handler))
                 handler(this, packet);
             else
-                CLog.Warning("[ClusterInterface]", "Opcode de cluster non géré: {0}.", packet.GetOpcode());
+                CLog.Warning("[ClusterInterface]",  R_W_CLUSTER_UNHANDLED_OPCODE, packet.GetOpcode());
         }
         finally
         {
@@ -343,7 +350,7 @@ public sealed class ClusterInterface : IDisposable
     {
         if (packet.ReadUInt32() == 0)
         {
-            CLog.Error("[ClusterInterface]", "Authentification refusée par le serveur de Royaume(s).");
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_AUTH_FAILED);
             _socket?.Disconnect();
         }
         else
@@ -357,12 +364,12 @@ public sealed class ClusterInterface : IDisposable
         _registered = packet.ReadUInt32() != 0;
         if (!_registered)
         {
-            CLog.Error("[ClusterInterface]", "Enregistrement du worker refusé (build incorrecte). Déconnexion.");
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_REGISTRATION_FAILED);
             _socket?.Disconnect();
         }
         else
         {
-            CLog.Success("[ClusterInterface]", "Worker enregistré auprès du serveur de Royaume(s).");
+            CLog.Success("[ClusterInterface]", R_S_CLUSTER_WORKER_REGISTERED);
         }
     }
 
@@ -374,12 +381,12 @@ public sealed class ClusterInterface : IDisposable
 
         if (!MapMgr.Instance.ClusterCreateInstance(mapId, instanceId))
         {
-            CLog.Error("[ClusterInterface]", "Échec de création de l'instance {0} sur la carte {1}.", instanceId, mapId);
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_INSTANCE_CREATION_FAILED, instanceId, mapId);
             _socket?.Disconnect();
             return;
         }
 
-        CLog.Debug("[ClusterInterface]", "Instance {0} créée sur la carte {1}.", instanceId, mapId);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_INSTANCE_CREATED, instanceId, mapId);
     }
 
     // ISMSG_PLAYER_LOGIN: guid, mapid, instanceid, accountId, accountFlags, sessionId, GMPermissions,
@@ -405,7 +412,7 @@ public sealed class ClusterInterface : IDisposable
 
         if (_onlineGuids.ContainsKey(guid))
         {
-            CLog.Warning("[ClusterInterface]", "Le joueur {0} est déjà connecté, connexion refusée (session {1}).", guid, sessionId);
+            CLog.Warning("[ClusterInterface]", R_W_CLUSTER_DUPLICATE_PLAYER, guid, sessionId);
             SendPlayerLoginResult(guid, sessionId, LoginErrorCode.CHAR_LOGIN_DUPLICATE_CHARACTER);
             return;
         }
@@ -423,7 +430,7 @@ public sealed class ClusterInterface : IDisposable
         _sessions[sessionId] = session;
         _onlineGuids[guid] = sessionId;
 
-        CLog.Debug("[ClusterInterface]", "Session {0} enregistrée pour le joueur {1} (carte {2}, instance {3}), chargement en cours.", sessionId, guid, mapId, instanceId);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_SESSION_REGISTERED, sessionId, guid, mapId, instanceId);
         new Player(guid, session).LoadFromDB(OnPlayerLoaded);
     }
 
@@ -450,7 +457,7 @@ public sealed class ClusterInterface : IDisposable
             session.Player = player;
             player.AddToWorld();
         }
-        CLog.Success("[ClusterInterface]", "Session {0}: joueur {1} ({2}) connecté (carte {3}, instance {4}).",
+        CLog.Success("[ClusterInterface]", R_S_CLUSTER_SESSION_PLAYER_CONNECTED,
             session.SessionId, player.Name, player.Guid, session.MapId, session.InstanceId);
         SendPlayerLoginResult(player.Guid, session.SessionId, LoginErrorCode.CHAR_LOGIN_SUCCESS);
     }
@@ -474,18 +481,18 @@ public sealed class ClusterInterface : IDisposable
 
         if (size != packet.Size - 10)
         {
-            CLog.Error("[ClusterInterface]", "HandleWoWPacket: taille invalide {0}, session {1}.", size, sessionId);
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_WOW_PACKET_INVALID_SIZE, size, sessionId);
             return;
         }
 
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
-            CLog.Error("[ClusterInterface]", "HandleWoWPacket: session invalide {0}.", sessionId);
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_WOW_PACKET_INVALID_SESSION, sessionId);
             return;
         }
 
         string opcodeName = NameTables.LookupName(opcode, NameTables.OpcodeSharedNames);
-        CLog.Debug("[ClusterInterface]", "Transfert {0} vers le client (session {1}).", opcodeName, sessionId);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_PACKET_FORWARDED, opcodeName, sessionId);
 
         var clientPacket = new WorldPacket(opcode, (int)size);
         if (size > 0)
@@ -523,7 +530,7 @@ public sealed class ClusterInterface : IDisposable
         session.InstanceId = instanceId;
 
         // TODO: déclencher le changement de carte réel du joueur une fois Player/EventMgr portés.
-        CLog.Debug("[ClusterInterface]", "Résultat téléport session {0}: mapid={1}, instanceid={2}, pos=({3},{4},{5},{6}), mêmeServeur={7}.",
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_TELEPORT_RESULT,
             sessionId, mapId, instanceId, x, y, z, o, sameServer != 0);
     }
 
@@ -562,7 +569,7 @@ public sealed class ClusterInterface : IDisposable
             _onlineGuids.TryRemove(session.Guid, out _);
             session.Dispose();
         }
-        CLog.Debug("[ClusterInterface]", "Session {0} (joueur {1}) détruite.", sessionId, session.Guid);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_SESSION_DESTROYED, sessionId, session.Guid);
     }
 
     // ISMSG_SAVE_ALL_PLAYERS: flag (inutilisé).
@@ -573,7 +580,7 @@ public sealed class ClusterInterface : IDisposable
         {
             lock (session.SyncRoot)
                 if (session.Player != null && !session.Player.SaveToDB())
-                    CLog.Error("[ClusterInterface]", "Echec de sauvegarde de la session {0}.", session.SessionId);
+                    CLog.Error("[ClusterInterface]", R_E_CLUSTER_SESSION_SAVE_FAILED, session.SessionId);
         }
     }
 
@@ -587,7 +594,7 @@ public sealed class ClusterInterface : IDisposable
         float z = packet.ReadFloat();
 
         // TODO: déplacer réellement le transporteur une fois Transporter/MapMgr portés.
-        CLog.Debug("[ClusterInterface]", "Changement de carte du transporteur {0} vers {1} ({2},{3},{4}).", transporterEntry, mapId, x, y, z);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_TRANSPORTER_MAP_CHANGE, transporterEntry, mapId, x, y, z);
     }
 
     // ISMSG_PLAYER_TELEPORT: result(doit valoir 2), method, sessionid, mapid, instanceid, x, y, z, targetSessionId.
@@ -605,18 +612,18 @@ public sealed class ClusterInterface : IDisposable
 
         if (result != 2)
         {
-            CLog.Warning("[ClusterInterface]", "HandlePlayerTeleport: résultat inattendu {0}.", result);
+            CLog.Warning("[ClusterInterface]", R_W_CLUSTER_TELEPORT_UNEXPECTED_RESULT, result);
             return;
         }
 
         if (!_sessions.TryGetValue(targetSessionId, out _))
         {
-            CLog.Error("[ClusterInterface]", "HandlePlayerTeleport: session cible invalide {0}.", targetSessionId);
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_TELEPORT_INVALID_TARGET, targetSessionId);
             return;
         }
 
         // TODO: téléporter réellement le joueur (Player.EventSafeTeleport) une fois Player/EventMgr portés.
-        CLog.Debug("[ClusterInterface]", "Téléportation session {0} (méthode {1}) vers carte {2}/instance {3} ({4},{5},{6}) pour session {7}.",
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_PLAYER_TELEPORT,
             sessionId, method, mapId, instanceId, x, y, z, targetSessionId);
     }
 
@@ -629,7 +636,7 @@ public sealed class ClusterInterface : IDisposable
         if (size > 0)
             packet.ReadBytes(new byte[size], 0, (int)size); // TODO: consommer réellement le CMSG_CHAR_CREATE une fois Player/ObjectMgr portés.
 
-        CLog.Warning("[ClusterInterface]", "Création de personnage demandée pour le compte {0} (opcode {1}), système Player non porté.", accountId, opcode);
+        CLog.Warning("[ClusterInterface]", R_W_CLUSTER_PLAYER_CREATION_NOT_IMPLEMENTED, accountId, opcode);
 
         var result = new WorldPacket((ushort)WorkerServerOpcodes.ICMSG_CREATE_PLAYER, 5);
         result.WriteUInt32(accountId);
@@ -643,7 +650,7 @@ public sealed class ClusterInterface : IDisposable
     {
         ulong guid = packet.ReadUInt64();
         // TODO: supprimer réellement les données dépendantes (corpses, etc.) une fois WorldDatabaseManager porté.
-        CLog.Debug("[ClusterInterface]", "Suppression du personnage {0} demandée.", guid);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_PLAYER_DELETE_REQUESTED, guid);
     }
 
     // ISMSG_PACKED_PLAYER_INFO: realsize, puis données compressées (zlib) — nécessite RPlayerInfo.
@@ -651,7 +658,7 @@ public sealed class ClusterInterface : IDisposable
     {
         uint realSize = packet.ReadUInt32();
         // TODO: décompresser et dépaqueter RPlayerInfo une fois cette structure partagée avec le RealmServer.
-        CLog.Debug("[ClusterInterface]", "Informations joueurs compressées reçues ({0} octets décompressés attendus).", realSize);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_PACKED_PLAYER_INFO_RECEIVED, realSize);
     }
 
     // ISMSG_DESTROY_PLAYER_INFO: sessionid, guid.
@@ -661,7 +668,7 @@ public sealed class ClusterInterface : IDisposable
         uint guid = packet.ReadUInt32();
         if (!_sessions.ContainsKey(sessionId))
             ((ICollection<KeyValuePair<uint, uint>>)_onlineGuids).Remove(new(guid, sessionId));
-        CLog.Debug("[ClusterInterface]", "Informations du joueur {0} (session {1}) supprimées.", guid, sessionId);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_PLAYER_INFO_REMOVED, guid, sessionId);
     }
 
     // ISMSG_PLAYER_INFO: guid (uint64), puis RPlayerInfo.Pack (format opaque côté RealmServer).
@@ -669,7 +676,7 @@ public sealed class ClusterInterface : IDisposable
     {
         ulong guid = packet.ReadUInt64();
         // TODO: dépaqueter RPlayerInfo une fois cette structure partagée avec le RealmServer.
-        CLog.Debug("[ClusterInterface]", "Informations du joueur {0} reçues.", guid);
+        CLog.Debug("[ClusterInterface]", R_D_CLUSTER_PLAYER_INFO_RECEIVED, guid);
     }
 
     // ISMSG_CHANNEL_ACTION: action, puis champs spécifiques (JOIN/PART: guid+cid ; SAY: nom+guid+message+forGmGuid+forced).
@@ -684,7 +691,7 @@ public sealed class ClusterInterface : IDisposable
                     uint guid = packet.ReadUInt32();
                     uint channelId = packet.ReadUInt32();
                     // TODO: appliquer réellement l'action une fois Channel/Player portés côté world.
-                    CLog.Debug("[ClusterInterface]", "Action de canal {0} pour le joueur {1} (canal {2}).", action, guid, channelId);
+                    CLog.Debug("[ClusterInterface]", R_D_CLUSTER_CHANNEL_ACTION, action, guid, channelId);
                     break;
                 }
             case MsgChannelAction.CHANNEL_SAY:
@@ -695,11 +702,11 @@ public sealed class ClusterInterface : IDisposable
                     uint forGmGuid = packet.ReadUInt32();
                     bool forced = packet.ReadByte() != 0;
                     // TODO: relayer réellement le message une fois Channel/Player portés côté world.
-                    CLog.Debug("[ClusterInterface]", "Message de canal '{0}' de {1}: {2} (forGm={3}, forced={4}).", channelName, guid, message, forGmGuid, forced);
+                    CLog.Debug("[ClusterInterface]", R_D_CLUSTER_CHANNEL_MESSAGE, channelName, guid, message, forGmGuid, forced);
                     break;
                 }
             default:
-                CLog.Warning("[ClusterInterface]", "HandleChannelAction: action non gérée {0}.", action);
+                CLog.Warning("[ClusterInterface]", R_W_CLUSTER_CHANNEL_ACTION_UNHANDLED, action);
                 break;
         }
     }

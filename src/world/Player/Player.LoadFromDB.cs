@@ -25,6 +25,8 @@ using System.Threading.Tasks;
 using WaadShared;
 using WaadShared.Database;
 
+using static WaadShared.PlayerMessages;
+
 namespace WaadWorldServer;
 
 // Portage de Player::LoadFromDB / Player::LoadFromDBProc (Player.cpp).
@@ -84,7 +86,7 @@ public sealed partial class Player
                 Database db = characterDatabase;
                 if (db == null || !db.IsInitialized)
                 {
-                    CLog.Error("[Player]", "Base Character indisponible, chargement du joueur {0} annulé.", guid);
+                    CLog.Error("[Player]", string.Format(W_E_PLAYER_CHAR_DB_UNAVAILABLE, guid));
                     ok = false;
                 }
                 else
@@ -99,7 +101,7 @@ public sealed partial class Player
             }
             catch (Exception ex)
             {
-                CLog.Error("[Player]", "Exception lors du chargement du joueur {0}: {1}", guid, ex.Message);
+                CLog.Error("[Player]", string.Format(W_E_PLAYER_LOAD_EXCEPTION, guid, ex.Message));
                 ok = false;
             }
 
@@ -112,7 +114,7 @@ public sealed partial class Player
         QueryResult result = results[Q_CHARACTER];
         if (result == null || !result.NextRow())
         {
-            CLog.Error("[Player]", "Requête de connexion échouée, guid {0} introuvable (ou renommage forcé en attente).", Guid);
+            CLog.Error("[Player]", string.Format(W_E_PLAYER_LOGIN_FAILED_GUID_NOT_FOUND, Guid));
             return false;
         }
 
@@ -121,14 +123,14 @@ public sealed partial class Player
         uint acct = ToUInt32(result.GetValue(1));
         if (acct != Session.AccountId)
         {
-            CLog.Warning("[Player]", "Le compte {0} a tenté de charger le personnage {1} appartenant au compte {2}.", Session.AccountId, Guid, acct);
+            CLog.Warning("[Player]", string.Format(W_W_PLAYER_WRONG_ACCOUNT, Session.AccountId, Guid, acct));
             return false;
         }
 
         uint banned = ToUInt32(result.GetValue(FIELD_BANNED));
         if (banned != 0 && (banned < 10 || banned > (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
         {
-            CLog.Notice("[Player]", "Le joueur {0} est banni.", Guid);
+            CLog.Notice("[Player]", string.Format(W_N_PLAYER_BANNED, Guid));
             return false;
         }
 
@@ -143,7 +145,7 @@ public sealed partial class Player
         var objectMgr = ObjectMgr.GetInstance();
         if (!objectMgr.IsValidRaceClassCombination(Race, Class))
         {
-            CLog.Error("[Player]", "guid {0}: combinaison race {1} / classe {2} invalide.", Guid, Race, Class);
+            CLog.Error("[Player]", string.Format(W_E_PLAYER_INVALID_RACE_CLASS, Guid, Race, Class));
             return false;
         }
 
@@ -308,8 +310,7 @@ public sealed partial class Player
         _nextSaveMs = _lastPlayedTimeMs + SaveIntervalMs;
         IsLoaded = true;
 
-        CLog.Success("[Player]", "Joueur {0} ({1}) chargé: niveau {2}, race {3}, classe {4}, carte {5} ({6}, {7}, {8}).",
-            Name, Guid, Level, Race, Class, MapId, PositionX, PositionY, PositionZ);
+        CLog.Success("[Player]", string.Format(W_S_PLAYER_LOADED, Name, Guid, Level, Race, Class, MapId, PositionX, PositionY, PositionZ));
         return true;
     }
 
@@ -436,7 +437,7 @@ public sealed partial class Player
             uint spec = ToUInt32(result.GetValue(0));
             if (spec >= PlayerConstants.MAX_SPEC_COUNT)
             {
-                CLog.Debug("[Player]", "Spécialisation hors limites [{0}] pour le joueur {1} dans playertalents.", spec, Guid);
+                CLog.Debug("[Player]", string.Format(W_D_PLAYER_SPECIALIZATION_OUT_OF_RANGE_TALENTS, spec, Guid));
                 continue;
             }
             Specs[spec].Talents[ToUInt32(result.GetValue(1))] = (byte)ToUInt32(result.GetValue(2));
@@ -453,7 +454,7 @@ public sealed partial class Player
             uint spec = ToUInt32(result.GetValue(1));
             if (spec >= PlayerConstants.MAX_SPEC_COUNT)
             {
-                CLog.Debug("[Player]", "Spécialisation hors limites [{0}] pour le joueur {1} dans playerglyphs.", spec, Guid);
+                CLog.Debug("[Player]", string.Format(W_D_PLAYER_SPECIALIZATION_OUT_OF_RANGE_GLYPHS, spec, Guid));
                 continue;
             }
             for (int i = 0; i < PlayerConstants.GLYPHS_COUNT; i++)
@@ -494,7 +495,7 @@ public sealed partial class Player
 
             if (type >= PlayerConstants.NUM_COOLDOWN_TYPES)
             {
-                CLog.Error("[Player]", "({0} - {1}) Type de cooldown invalide {2}.", Name, Guid, type);
+                CLog.Error("[Player]", string.Format(W_E_PLAYER_INVALID_COOLDOWN_TYPE, Name, Guid, type));
                 continue;
             }
 

@@ -245,7 +245,7 @@ namespace WaadRealmServer
                             var proto = Storage.ItemPrototypeStorage.LookupEntry((int)entry);
                             if (proto == null)
                             {
-                                CLog.Debug("[CharEnum]", $"Item entry {entry} not found in ItemPrototypeStorage for guid={Utils.GUID_LOPART(charGuid)} slot={slot}");
+                                CLog.Debug("[CharEnum]", string.Format(R_D_CHARHAN_ITEM_ENTRY_NOT_FOUND, entry, Utils.GUID_LOPART(charGuid), slot));
                             }
                             if (proto != null)
                             {

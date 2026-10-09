@@ -156,14 +156,15 @@ namespace WaadRealmServer
         {
             if (requestId != mRequestID)
             {
-                CLog.Error("[WorldSocket]", $"Session response request mismatch: expected={mRequestID}, received={requestId}");
+                CLog.Error("[WorldSocket]", string.Format(R_E_WRDSOCK_SESSION_RESPONSE_MISMATCH, mRequestID, requestId));
                 return;
             }
 
             uint error = recvData.ReadUInt32();
             if (error != 0 || pAuthenticationPacket == null)
             {
-                CLog.Error("[WorldSocket]", $"Logon session request failed: error={error}, authPacketPresent={pAuthenticationPacket != null}");
+                CLog.Error("[WorldSocket]", string.Format(R_E_WRDSOCK_LOGON_SESSION_FAILED, error, pAuthenticationPacket != null));
+
                 OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_FAILED]);
                 return;
             }
@@ -212,7 +213,7 @@ namespace WaadRealmServer
 
                 if (!Enumerable.SequenceEqual(computedHash, mClientAuthDigest))
                 {
-                    CLog.Error("[WorldSocket]", $"WoW auth digest mismatch for account={accountName}, accountId={accountId}");
+                    CLog.Error("[WorldSocket]", string.Format(R_E_WRDSOCK_WOW_AUTH_DIGEST_MISMATCH, accountName, accountId));
                     mRequestID = 0;
                     m_session = null;
                     OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_UNKNOWN_ACCOUNT]);
@@ -225,7 +226,7 @@ namespace WaadRealmServer
             if (m_session == null)
             {
                 OutPacket((ushort)Opcodes.SMSG_AUTH_RESPONSE, 1, [(byte)LoginErrorCode.AUTH_FAILED]);
-                CLog.Error("[WorldSocket]", R_E_WRDSOCK_2);
+                CLog.Error("[WorldSocket]", string.Format(R_E_WRDSOCK_2));
                 Disconnect();
                 return;
             }
@@ -298,7 +299,7 @@ namespace WaadRealmServer
 
             if (pos >= source.Size)
             {
-                CLog.Debug("CMSG_AUTH_SESSION", $"SendAddonInfoPacket: invalid pos ({pos}) >= source.Size ({source.Size})");
+                CLog.Debug("CMSG_AUTH_SESSION", string.Format(R_D_WRDSOCK_SENDADDONINFO_INVALID_POS, pos, source.Size));
                 return;
             }
 
@@ -480,7 +481,7 @@ namespace WaadRealmServer
                 CLog.Error("[WorldSocket]", R_E_WRDSOCK);
                 return;
             }              
-            CLog.Notice("[WorldSocket]", $"HandleAuthSession: Received auth session packet with size {recvPacket.Size}");
+            CLog.Notice("[WorldSocket]", string.Format(R_N_WRDSOCK_AUTH_SESSION_RECEIVED, recvPacket.Size));
 
             try
             {
@@ -561,7 +562,7 @@ namespace WaadRealmServer
             }
             catch (Exception ex)
             {
-                CLog.Error("[WorldSocket]", $"UpdateQueuePosition error: {ex.Message}");
+                CLog.Error("[WorldSocket]", string.Format(R_E_WRDSOCK_UPDATE_QUEUE_POSITION_ERROR, ex.Message));
             }
         }
 
@@ -569,7 +570,7 @@ namespace WaadRealmServer
         {
             if (recvPacket == null || recvPacket.Size < 8)
             {
-                CLog.Debug("[WorldSocket]", "Ping packet too small");
+                CLog.Debug("[WorldSocket]", R_D_WRDSOCK_PING_PACKET_TOO_SMALL);
                 Disconnect();
                 return;
             }
@@ -585,12 +586,12 @@ namespace WaadRealmServer
                 {
                     socket.NoDelay = _latency >= 250;
                     string nagleStatus = socket.NoDelay ? "disabled" : "enabled";
-                    CLog.Debug("[WorldSocket]", $"Nagle {nagleStatus} (latency: {_latency}ms)");
+                    CLog.Debug("[WorldSocket]", string.Format(R_D_WRDSOCK_NAGLE_STATUS, nagleStatus, _latency));
                 }
             }
             catch (Exception ex)
             {
-                CLog.Error("[WorldSocket]", $"HandlePing error: {ex.Message}");
+                CLog.Error("[WorldSocket]", string.Format(R_E_WRDSOCK_HANDLE_PING_ERROR, ex.Message));
             }
         }
 
@@ -630,7 +631,7 @@ namespace WaadRealmServer
                 }
 
                 mRemaining = mSize = mOpcode = 0;
-                CLog.Debug("[WorldSocket]", $"OnRead: Opcode={packet.GetOpcode()}");
+                CLog.Debug("[WorldSocket]", string.Format(R_D_WRDSOCK_ONREAD_OPCODE, packet.GetOpcode()));
 
                 switch (packet.GetOpcode())
                 {
@@ -644,7 +645,7 @@ namespace WaadRealmServer
                         if (m_session != null)
                             m_session.QueuePacket(packet);
                         else
-                            CLog.Error("[WorldSocket]", $"OnRead: Received non-auth packet {packet.GetOpcode()} before authentication");
+                            CLog.Error("[WorldSocket]", string.Format(R_D_WRDSOCK_NON_AUTH_PACKET_BEFORE_AUTH, packet.GetOpcode()));
                         break;
                 }
             }

@@ -24,6 +24,7 @@ using WaadShared;
 using WaadShared.Config;
 
 using static WaadShared.LogonCommHandler;
+using static WaadShared.StorageManager;
 
 namespace WaadRealmServer;
 
@@ -66,7 +67,7 @@ public static class StorageManager
         // Vérifier que les DBCs sont complètement chargés
         if (!DBCStores.IsDbcLoaded)
         {
-            CLog.Error("[StorageManager]", "ERREUR: Les DBCs ne sont pas complètement chargés. Impossible de remplir les tâches de stockage.");
+            CLog.Error("[StorageManager]", R_E_STORAGE_DBC_NOT_FULLY_LOADED);
             throw new InvalidOperationException("DBCs must be fully loaded before filling task list.");
         }
 

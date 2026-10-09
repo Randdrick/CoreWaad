@@ -126,6 +126,53 @@ public static class Main
     public const string L_E_MAIN = "Échec de l'initialisation de la base de données LogonServer";
     public const string L_W_MAIN_AI = "Désactivé, aucun contrôle ne sera fait....";
     public const string L_W_MAIN_AI_1 = "Activé";
+    public const string R_N_MAIN_CONSOLE_THREAD_STARTED = "Thread de console local démarré.";
+    public const string R_W_MAIN_SKIPPING_PERMISSIONS_RELOAD = "Skipping 5-minute permissions reload: previous run still in progress.";
+    public const string R_E_MAIN_PERMISSIONS_RELOAD_FAILED = "5-minute permissions reload failed: {0}";
+    public const string R_W_MAIN_SKIPPING_HEAVY_MAINTENANCE = "Skipping 5-minute heavy maintenance: previous run still in progress.";
+    public const string R_E_MAIN_HEAVY_MAINTENANCE_FAILED = "5-minute heavy maintenance failed: {0}";
+    public const string R_D_MAIN_HEAVY_MAINTENANCE_COMPLETED = "5-minute heavy maintenance completed in {0} ms.";
+}
+
+public static class WorldMain
+{
+    public const string W_N_MAIN_CONFIG_VALID = "Fichier de configuration valide.";
+    public const string W_S_MAIN_REALM_CONNECTION_ESTABLISHED = "Connexion au serveur de Royaume(s) établie.";
+    public const string W_N_MAIN_REALM_CONNECTION_CLOSING = "Fermeture de la connexion au serveur de Royaume(s)...";
+    public const string W_S_MAIN_REALM_CONNECTION_CLOSED = "Connexion au serveur de Royaume(s) fermée.";
+    public const string W_N_MAIN_CONSOLE_THREAD_STARTED = "Thread de console local démarré.";
+    public const string W_N_MAIN_RELEASING_SINGLETONS = "Libération des instances singleton...";
+    public const string W_S_MAIN_SINGLETONS_RELEASED = "Instances singleton libérées.";
+    public const string W_N_MAIN_SHUTDOWN_COMPLETED = "Arrêt terminé proprement.";
+    public const string W_N_MAIN_GOODBYE = "Au revoir !";
+    public const string W_W_MAIN_HEAVY_MAINTENANCE_IN_PROGRESS = "Maintenance lourde 5 minutes déjà en cours, saut...";
+    public const string W_E_MAIN_HEAVY_MAINTENANCE_FAILED = "Échec de la maintenance lourde 5 minutes : {0}";
+    public const string W_D_MAIN_HEAVY_MAINTENANCE_COMPLETED = "Maintenance lourde 5 minutes terminée en {0} ms.";
+}
+
+public static class PlayerMessages
+{
+    public const string W_E_PLAYER_CHAR_DB_UNAVAILABLE = "Base Character indisponible, chargement du joueur {0} annulé.";
+    public const string W_E_PLAYER_LOAD_EXCEPTION = "Exception lors du chargement du joueur {0}: {1}";
+    public const string W_E_PLAYER_LOGIN_FAILED_GUID_NOT_FOUND = "Requête de connexion échouée, guid {0} introuvable (ou renommage forcé en attente).";
+    public const string W_W_PLAYER_WRONG_ACCOUNT = "Le compte {0} a tenté de charger le personnage {1} appartenant au compte {2}.";
+    public const string W_N_PLAYER_BANNED = "Le joueur {0} est banni.";
+    public const string W_E_PLAYER_INVALID_RACE_CLASS = "guid {0}: combinaison race {1} / classe {2} invalide.";
+    public const string W_S_PLAYER_LOADED = "Joueur {0} ({1}) chargé: niveau {2}, race {3}, classe {4}, carte {5} ({6}, {7}, {8}).";
+    public const string W_D_PLAYER_SPECIALIZATION_OUT_OF_RANGE_TALENTS = "Spécialisation hors limites [{0}] pour le joueur {1} dans playertalents.";
+    public const string W_D_PLAYER_SPECIALIZATION_OUT_OF_RANGE_GLYPHS = "Spécialisation hors limites [{0}] pour le joueur {1} dans playerglyphs.";
+    public const string W_E_PLAYER_INVALID_COOLDOWN_TYPE = "({0} - {1}) Type de cooldown invalide {2}.";
+}
+
+public static class WorldSessionMessages
+{
+    public const string W_E_WORLDSESS_DELAYED_DISCONNECT_SAVE_FAILED = "Deconnexion differee: sauvegarde echouee pour le joueur {0}.";
+    public const string W_E_WORLDSESS_OUT_OF_RANGE_OPCODE = "Opcode hors limites 0x{0:X4}, session {1}.";
+    public const string W_W_WORLDSESS_NO_HANDLER = "Aucun gestionnaire pour le paquet {0} (0x{1:X4}), session {2}.";
+    public const string W_W_WORLDSESS_IGNORED_PACKET = "Paquet {0} (0x{1:X4}) ignoré: joueur non connecté, session {2}.";
+    public const string W_D_WORLDSESS_PROCESSING_PACKET = "Traitement du paquet {0} (0x{1:X4}) pour la session {2}.";
+    public const string W_E_WORLDSESS_MALFORMED_PACKET = "Paquet mal formé {0} (0x{1:X4}), session {2}: {3}";
+    public const string W_E_WORLDSESS_EXCEPTION_IN_HANDLER = "Exception dans le gestionnaire du paquet {0} (0x{1:X4}), session {2}: {3}";
 }
 
 public static class Channel
@@ -222,6 +269,7 @@ public static class CharacterHandler
     public const string R_E_CHARHAN_RA_2 = "Erreur lors de l'envoi du paquet : {0}.";
     public const string R_W_CHARHAN_RA = "Erreur lors de la compression des données : {0}. Envoi des données non compressées.";
     public const string R_D_CHARHAN_RA = "Données du slot {0} envoyées au client pour le compte {1}.";
+    public const string R_D_CHARHAN_ITEM_ENTRY_NOT_FOUND = "Item entry {0} not found in ItemPrototypeStorage for guid={1} slot={2}";
 }
 
 public static class QueryHandler
@@ -264,6 +312,17 @@ public static class WorldSocket
     public const string R_N_WRDSOCK = "Réception des informations du compte: `{0}` - Session ID {1} (Requête {2})";
     public const string R_N_WRDSOCK_1 = "{0} depuis {1}:{2} [{3}ms]";
     public const string R_N_WRDSOCK_2 = "Socket fermé en raison d'un paquet ping incomplet.";
+    public const string R_N_WRDSOCK_AUTH_SESSION_RECEIVED = "HandleAuthSession: Received auth session packet with size {0}";
+    public const string R_E_WRDSOCK_SESSION_RESPONSE_MISMATCH = "Session response request mismatch: expected={0}, received={1}";
+    public const string R_E_WRDSOCK_LOGON_SESSION_FAILED = "Logon session request failed: error={0}, authPacketPresent={1}";
+    public const string R_E_WRDSOCK_WOW_AUTH_DIGEST_MISMATCH = "WoW auth digest mismatch for account={0}, accountId={1}";
+    public const string R_E_WRDSOCK_UPDATE_QUEUE_POSITION_ERROR = "UpdateQueuePosition error: {0}";
+    public const string R_E_WRDSOCK_HANDLE_PING_ERROR = "HandlePing error: {0}";
+    public const string R_D_WRDSOCK_SENDADDONINFO_INVALID_POS = "SendAddonInfoPacket: invalid pos ({0}) >= source.Size ({1})";
+    public const string R_D_WRDSOCK_PING_PACKET_TOO_SMALL = "Ping packet too small";
+    public const string R_D_WRDSOCK_NAGLE_STATUS = "Nagle {0} (latency: {1}ms)";
+    public const string R_D_WRDSOCK_ONREAD_OPCODE = "OnRead: Opcode={0}";
+    public const string R_D_WRDSOCK_NON_AUTH_PACKET_BEFORE_AUTH = "OnRead: Received non-auth packet {0} before authentication";
 }
 
 public static class ConsoleCommands
@@ -348,11 +407,13 @@ public static class ConsoleListener
     public const string R_N_CONLIS_I_18 = "[!]Erreur ! '{0}' utilise une syntaxe incorrecte. La bonne syntaxe est: '{1}'.\r\n\r\n";
     public const string R_N_CONLIS_I_19 = "[!]Erreur ! La commande '{0}' n'existe pas. Taper '?' ou 'help' pour obtenir la liste des commandes.\r\n\r\n";
     public const string R_W_CONLIS_CONFIG_NOT_FOUND = "Fichier de configuration non trouvé : {0}";
+    public const string R_N_CONLIS_REMOTE_DISABLED = "Remote console is disabled in config.";
 }
 public static class ConsoleThread
 {
     public const string R_E_CONTHR_EXCEPTION_CONSOLE_THREAD = "Exception dans le thread de console : {0}";
     public const string R_E_CONTHR_ERROR_WRITING_CONSOLE = "Erreur lors de l'écriture dans la console : {0}";
+    public const string R_N_CONTHR_EXITING = "Console thread exiting";
 }
 public static class LogonCommClient
 {
@@ -373,6 +434,7 @@ public static class LogonCommClient
     public const string R_D_LOGCOMCLT_PARSED = "Analyse : payloadSize={0}, opcode=0x{1:X4}";
     public const string R_E_LOGCOMCLT_PAYLOAD_TOO_LARGE = "Taille de charge utile {0} trop grande, déconnexion.";
     public const string R_D_LOGCOMCLT_AUTH_RESULT = "Résultat de l'authentification : {0}";
+    public const string R_D_LOGCOMCLT_PING_SENT_DIRECTLY = "PING sent directly (no buffer).";
 }
 
 public static class LogonCommHandler
@@ -406,6 +468,7 @@ public static class LogonCommHandler
     public const string R_N_CONLIS_REMOTE_ENABLED = "La console distante est activée sur {0}:{1}";
     public const string R_D_STORAGE_CONNSTRING = "Chaîne de connexion : {0}";
     public const string R_E_STORAGE_TABLE_LOAD = "Erreur lors du chargement de la table {0} : {1}";
+    public const string R_D_LOGCOMHAN_WAITING_FOR_CONNECTION = "Waiting for connection to {0} ({1}:{2}), {3:F1}s remaining";
 }
 
 public static class ClientManager
@@ -458,11 +521,17 @@ public static class WorkerServer
     public const string R_E_WORKMGR_ERROR_CLEARING_RECV_QUEUE = "Erreur lors du nettoyage de la file d'attente de réception : {0}";
     public const string R_E_WORKMGR_ERROR_DETACHING_INSTANCES = "Erreur lors du détachement des instances : {0}";
     public const string R_E_WORKMGR_DISPOSE_FAILED = "Échec de la suppression : {0}";
+    public const string R_D_WORKMGR_TELEPORT_REQUEST = "session {0}, mapid {1}, instanceid {2}";
+    public const string R_D_WORKMGR_CREATE_PLAYER_RESULT = "Received ICMSG_CREATE_PLAYER, result {0}";
+    public const string R_D_WORKMGR_CHANNEL_UPDATE_TYPE = "ChannelUpdate type: {0}";
+    public const string R_D_WORKMGR_LFG_CHANNEL_JOIN = "{0}, unk {1}";
+    public const string R_D_WORKMGR_DISPOSING = "Disposing WorkerServer {0}";
 }
 
 public static class WorkerServerSocket
 {
     public const string R_N_WORKSRVSOC = "Réponse à l'authentification. Le serveur est {0} ; build {1}";
+    public const string R_E_WORKSRVSOC_BUILD_MISMATCH = "Supression du serveur pour cause de build incorrecte({0}/{1})";
 }
 
 public static class Master
@@ -535,4 +604,71 @@ public static class ThreadingLogs
     public const string R_D_THREAD_STOP = "Arrêt du thread périodique pour {0}.";
     public const string R_E_THREAD_EXCEPTION = "Exception dans le thread périodique pour {0}: {1}";
     public const string R_W_THREAD_TIMEOUT = "Timeout lors de l'arrêt du thread pour {0}."; 
+}
+
+public static class ClusterInterface
+{
+    // Success
+    public const string R_S_CLUSTER_CONNECTED = "Connecté au serveur de Royaume(s) ({0}).";
+    public const string R_S_CLUSTER_WORKER_REGISTERED = "Worker enregistré auprès du serveur de Royaume(s).";
+    public const string R_S_CLUSTER_SESSION_PLAYER_CONNECTED = "Session {0}: joueur {1} ({2}) connecté (carte {3}, instance {4}).";
+
+    // Notice
+    public const string R_N_CLUSTER_LATENCY = "Latence entre les serveurs de royaume(s) : {0} ms.";
+
+    // Debug
+    public const string R_D_CLUSTER_AUTH_REQUEST_RECEIVED = "Demande d'authentification reçue de {0} (build {1}).";
+    public const string R_D_CLUSTER_INSTANCE_CREATED = "Instance {0} créée sur la carte {1}.";
+    public const string R_D_CLUSTER_SESSION_REGISTERED = "Session {0} enregistrée pour le joueur {1} (carte {2}, instance {3}), chargement en cours.";
+    public const string R_D_CLUSTER_PACKET_FORWARDED = "Transfert {0} vers le client (session {1}).";
+    public const string R_D_CLUSTER_TELEPORT_RESULT = "Résultat téléport session {0}: mapid={1}, instanceid={2}, pos=({3},{4},{5},{6}), mêmeServeur={7}.";
+    public const string R_D_CLUSTER_SESSION_DESTROYED = "Session {0} (joueur {1}) détruite.";
+    public const string R_D_CLUSTER_TRANSPORTER_MAP_CHANGE = "Changement de carte du transporteur {0} vers {1} ({2},{3},{4}).";
+    public const string R_D_CLUSTER_PLAYER_TELEPORT = "Téléportation session {0} (méthode {1}) vers carte {2}/instance {3} ({4},{5},{6}) pour session {7}.";
+    public const string R_D_CLUSTER_PLAYER_DELETE_REQUESTED = "Suppression du personnage {0} demandée.";
+    public const string R_D_CLUSTER_PACKED_PLAYER_INFO_RECEIVED = "Informations joueurs compressées reçues ({0} octets décompressés attendus).";
+    public const string R_D_CLUSTER_PLAYER_INFO_REMOVED = "Informations du joueur {0} (session {1}) supprimées.";
+    public const string R_D_CLUSTER_PLAYER_INFO_RECEIVED = "Informations du joueur {0} reçues.";
+    public const string R_D_CLUSTER_CHANNEL_ACTION = "Action de canal {0} pour le joueur {1} (canal {2}).";
+    public const string R_D_CLUSTER_CHANNEL_MESSAGE = "Message de canal '{0}' de {1}: {2} (forGm={3}, forced={4}).";
+
+    // Error
+    public const string R_E_CLUSTER_INVALID_PACKET_SIZE = "Taille de paquet invalide: {0}.";
+    public const string R_E_CLUSTER_CONNECTION_FAILED = "Impossible de se connecter au serveur de Royaume(s) {0}:{1}.";
+    public const string R_E_CLUSTER_AUTH_FAILED = "Authentification refusée par le serveur de Royaume(s).";
+    public const string R_E_CLUSTER_REGISTRATION_FAILED = "Enregistrement du worker refusé (build incorrecte). Déconnexion.";
+    public const string R_E_CLUSTER_INSTANCE_CREATION_FAILED = "Échec de création de l'instance {0} sur la carte {1}.";
+    public const string R_E_CLUSTER_WOW_PACKET_INVALID_SIZE = "HandleWoWPacket: taille invalide {0}, session {1}.";
+    public const string R_E_CLUSTER_WOW_PACKET_INVALID_SESSION = "HandleWoWPacket: session invalide {0}.";
+    public const string R_E_CLUSTER_SESSION_SAVE_FAILED = "Echec de sauvegarde de la session {0}.";
+    public const string R_E_CLUSTER_TELEPORT_INVALID_TARGET = "HandlePlayerTeleport: session cible invalide {0}.";
+
+    // Warning
+    public const string R_W_CLUSTER_CONNECTION_LOST = "Connexion au serveur de Royaume(s) perdue.";
+    public const string R_W_CLUSTER_UNHANDLED_OPCODE = "Opcode de cluster non géré: {0}.";
+    public const string R_W_CLUSTER_DUPLICATE_PLAYER = "Le joueur {0} est déjà connecté, connexion refusée (session {1}).";
+    public const string R_W_CLUSTER_TELEPORT_UNEXPECTED_RESULT = "HandlePlayerTeleport: résultat inattendu {0}.";
+    public const string R_W_CLUSTER_PLAYER_CREATION_NOT_IMPLEMENTED = "Création de personnage demandée pour le compte {0} (opcode {1}), système Player non porté.";
+    public const string R_W_CLUSTER_CHANNEL_ACTION_UNHANDLED = "HandleChannelAction: action non gérée {0}.";
+}
+
+public static class ItemPrototype
+{
+    public const string R_E_ITMPROTO_STATS_DATA_NULL = "StatsData est null.";
+    public const string R_E_ITMPROTO_STATS_NOT_INITIALIZED = "Stats n'est pas correctement initialisé.";
+    public const string R_E_ITMPROTO_STATS_DATA_NOT_ENOUGH = "StatsData n'a pas assez d'éléments.";
+    public const string R_E_ITMPROTO_DAMAGE_DATA_NULL = "DamageData est null.";
+    public const string R_E_ITMPROTO_DAMAGE_NOT_INITIALIZED = "Damage n'est pas correctement initialisé.";
+    public const string R_E_ITMPROTO_DAMAGE_DATA_NOT_ENOUGH = "DamageData n'a pas assez d'éléments.";
+    public const string R_E_ITMPROTO_SPELLS_DATA_NULL = "SpellsData est null.";
+    public const string R_E_ITMPROTO_SPELLS_NOT_INITIALIZED = "Spells n'est pas correctement initialisé.";
+    public const string R_E_ITMPROTO_SPELLS_DATA_NOT_ENOUGH = "SpellsData n'a pas assez d'éléments.";
+    public const string R_E_ITMPROTO_SOCKETS_DATA_NULL = "SocketsData est null.";
+    public const string R_E_ITMPROTO_SOCKETS_NOT_INITIALIZED = "Sockets n'est pas correctement initialisé.";
+    public const string R_E_ITMPROTO_SOCKETS_DATA_NOT_ENOUGH = "SocketsData n'a pas assez d'éléments.";
+}
+
+public static class StorageManager
+{
+    public const string R_E_STORAGE_DBC_NOT_FULLY_LOADED = "ERREUR: Les DBCs ne sont pas complètement chargés. Impossible de remplir les tâches de stockage.";
 }

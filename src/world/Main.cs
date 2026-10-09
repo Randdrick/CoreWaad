@@ -309,7 +309,7 @@ public static class Master
         {
             sLog.OutString("[Config] Vérification du fichier de configuration: {0}", configFile);
             if (Config.WorldConfig.SetSource(configFile))
-                CLog.Success("[Config]", "Fichier de configuration valide.");
+                CLog.Success("[Config]", WorldMain.W_N_MAIN_CONFIG_VALID);
             else
                 sLog.OutError("[Config] Fichier de configuration invalide.");
             return;
@@ -468,7 +468,7 @@ public static class Master
             try
             {
                 ClusterInterface.Instance.Startup(rsHostName, rsPort, rsPassword);
-                CLog.Success("[Network]", "Connexion au serveur de Royaume(s) établie.");
+                CLog.Success("[Network]", WorldMain.W_S_MAIN_REALM_CONNECTION_ESTABLISHED);
             }
             catch (Exception ex)
             {
@@ -504,7 +504,7 @@ public static class Master
             Name = "WorldConsole"
         };
         localConsoleThread.Start();
-        CLog.Notice("[Console]", "Thread de console local démarré.");
+        CLog.Notice("[Console]", R_N_MAIN_CONSOLE_THREAD_STARTED);
 
         // Écriture du fichier PID
         WritePidFile();
@@ -563,9 +563,9 @@ public static class Master
 
         if (Config.WorldConfig.GetBoolean("Cluster", "EnableClusterMode", true))
         {
-            CLog.Notice("[~Network]", "Fermeture de la connexion au serveur de Royaume(s)...");
+            CLog.Notice("[~Network]", WorldMain.W_N_MAIN_REALM_CONNECTION_CLOSING);
             ClusterInterface.Instance.Dispose();
-            CLog.Success("[~Network]", "Connexion au serveur de Royaume(s) fermée.");
+            CLog.Success("[~Network]", WorldMain.W_S_MAIN_REALM_CONNECTION_CLOSED);
         }
 
         CLog.Notice("[~Network]", R_N_MASTER_11);
@@ -588,17 +588,17 @@ public static class Master
         CLog.Success("[Storage]", R_N_MASTER_17_1);
 
         // Libération des singletons
-        CLog.Notice("[Shutdown]", "Libération des instances singleton...");
+        CLog.Notice("[Shutdown]", WorldMain.W_N_MAIN_RELEASING_SINGLETONS);
         MapMgr.GetInstancePtr()?.Dispose();
         MapMgr.DestroyInstance();
         ObjectMgr.GetInstancePtr()?.Dispose();
         ObjectMgr.DestroyInstance();
         WorldMgr.GetInstancePtr()?.Dispose();
         WorldMgr.DestroyInstance();
-        CLog.Success("[Shutdown]", "Instances singleton libérées.");
+        CLog.Success("[Shutdown]", WorldMain.W_S_MAIN_SINGLETONS_RELEASED);
 
-        CLog.Notice("[Shutdown]", "Arrêt terminé proprement.");
-        CLog.Notice("[Shutdown]", "Au revoir !");
+        CLog.Notice("[Shutdown]", WorldMain.W_N_MAIN_SHUTDOWN_COMPLETED);
+        CLog.Notice("[Shutdown]", WorldMain.W_N_MAIN_GOODBYE);
     }
 
     // === Gestion des tâches périodiques ===
@@ -622,7 +622,7 @@ public static class Master
     {
         if (Interlocked.CompareExchange(ref s_fiveMinuteHeavyMaintenanceRunning, 1, 0) != 0)
         {
-            CLog.Warning("[Master]", "Maintenance lourde 5 minutes déjà en cours, saut...");
+            CLog.Warning("[Master]", WorldMain.W_W_MAIN_HEAVY_MAINTENANCE_IN_PROGRESS);
             return;
         }
 
@@ -636,12 +636,12 @@ public static class Master
             }
             catch (Exception ex)
             {
-                CLog.Error("[Master]", "Échec de la maintenance lourde 5 minutes : {0}", ex.Message);
+                CLog.Error("[Master]", string.Format(WorldMain.W_E_MAIN_HEAVY_MAINTENANCE_FAILED, ex.Message));
             }
             finally
             {
                 sw.Stop();
-                CLog.Debug("[Master]", "Maintenance lourde 5 minutes terminée en {0} ms.", sw.ElapsedMilliseconds);
+                CLog.Debug("[Master]", string.Format(WorldMain.W_D_MAIN_HEAVY_MAINTENANCE_COMPLETED, sw.ElapsedMilliseconds));
                 Interlocked.Exchange(ref s_fiveMinuteHeavyMaintenanceRunning, 0);
             }
             return true;

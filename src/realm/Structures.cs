@@ -23,6 +23,8 @@ using System;
 using System.Collections.Generic;
 using WaadShared;
 
+using static WaadShared.ItemPrototype;
+
 namespace WaadRealmServer;
 
 public enum Classes : byte
@@ -346,14 +348,14 @@ public class ItemPrototype
     {
         if (StatsData == null)
         {
-            CLog.Error("ItemPrototype", "StatsData est null.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_STATS_DATA_NULL);
             StatsData = new uint[20];
         }
 
         // Stats est déjà pré-alloué dans le constructeur
         if (Stats == null || Stats.Length < 10)
         {
-            CLog.Error("ItemPrototype", "Stats n'est pas correctement initialisé.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_STATS_NOT_INITIALIZED);
             return;
         }
 
@@ -361,7 +363,7 @@ public class ItemPrototype
         {
             if (i * 2 + 1 >= StatsData.Length)
             {
-                CLog.Error("ItemPrototype", "StatsData n'a pas assez d'éléments.");
+                CLog.Error("ItemPrototype", R_E_ITMPROTO_STATS_DATA_NOT_ENOUGH);
                 break;
             }
 
@@ -374,14 +376,14 @@ public class ItemPrototype
     {
         if (DamageData == null)
         {
-            CLog.Error("ItemPrototype", "DamageData est null.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_DAMAGE_DATA_NULL);
             DamageData = new float[15];
         }
 
         // Damage est déjà pré-alloué dans le constructeur
         if (Damage == null || Damage.Length < 5)
         {
-            CLog.Error("ItemPrototype", "Damage n'est pas correctement initialisé.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_DAMAGE_NOT_INITIALIZED);
             return;
         }
 
@@ -389,7 +391,7 @@ public class ItemPrototype
         {
             if (i * 3 + 2 >= DamageData.Length)
             {
-                CLog.Error("ItemPrototype", "DamageData n'a pas assez d'éléments.");
+                CLog.Error("ItemPrototype", R_E_ITMPROTO_DAMAGE_DATA_NOT_ENOUGH);
                 break;
             }
 
@@ -403,14 +405,14 @@ public class ItemPrototype
     {
         if (SpellsData == null)
         {
-            CLog.Error("ItemPrototype", "SpellsData est null.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_SPELLS_DATA_NULL);
             SpellsData = new uint[30];
         }
 
         // Spells est déjà pré-alloué dans le constructeur
         if (Spells == null || Spells.Length < 5)
         {
-            CLog.Error("ItemPrototype", "Spells n'est pas correctement initialisé.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_SPELLS_NOT_INITIALIZED);
             return;
         }
 
@@ -418,7 +420,7 @@ public class ItemPrototype
         {
             if (i * 6 + 5 >= SpellsData.Length)
             {
-                CLog.Error("ItemPrototype", "SpellsData n'a pas assez d'éléments.");
+                CLog.Error("ItemPrototype", R_E_ITMPROTO_SPELLS_DATA_NOT_ENOUGH);
                 break;
             }
 
@@ -435,14 +437,14 @@ public class ItemPrototype
     {
         if (SocketsData == null)
         {
-            CLog.Error("ItemPrototype", "SocketsData est null.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_SOCKETS_DATA_NULL);
             SocketsData = new uint[9];
         }
 
         // Sockets est déjà pré-alloué dans le constructeur
         if (Sockets == null || Sockets.Length < 3)
         {
-            CLog.Error("ItemPrototype", "Sockets n'est pas correctement initialisé.");
+            CLog.Error("ItemPrototype", R_E_ITMPROTO_SOCKETS_NOT_INITIALIZED);
             return;
         }
 
@@ -450,7 +452,7 @@ public class ItemPrototype
         {
             if (i * 3 + 1 >= SocketsData.Length)
             {
-                CLog.Error("ItemPrototype", "SocketsData n'a pas assez d'éléments.");
+                CLog.Error("ItemPrototype", R_E_ITMPROTO_SOCKETS_DATA_NOT_ENOUGH);
                 break;
             }
 

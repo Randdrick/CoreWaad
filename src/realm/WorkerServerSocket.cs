@@ -140,7 +140,7 @@ namespace WaadRealmServer
             }
             else
             {
-                CLog.Error("ClusterMgr", $"Supression du serveur pour cause de build incorrecte({build}/{REVISION})");
+                CLog.Error("ClusterMgr", string.Format(R_E_WORKSRVSOC_BUILD_MISMATCH, build, Master.REVISION));
                 data.WriteUInt32(0);
                 SendPacket(data);
                 return;

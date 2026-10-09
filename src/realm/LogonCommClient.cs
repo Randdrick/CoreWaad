@@ -420,7 +420,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
             }
             else
             {
-                CLog.Debug("[LogonCommClient]", "PING sent directly (no buffer).");
+                CLog.Debug("[LogonCommClient]", R_D_LOGCOMCLT_PING_SENT_DIRECTLY);
             }
         }
         finally
