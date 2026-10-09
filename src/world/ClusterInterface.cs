@@ -472,6 +472,12 @@ public sealed class ClusterInterface : IDisposable
         ushort opcode = packet.ReadUInt16();
         uint size = packet.ReadUInt32();
 
+        if (size != packet.Size - 10)
+        {
+            CLog.Error("[ClusterInterface]", "HandleWoWPacket: taille invalide {0}, session {1}.", size, sessionId);
+            return;
+        }
+
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
             CLog.Error("[ClusterInterface]", "HandleWoWPacket: session invalide {0}.", sessionId);
@@ -481,26 +487,12 @@ public sealed class ClusterInterface : IDisposable
         string opcodeName = NameTables.LookupName(opcode, NameTables.OpcodeSharedNames);
         CLog.Debug("[ClusterInterface]", "Transfert {0} vers le client (session {1}).", opcodeName, sessionId);
 
-        // Créer le nouveau paquet client avec validation
         var clientPacket = new WorldPacket(opcode, (int)size);
-        
-        // Vérification de validité du buffer (équivalent à m_bufferPool == -1 dans le code C++)
-        if (clientPacket.m_bufferPool == -1)
-        {
-            clientPacket.Dispose();
-            CLog.Error("[ClusterInterface]", "HandleWoWPacket: Buffer invalide pour l'opcode {0}.", opcodeName);
-            return;
-        }
-
-        // Si le packet a une taille valide, copier les données directement
         if (size > 0)
         {
-            // Lire directement les données dans le buffer du nouveau packet
-            for (int i = 0; i < size; i++)
-            {
-                byte b = packet.ReadByte();
-                clientPacket.Append(b);
-            }
+            byte[] payload = new byte[(int)size];
+            packet.ReadBytes(payload, 0, payload.Length);
+            clientPacket.Append(payload, payload.Length);
         }
 
         // Les paquets sont ajoutés à la file IncomingPackets de la session

@@ -49,10 +49,14 @@ public sealed partial class Player
         {
             if (!IsLoaded || Session.IsDisposed)
                 throw new InvalidOperationException("Joueur non charge ou session detruite.");
+            if (IsInWorld)
+                return;
             MapId = Session.MapId;
             InstanceId = Session.InstanceId;
+            SendInitialLogonPackets();
             IsInWorld = true;
             IsBeingPushed = false;
+            OnTimeSyncRequest();
         }
     }
 
@@ -63,6 +67,7 @@ public sealed partial class Player
             IsInWorld = false;
             IsBeingPushed = false;
             IsLogoutRooted = false;
+            _timeSyncPending = false;
         }
     }
 

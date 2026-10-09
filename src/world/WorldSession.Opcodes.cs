@@ -48,7 +48,8 @@ public static partial class WorldSession
             [(ushort)Opcodes.CMSG_PING] = new(SessionStatus.STATUS_AUTHED, HandlePingOpcode),
             [(ushort)Opcodes.CMSG_REALM_SPLIT] = new(SessionStatus.STATUS_AUTHED, HandleRealmSplitOpcode),
             [(ushort)Opcodes.CMSG_LOGOUT_REQUEST] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutRequestOpcode),
-            [(ushort)Opcodes.CMSG_LOGOUT_CANCEL] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutCancelOpcode)
+            [(ushort)Opcodes.CMSG_LOGOUT_CANCEL] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutCancelOpcode),
+            [(ushort)Opcodes.CMSG_TIME_SYNC_RESP] = new(SessionStatus.STATUS_LOGGEDIN, HandleTimeSyncResponseOpcode)
         };
     }
 
@@ -81,6 +82,18 @@ public static partial class WorldSession
         using var response = new WorldPacket((ushort)Opcodes.SMSG_PONG, 4);
         response.WriteUInt32(sequence);
         ClusterInterface.Instance.ForwardWoWPacket(session.SessionId, response);
+    }
+
+    private static void HandleTimeSyncResponseOpcode(ClusterPlayerSession session, WorldPacket packet)
+    {
+        if (packet.Size != 8)
+        {
+            CLog.Warning("[WorldSession]", "Reponse TIME_SYNC de taille invalide ({0}), session {1}.", packet.Size, session.SessionId);
+            return;
+        }
+        uint sequence = packet.ReadUInt32();
+        uint clientTicks = packet.ReadUInt32();
+        session.Player.OnTimeSyncResponse(sequence, clientTicks);
     }
 
     private static void HandleLogoutRequestOpcode(ClusterPlayerSession session, WorldPacket packet)
