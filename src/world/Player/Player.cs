@@ -160,6 +160,61 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
         get => GetUInt64Value(EPlayerFields.PLAYER__FIELD_KNOWN_TITLES1);
         private set => SetUInt64Value(EPlayerFields.PLAYER__FIELD_KNOWN_TITLES1, value);
     }
+
+    public bool HasKnownTitle(uint titleNumber)
+    {
+        if (!TryGetKnownTitleMask(titleNumber, out bool secondField, out ulong mask))
+            return false;
+
+        return ((secondField ? KnownTitles1 : KnownTitles) & mask) != 0;
+    }
+
+    public void AddKnownTitle(uint titleNumber)
+    {
+        if (!TryGetKnownTitleMask(titleNumber, out bool secondField, out ulong mask))
+            return;
+
+        if (secondField)
+            KnownTitles1 |= mask;
+        else
+            KnownTitles |= mask;
+    }
+
+    public void RemoveKnownTitle(uint titleNumber)
+    {
+        if (!TryGetKnownTitleMask(titleNumber, out bool secondField, out ulong mask))
+            return;
+
+        if (secondField)
+            KnownTitles1 &= ~mask;
+        else
+            KnownTitles &= ~mask;
+
+        if (ChosenTitle == titleNumber)
+            ChosenTitle = 0;
+    }
+
+    internal bool TrySetChosenTitle(uint titleNumber)
+    {
+        if (titleNumber != 0 && !HasKnownTitle(titleNumber))
+            return false;
+
+        ChosenTitle = titleNumber;
+        return true;
+    }
+
+    private static bool TryGetKnownTitleMask(uint titleNumber, out bool secondField, out ulong mask)
+    {
+        secondField = titleNumber >= 64;
+        mask = 0;
+        if (titleNumber == 0 || titleNumber >= 128)
+            return false;
+
+        int bit = (int)(titleNumber % 64);
+        mask = 1UL << bit;
+        return true;
+    }
+
     public uint Coinage
     {
         get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_COINAGE);
@@ -175,6 +230,8 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
         get => GetUInt32Value(EPlayerFields.PLAYER_CHARACTER_POINTS2);
         private set => SetUInt32Value(EPlayerFields.PLAYER_CHARACTER_POINTS2, value);
     }
+    public uint ArmorProficiency { get; private set; } = 1;
+    public uint WeaponProficiency { get; private set; } = 0x4000;
     public ushort MaxTalentPoints { get; private set; }
     public uint LoadHealth { get; private set; }
     public uint LoadMana { get; private set; }
@@ -278,6 +335,21 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
     public float TransporterY { get; private set; }
     public float TransporterZ { get; private set; }
 
+    public bool SetTaximaskNode(uint nodeIndex)
+    {
+        if (nodeIndex == 0 || nodeIndex > (uint)(TaxiMask.Length * sizeof(uint) * 8))
+            return false;
+
+        uint zeroBasedIndex = nodeIndex - 1;
+        int wordIndex = (int)(zeroBasedIndex / 32);
+        uint mask = 1u << (int)(zeroBasedIndex % 32);
+        if ((TaxiMask[wordIndex] & mask) != 0)
+            return false;
+
+        TaxiMask[wordIndex] |= mask;
+        return true;
+    }
+
     // Honneur
     public uint HonorRolloverTime { get; private set; }
     public uint KillsToday { get; private set; }
@@ -324,6 +396,52 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
     public Dictionary<uint, string> Friends { get; } = [];
     public HashSet<uint> HasFriendList { get; } = [];
     public HashSet<uint> Ignores { get; } = [];
+
+    internal void ApplySkillProficiency(uint skillId)
+    {
+        if (!PlayerConstants.TryGetProficiencyForSkill(skillId, out byte itemClass, out uint subclassMask))
+            return;
+
+        if (itemClass == 4)
+            ArmorProficiency |= subclassMask;
+        else
+            WeaponProficiency |= subclassMask;
+    }
+
+    public uint GetTutorialInt(uint tutorialId) =>
+        tutorialId < (uint)Tutorials.Length ? Tutorials[(int)tutorialId] : 0;
+
+    public void SetTutorialInt(uint tutorialId, uint value)
+    {
+        if (tutorialId < (uint)Tutorials.Length)
+            Tutorials[(int)tutorialId] = value;
+    }
+
+    public void AddToFinishedQuests(uint questId) => FinishedQuests.Add(questId);
+
+    public bool HasFinishedQuest(uint questId) => FinishedQuests.Contains(questId);
+
+    public bool GetQuestRewardStatus(uint questId) => HasFinishedQuest(questId);
+
+    public bool AddToFinishedDailyQuests(uint questId)
+    {
+        if (questId == 0 || FinishedDailyQuests.Contains(questId) || FinishedDailyQuests.Count >= PlayerConstants.MAX_DAILY_QUESTS)
+            return false;
+
+        int slot = FinishedDailyQuests.Count;
+        FinishedDailyQuests.Add(questId);
+        SetUInt32Value(EPlayerFields.PLAYER_FIELD_DAILY_QUESTS_1 + slot, questId);
+        return true;
+    }
+
+    public bool HasFinishedDailyQuest(uint questId) => FinishedDailyQuests.Contains(questId);
+
+    public void WipeDailyQuests()
+    {
+        for (int slot = 0; slot < PlayerConstants.MAX_DAILY_QUESTS; slot++)
+            SetUInt32Value(EPlayerFields.PLAYER_FIELD_DAILY_QUESTS_1 + slot, 0);
+        FinishedDailyQuests.Clear();
+    }
 }
 
 public sealed class PlayerUpdateMask

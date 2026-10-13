@@ -49,7 +49,8 @@ public static partial class WorldSession
             [(ushort)Opcodes.CMSG_REALM_SPLIT] = new(SessionStatus.STATUS_AUTHED, HandleRealmSplitOpcode),
             [(ushort)Opcodes.CMSG_LOGOUT_REQUEST] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutRequestOpcode),
             [(ushort)Opcodes.CMSG_LOGOUT_CANCEL] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutCancelOpcode),
-            [(ushort)Opcodes.CMSG_TIME_SYNC_RESP] = new(SessionStatus.STATUS_LOGGEDIN, HandleTimeSyncResponseOpcode)
+            [(ushort)Opcodes.CMSG_TIME_SYNC_RESP] = new(SessionStatus.STATUS_LOGGEDIN, HandleTimeSyncResponseOpcode),
+            [(ushort)Opcodes.CMSG_SET_TITLE] = new(SessionStatus.STATUS_LOGGEDIN, HandleSetTitleOpcode)
         };
     }
 
@@ -94,6 +95,19 @@ public static partial class WorldSession
         uint sequence = packet.ReadUInt32();
         uint clientTicks = packet.ReadUInt32();
         session.Player.OnTimeSyncResponse(sequence, clientTicks);
+    }
+
+    private static void HandleSetTitleOpcode(ClusterPlayerSession session, WorldPacket packet)
+    {
+        if (packet.Size != sizeof(uint))
+        {
+            CLog.Warning("[WorldSession]", "Requete SET_TITLE de taille invalide ({0}), session {1}.", packet.Size, session.SessionId);
+            return;
+        }
+
+        uint titleNumber = packet.ReadUInt32();
+        if (!session.Player.TrySetChosenTitle(titleNumber))
+            CLog.Warning("[WorldSession]", "Le joueur {0} a tente de choisir un titre non possede ({1}).", session.Guid, titleNumber);
     }
 
     private static void HandleLogoutRequestOpcode(ClusterPlayerSession session, WorldPacket packet)

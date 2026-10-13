@@ -351,16 +351,36 @@ public sealed partial class Player
 
     private void LoadSkills(QueryResult result)
     {
-        // TODO: proficiences armes/armures et contrôle des professions primaires (sWorld.CheckProfessions).
+        int professionCount = 0;
+        bool warnedAboutProfessionLimit = false;
+        ObjectMgr objectMgr = ObjectMgr.GetInstance();
         while (result.NextRow())
         {
             uint skillId = ToUInt32(result.GetValue(1));
+            if (!objectMgr.TryGetSkillLine(skillId, out ObjectMgr.SkillLineLookupEntry skillLine)
+                || skillLine.type == PlayerConstants.SKILL_TYPE_LANGUAGE)
+            {
+                CLog.Warning("[Player]", "Compétence {0} ignorée pour le joueur {1}: entrée SkillLine.dbc introuvable ou langue.", skillId, Guid);
+                continue;
+            }
+
+            if (WorldConfig.CheckProfessions && skillLine.type == PlayerConstants.SKILL_TYPE_PROFESSION)
+            {
+                professionCount++;
+                if (professionCount > 2 && !warnedAboutProfessionLimit)
+                {
+                    CLog.Warning("[Player]", "Le joueur {0} possède plus de deux professions principales.", Guid);
+                    warnedAboutProfessionLimit = true;
+                }
+            }
+
             Skills[skillId] = new PlayerSkill
             {
-                Type = ToUInt32(result.GetValue(2)),
+                Type = skillLine.type,
                 CurrentValue = ToUInt32(result.GetValue(3)),
                 MaximumValue = ToUInt32(result.GetValue(4)),
             };
+            ApplySkillProficiency(skillId);
         }
     }
 
@@ -372,29 +392,77 @@ public sealed partial class Player
         for (int i = 0; i + 2 < tokens.Length - 1; i += 3)
         {
             uint skillId = ParseUInt32(tokens[i]);
-            if (skillId == 0)
+            if (skillId == 0 || !ObjectMgr.GetInstance().TryGetSkillLine(skillId, out ObjectMgr.SkillLineLookupEntry skillLine)
+                || skillLine.type == PlayerConstants.SKILL_TYPE_LANGUAGE)
                 continue;
 
             uint max = ParseUInt32(tokens[i + 2]);
             uint current = skillId == PlayerConstants.SKILL_RIDING ? max : ParseUInt32(tokens[i + 1]);
-            Skills.TryAdd(skillId, new PlayerSkill { CurrentValue = current, MaximumValue = max });
+            Skills.TryAdd(skillId, new PlayerSkill { Type = skillLine.type, CurrentValue = current, MaximumValue = max });
+            ApplySkillProficiency(skillId);
         }
     }
 
-    // Format "id,flag,base,standing,..." ; validation via Faction.dbc (RepListId) à porter.
+    // Format "id,flag,base,standing,...".
     private void LoadReputation(string data)
     {
+        ObjectMgr objectMgr = ObjectMgr.GetInstance();
         string[] tokens = data.Split(',');
         for (int i = 0; i + 3 < tokens.Length - 1; i += 4)
         {
-            Reputation[ParseUInt32(tokens[i])] = new FactionReputation
+            uint factionId = ParseUInt32(tokens[i]);
+            if (!objectMgr.TryGetFaction(factionId, out _))
+                continue;
+
+            Reputation[factionId] = new FactionReputation
             {
                 Flag = ParseUInt32(tokens[i + 1]),
                 BaseStanding = ParseInt32(tokens[i + 2]),
                 Standing = ParseInt32(tokens[i + 3]),
             };
         }
-        // TODO: _InitialReputation() si aucune réputation (nécessite Faction.dbc).
+
+        if (Reputation.Count == 0)
+            LoadInitialReputation(objectMgr);
+    }
+
+    private void LoadInitialReputation(ObjectMgr objectMgr)
+    {
+        if (Race is 0 or > 32)
+            return;
+
+        uint raceMask = 1u << (Race - 1);
+        foreach (ObjectMgr.FactionReputationEntry faction in objectMgr.GetFactionEntries())
+        {
+            if (faction.RepListId < 0)
+                continue;
+
+            int baseStanding;
+            if ((faction.BaseRepRaceMask0 & raceMask) != 0)
+                baseStanding = faction.BaseRepValue0;
+            else if ((faction.BaseRepRaceMask1 & raceMask) != 0)
+                baseStanding = faction.BaseRepValue1;
+            else if ((faction.BaseRepRaceMask2 & raceMask) != 0)
+                baseStanding = faction.BaseRepValue2;
+            else if ((faction.BaseRepRaceMask3 & raceMask) != 0)
+                baseStanding = faction.BaseRepValue3;
+            else
+                continue;
+
+            uint flags = baseStanding <= -3000 ? 2u : 0u;
+            if ((faction.ParentFaction == 469 && Team == PlayerTeam.FACTION_ALLY)
+                || (faction.ParentFaction == 67 && Team == PlayerTeam.FACTION_HORDE))
+            {
+                flags |= 1;
+            }
+
+            Reputation[faction.ID] = new FactionReputation
+            {
+                Flag = flags,
+                BaseStanding = baseStanding,
+                Standing = baseStanding,
+            };
+        }
     }
 
     // Format "action,type,misc,...".

@@ -213,6 +213,15 @@ public sealed partial class Player
         packet.WriteUInt32(BindZoneId);
         SendPacket(packet);
 
+        packet.Initialize((ushort)Opcodes.SMSG_SET_PROFICIENCY);
+        packet.WriteByte(4);
+        packet.WriteUInt32(ArmorProficiency);
+        SendPacket(packet);
+        packet.Initialize((ushort)Opcodes.SMSG_SET_PROFICIENCY);
+        packet.WriteByte(2);
+        packet.WriteUInt32(WeaponProficiency);
+        SendPacket(packet);
+
         packet.Initialize((ushort)Opcodes.SMSG_TUTORIAL_FLAGS);
         foreach (uint tutorial in Tutorials)
             packet.WriteUInt32(tutorial);

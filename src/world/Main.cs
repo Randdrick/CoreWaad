@@ -403,7 +403,14 @@ public static class Master
 
         // Initialisation des singletons (EventMgr/World/ScriptMgr du Master.cpp original)
         _ = WorldMgr.GetInstance();
-        _ = ObjectMgr.GetInstance();
+        ObjectMgr objectMgr = ObjectMgr.GetInstance();
+        if (!objectMgr.LoadPlayerDbcs(dbcPath))
+        {
+            WorldDatabaseManager.RemoveDatabases();
+            NetworkThreadPool.Instance.Shutdown();
+            BufferPool.Destroy();
+            return;
+        }
         _ = MapMgr.GetInstance();
 
         // Initialisation de la table des gestionnaires de paquets (WorldSession::InitPacketHandlerTable)
