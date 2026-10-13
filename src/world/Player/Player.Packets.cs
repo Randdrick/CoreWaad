@@ -1,3 +1,24 @@
+/*
+ * Wow Arbonne Ascent Development MMORPG Server
+ * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ *
+ * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,6 +53,54 @@ public sealed partial class Player
             using var packet = BuildInitialActionsPacket();
             SendPacket(packet);
         }
+    }
+
+    internal WorldPacket BuildValuesUpdatePacket()
+    {
+        if (UpdateMask.IsEmpty)
+            throw new InvalidOperationException("Aucun champ joueur modifie a serialiser.");
+
+        var packet = new WorldPacket((ushort)Opcodes.SMSG_UPDATE_OBJECT,
+            4 + 1 + 9 + 1 + (UpdateMask.WordCount * sizeof(uint)) + (UpdateMask.BitCount * sizeof(uint)));
+        packet.WriteUInt32(1);
+        packet.WriteByte(0); // UPDATETYPE_VALUES
+        WritePackedGuid(packet, Guid);
+        packet.WriteByte((byte)UpdateMask.WordCount);
+        for (int wordIndex = 0; wordIndex < UpdateMask.WordCount; wordIndex++)
+            packet.WriteUInt32(UpdateMask.GetWord(wordIndex));
+
+        for (int fieldIndex = 0; fieldIndex < UpdateMask.BitCount; fieldIndex++)
+            if (UpdateMask.IsSet(fieldIndex))
+                packet.WriteUInt32(GetUInt32Value(fieldIndex));
+
+        return packet;
+    }
+
+    public bool SendPendingUpdateFields()
+    {
+        lock (Session.SyncRoot)
+        {
+            if (!IsInWorld || Session.IsDisposed || Session.IsDisconnected || UpdateMask.IsEmpty)
+                return false;
+
+            using var packet = BuildValuesUpdatePacket();
+            ClusterInterface.Instance.ForwardWoWPacket(Session.SessionId, packet);
+            UpdateMask.ClearAll();
+            return true;
+        }
+    }
+
+    private static void WritePackedGuid(WorldPacket packet, uint guid)
+    {
+        byte mask = 0;
+        for (int byteIndex = 0; byteIndex < sizeof(uint); byteIndex++)
+            if (((guid >> (byteIndex * 8)) & 0xFF) != 0)
+                mask |= (byte)(1 << byteIndex);
+
+        packet.WriteByte(mask);
+        for (int byteIndex = 0; byteIndex < sizeof(uint); byteIndex++)
+            if ((mask & (1 << byteIndex)) != 0)
+                packet.WriteByte((byte)(guid >> (byteIndex * 8)));
     }
 
     internal WorldPacket BuildInitialActionsPacket()

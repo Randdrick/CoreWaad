@@ -75,6 +75,8 @@ public sealed partial class Player
     {
         lock (Session.SyncRoot)
         {
+            SendPendingUpdateFields();
+
             if (IsInWorld && !Session.IsDisposed && Environment.TickCount64 >= _nextSaveMs)
             {
                 if (!SaveToDB())
@@ -131,7 +133,7 @@ public sealed partial class Player
             [7] = Level, [8] = XP, [9] = Csv(ExploredZones),
             [11] = WatchedFactionIndex, [12] = ChosenTitle, [13] = KnownTitles, [14] = KnownTitles1,
             [15] = Coinage, [16] = AmmoId, [17] = Math.Min(CharacterPoints2, 2u), [18] = MaxTalentPoints,
-            [19] = LoadHealth, [20] = LoadMana, [21] = PlayerBytes3 >> 24, [22] = PlayerBytes, [23] = PlayerBytes2,
+            [19] = Health, [20] = Mana, [21] = PlayerBytes3 >> 24, [22] = PlayerBytes, [23] = PlayerBytes2,
             [24] = PlayerFlags & ~0xFu, [25] = PlayerFieldBytes,
             [26] = PositionX, [27] = PositionY, [28] = PositionZ, [29] = Orientation,
             [30] = MapId, [31] = ZoneId, [32] = string.Join(" ", TaxiMask),
@@ -207,7 +209,7 @@ public sealed partial class Player
         }
 
         Delete("tutorials", "playerId");
-        Insert("tutorials", "", new object[] { Guid }.Concat(Tutorials.Cast<object>()).ToArray());
+        Insert("tutorials", "", [Guid, .. Tutorials.Cast<object>()]);
 
         Delete("playercooldowns", "player_guid");
         for (int type = 0; type < Cooldowns.Length; type++)

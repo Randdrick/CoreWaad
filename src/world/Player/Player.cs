@@ -19,46 +19,212 @@
  *
  */
 
+using System;
 using System.Collections.Generic;
 
 namespace WaadWorldServer;
 
-// Portage progressif de Player (Player.h/Player.cpp). Object/Unit ne sont pas encore portés :
-// les champs d'update (m_uint32Values) sont donc exposés sous forme de propriétés typées.
+// Portage progressif de Player (Player.h/Player.cpp). Object/Unit ne sont pas encore portés.
 public sealed partial class Player(uint guid, ClusterPlayerSession session)
 {
     public uint Guid { get; } = guid;
     public ClusterPlayerSession Session { get; } = session;
+    private uint[] _uint32Values { get; } = CreateUpdateValues(guid);
+    public PlayerUpdateMask UpdateMask { get; } = CreateInitialUpdateMask();
+    public ReadOnlyMemory<uint> UInt32Values => _uint32Values;
+
+    private static uint[] CreateUpdateValues(uint guid)
+    {
+        var values = new uint[EPlayerFields.PLAYER_END];
+        values[EObjectFields.OBJECT_FIELD_TYPE] = 0x19;
+        values[EObjectFields.OBJECT_FIELD_GUID] = guid;
+        return values;
+    }
+
+    private static PlayerUpdateMask CreateInitialUpdateMask()
+    {
+        var mask = new PlayerUpdateMask(EPlayerFields.PLAYER_END);
+        mask.SetBit(EObjectFields.OBJECT_FIELD_TYPE);
+        mask.SetBit(EObjectFields.OBJECT_FIELD_GUID);
+        return mask;
+    }
+
+    public uint GetUInt32Value(int index) => _uint32Values[index];
+
+    public void SetUInt32Value(int index, uint value)
+    {
+        if (_uint32Values[index] == value)
+            return;
+
+        _uint32Values[index] = value;
+        UpdateMask.SetBit(index);
+    }
+
+    public ulong GetUInt64Value(int index) =>
+        GetUInt32Value(index) | ((ulong)GetUInt32Value(index + 1) << 32);
+
+    public void SetUInt64Value(int index, ulong value)
+    {
+        SetUInt32Value(index, (uint)value);
+        SetUInt32Value(index + 1, (uint)(value >> 32));
+    }
+
+    public float GetFloatValue(int index) => BitConverter.UInt32BitsToSingle(GetUInt32Value(index));
+
+    public void SetFloatValue(int index, float value) =>
+        SetUInt32Value(index, BitConverter.SingleToUInt32Bits(value));
+
+    private byte GetByteValue(int index, int offset) =>
+        (byte)(GetUInt32Value(index) >> (offset * 8));
+
+    private void SetByteValue(int index, int offset, byte value)
+    {
+        int shift = offset * 8;
+        uint mask = 0xFFu << shift;
+        SetUInt32Value(index, (GetUInt32Value(index) & ~mask) | ((uint)value << shift));
+    }
+
+    internal void SetExploredZones(IEnumerable<uint> zones)
+    {
+        for (int clearIndex = 0; clearIndex < EPlayerFields.PLAYER_EXPLORED_ZONES_MAX; clearIndex++)
+            SetUInt32Value(EPlayerFields.PLAYER_EXPLORED_ZONES_1 + clearIndex, 0);
+
+        int index = 0;
+        foreach (uint value in zones)
+        {
+            if (index == EPlayerFields.PLAYER_EXPLORED_ZONES_MAX)
+                break;
+
+            SetUInt32Value(EPlayerFields.PLAYER_EXPLORED_ZONES_1 + index, value);
+            index++;
+        }
+    }
+
+    private IEnumerable<uint> ReadExploredZones()
+    {
+        for (int index = 0; index < EPlayerFields.PLAYER_EXPLORED_ZONES_MAX; index++)
+            yield return GetUInt32Value(EPlayerFields.PLAYER_EXPLORED_ZONES_1 + index);
+    }
+
+    private void ClearUpdateMask() => UpdateMask.ClearAll();
 
     // Identité
     public string Name { get; private set; } = string.Empty;
-    public byte Race { get; private set; }
-    public byte Class { get; private set; }
-    public byte Gender { get; private set; }
+    public byte Race
+    {
+        get => GetByteValue(EUnitFields.UNIT_FIELD_BYTES_0, 0);
+        private set => SetByteValue(EUnitFields.UNIT_FIELD_BYTES_0, 0, value);
+    }
+    public byte Class
+    {
+        get => GetByteValue(EUnitFields.UNIT_FIELD_BYTES_0, 1);
+        private set => SetByteValue(EUnitFields.UNIT_FIELD_BYTES_0, 1, value);
+    }
+    public byte Gender
+    {
+        get => GetByteValue(EUnitFields.UNIT_FIELD_BYTES_0, 2);
+        private set => SetByteValue(EUnitFields.UNIT_FIELD_BYTES_0, 2, value);
+    }
     public uint CustomFaction { get; private set; }
     public PlayerTeam Team { get; private set; }
     public PlayerTeam BgTeam { get; private set; }
 
     // Progression
-    public uint Level { get; private set; }
-    public uint XP { get; private set; }
-    public uint WatchedFactionIndex { get; private set; }
-    public uint ChosenTitle { get; private set; }
-    public ulong KnownTitles { get; private set; }
-    public ulong KnownTitles1 { get; private set; }
-    public uint Coinage { get; private set; }
-    public uint AmmoId { get; private set; }
-    public uint CharacterPoints2 { get; private set; }
+    public uint Level
+    {
+        get => GetUInt32Value(EUnitFields.UNIT_FIELD_LEVEL);
+        private set => SetUInt32Value(EUnitFields.UNIT_FIELD_LEVEL, value);
+    }
+    public uint XP
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_XP);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_XP, value);
+    }
+    public uint WatchedFactionIndex
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_WATCHED_FACTION_INDEX);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_WATCHED_FACTION_INDEX, value);
+    }
+    public uint ChosenTitle
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_CHOSEN_TITLE);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_CHOSEN_TITLE, value);
+    }
+    public ulong KnownTitles
+    {
+        get => GetUInt64Value(EPlayerFields.PLAYER__FIELD_KNOWN_TITLES);
+        private set => SetUInt64Value(EPlayerFields.PLAYER__FIELD_KNOWN_TITLES, value);
+    }
+    public ulong KnownTitles1
+    {
+        get => GetUInt64Value(EPlayerFields.PLAYER__FIELD_KNOWN_TITLES1);
+        private set => SetUInt64Value(EPlayerFields.PLAYER__FIELD_KNOWN_TITLES1, value);
+    }
+    public uint Coinage
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_COINAGE);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_COINAGE, value);
+    }
+    public uint AmmoId
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_AMMO_ID);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_AMMO_ID, value);
+    }
+    public uint CharacterPoints2
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_CHARACTER_POINTS2);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_CHARACTER_POINTS2, value);
+    }
     public ushort MaxTalentPoints { get; private set; }
     public uint LoadHealth { get; private set; }
     public uint LoadMana { get; private set; }
+    public uint Health
+    {
+        get => GetUInt32Value(EUnitFields.UNIT_FIELD_HEALTH);
+        private set => SetUInt32Value(EUnitFields.UNIT_FIELD_HEALTH, value);
+    }
+    public uint Mana
+    {
+        get => GetUInt32Value(EUnitFields.UNIT_FIELD_POWER1);
+        private set => SetUInt32Value(EUnitFields.UNIT_FIELD_POWER1, value);
+    }
+    public uint ArenaPoints
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_ARENA_CURRENCY);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_ARENA_CURRENCY, value);
+    }
+    public byte RestState
+    {
+        get => GetByteValue(EPlayerFields.PLAYER_BYTES_2, 3);
+        private set => SetByteValue(EPlayerFields.PLAYER_BYTES_2, 3, value);
+    }
 
     // Apparence / flags
-    public uint PlayerBytes { get; private set; }
-    public uint PlayerBytes2 { get; private set; }
-    public uint PlayerBytes3 { get; private set; }
-    public uint PlayerFlags { get; private set; }
-    public uint PlayerFieldBytes { get; private set; }
+    public uint PlayerBytes
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_BYTES);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_BYTES, value);
+    }
+    public uint PlayerBytes2
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_BYTES_2);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_BYTES_2, value);
+    }
+    public uint PlayerBytes3
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_BYTES_3);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_BYTES_3, value);
+    }
+    public uint PlayerFlags
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FLAGS);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FLAGS, value);
+    }
+    public uint PlayerFieldBytes
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_BYTES);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_BYTES, value);
+    }
 
     // Position
     public float PositionX { get; private set; }
@@ -80,7 +246,6 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
 
     // Repos / temps de jeu
     public bool IsResting { get; private set; }
-    public byte RestState { get; private set; }
     public uint RestAmount { get; private set; }
     public uint[] PlayedTime { get; } = new uint[2];
     public uint TimeLogoff { get; private set; }
@@ -92,7 +257,6 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
     public uint TalentResetTimes { get; private set; }
     public bool FirstLogin { get; private set; }
     public bool RenamePending { get; private set; }
-    public uint ArenaPoints { get; private set; }
     public uint StableSlotCount { get; private set; }
     public uint InstanceDifficulty { get; private set; }
 
@@ -118,10 +282,27 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
     public uint HonorRolloverTime { get; private set; }
     public uint KillsToday { get; private set; }
     public uint KillsYesterday { get; private set; }
-    public uint KillsLifetime { get; private set; }
-    public uint HonorToday { get; private set; }
-    public uint HonorYesterday { get; private set; }
-    public uint HonorPoints { get; private set; }
+    public uint KillsLifetime
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_LIFETIME_HONORBALE_KILLS);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_LIFETIME_HONORBALE_KILLS, value);
+    }
+    public uint HonorToday
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_TODAY_CONTRIBUTION);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_TODAY_CONTRIBUTION, value);
+    }
+    public uint HonorYesterday
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_YESTERDAY_CONTRIBUTION);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_YESTERDAY_CONTRIBUTION, value);
+    }
+    public uint HonorPoints
+    {
+        get => GetUInt32Value(EPlayerFields.PLAYER_FIELD_HONOR_CURRENCY);
+        private set => SetUInt32Value(EPlayerFields.PLAYER_FIELD_HONOR_CURRENCY, value);
+    }
+    public IEnumerable<uint> ExploredZones => ReadExploredZones();
 
     // Talents
     public uint TalentActiveSpec { get; private set; }
@@ -130,7 +311,6 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
     public PlayerSpec[] Specs { get; } = [new PlayerSpec(), new PlayerSpec()];
 
     // Collections chargées depuis la base
-    public uint[] ExploredZones { get; } = new uint[EPlayerFields.PLAYER_EXPLORED_ZONES_MAX];
     public uint[] Tutorials { get; } = new uint[PlayerConstants.TUTORIALS_COUNT];
     public ActionButton[] Actions { get; } = new ActionButton[PlayerConstants.PLAYER_ACTION_BUTTON_COUNT];
     public Dictionary<uint, PlayerSkill> Skills { get; } = [];
@@ -144,4 +324,59 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
     public Dictionary<uint, string> Friends { get; } = [];
     public HashSet<uint> HasFriendList { get; } = [];
     public HashSet<uint> Ignores { get; } = [];
+}
+
+public sealed class PlayerUpdateMask
+{
+    private readonly uint[] _words;
+
+    public PlayerUpdateMask(int bitCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(bitCount);
+
+        BitCount = bitCount;
+        _words = new uint[(bitCount + 31) / 32];
+    }
+
+    public int BitCount { get; }
+    public int WordCount => _words.Length;
+    public ReadOnlyMemory<uint> Words => _words;
+    public bool IsEmpty
+    {
+        get
+        {
+            foreach (uint word in _words)
+                if (word != 0)
+                    return false;
+            return true;
+        }
+    }
+
+    public uint GetWord(int index) => _words[index];
+
+    public bool IsSet(int index)
+    {
+        ValidateIndex(index);
+        return (_words[index >> 5] & (1u << (index & 31))) != 0;
+    }
+
+    public void SetBit(int index)
+    {
+        ValidateIndex(index);
+        _words[index >> 5] |= 1u << (index & 31);
+    }
+
+    public void ClearBit(int index)
+    {
+        ValidateIndex(index);
+        _words[index >> 5] &= ~(1u << (index & 31));
+    }
+
+    public void ClearAll() => Array.Clear(_words);
+
+    private void ValidateIndex(int index)
+    {
+        if ((uint)index >= (uint)BitCount)
+            throw new ArgumentOutOfRangeException(nameof(index));
+    }
 }

@@ -159,7 +159,7 @@ public sealed partial class Player
         XP = f.NextUInt32();
 
         uint[] explored = ParseCsvUInt32(f.NextString());
-        Array.Copy(explored, ExploredZones, Math.Min(explored.Length, ExploredZones.Length));
+        SetExploredZones(explored);
 
         QueryResult skills = results[Q_SKILLS];
         if (skills != null)
@@ -225,6 +225,8 @@ public sealed partial class Player
             DeathState = DeathState.CORPSE;
             LoadHealth = 0;
         }
+        Health = LoadHealth;
+        Mana = LoadMana;
 
         TalentResetTimes = f.NextUInt32();
         FirstLogin = f.NextBool();
@@ -308,6 +310,7 @@ public sealed partial class Player
         _skillsInTable = skills != null;
         _lastPlayedTimeMs = Environment.TickCount64;
         _nextSaveMs = _lastPlayedTimeMs + SaveIntervalMs;
+        ClearUpdateMask();
         IsLoaded = true;
 
         CLog.Success("[Player]", string.Format(W_S_PLAYER_LOADED, Name, Guid, Level, Race, Class, MapId, PositionX, PositionY, PositionZ));
