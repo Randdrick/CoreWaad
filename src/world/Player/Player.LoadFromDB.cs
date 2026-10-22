@@ -300,9 +300,10 @@ public sealed partial class Player
         LoadTutorials(results[Q_TUTORIALS]);
         LoadPlayerCooldowns(results[Q_COOLDOWNS]);
         LoadSocial(results[Q_SOCIAL_FRIENDS], results[Q_SOCIAL_FRIENDED_BY], results[Q_SOCIAL_IGNORES]);
+        LoadQuestLog(results[3]);
 
-        // TODO: questlog [3], items [4], pets [5]/[6]/[13], mailbox [7], achievements [11]
-        // une fois QuestMgr/ItemInterface/Pet/MailSystem/AchievementInterface portés.
+        // TODO: items [4], pets [5]/[6]/[13], mailbox [7], achievements [11]
+        // une fois ItemInterface/Pet/MailSystem/AchievementInterface portés.
 
         _characterColumns = new string[result.FieldCount];
         for (int index = 0; index < _characterColumns.Length; index++)

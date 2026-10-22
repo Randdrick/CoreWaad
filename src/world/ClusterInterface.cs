@@ -196,6 +196,7 @@ public sealed class ClusterInterface : IDisposable
         [WorkerServerOpcodes.ISMSG_TRANSPORTER_MAP_CHANGE] = (ci, p) => HandleTransporterMapChange(p),
         [WorkerServerOpcodes.ISMSG_PLAYER_TELEPORT] = (ci, p) => ci.HandlePlayerTeleport(p),
         [WorkerServerOpcodes.ISMSG_CREATE_PLAYER] = (ci, p) => ci.HandleCreatePlayer(p),
+        [WorkerServerOpcodes.ISMSG_CHARACTER_CREATED] = (ci, p) => HandleCharacterCreated(p),
         [WorkerServerOpcodes.ISMSG_DELETE_PLAYER] = (ci, p) => HandleDeletePlayer(p),
         [WorkerServerOpcodes.ISMSG_PACKED_PLAYER_INFO] = (ci, p) => HandlePackedPlayerInfo(p),
         [WorkerServerOpcodes.ISMSG_DESTROY_PLAYER_INFO] = (ci, p) => ci.HandleDestroyPlayerInfo(p),
@@ -633,16 +634,47 @@ public sealed class ClusterInterface : IDisposable
         uint accountId = packet.ReadUInt32();
         ushort opcode = packet.ReadUInt16();
         uint size = packet.ReadUInt32();
+        if (size > int.MaxValue || packet.Size < 10 || size != (uint)(packet.Size - 10))
+        {
+            CLog.Error("[ClusterInterface]", R_E_CLUSTER_CHAR_CREATE_INVALID_SIZE, accountId);
+            SendCreatePlayerResult(accountId, LoginErrorCode.CHAR_CREATE_ERROR);
+            return;
+        }
+
+        var createData = new WorldPacket(opcode, (int)size);
         if (size > 0)
-            packet.ReadBytes(new byte[size], 0, (int)size); // TODO: consommer réellement le CMSG_CHAR_CREATE une fois Player/ObjectMgr portés.
+        {
+            byte[] payload = new byte[(int)size];
+            packet.ReadBytes(payload, 0, payload.Length);
+            createData.Append(payload, payload.Length);
+        }
 
-        CLog.Warning("[ClusterInterface]", R_W_CLUSTER_PLAYER_CREATION_NOT_IMPLEMENTED, accountId, opcode);
+        LoginErrorCode createResult;
+        uint createdGuid;
+        using (createData)
+            createResult = ObjectMgr.GetInstance().CreatePlayerCharacter(accountId, createData, out createdGuid);
 
-        var result = new WorldPacket((ushort)WorkerServerOpcodes.ICMSG_CREATE_PLAYER, 5);
+        SendCreatePlayerResult(accountId, createResult, createdGuid);
+    }
+
+    private void SendCreatePlayerResult(uint accountId, LoginErrorCode createResult, uint createdGuid = 0)
+    {
+        using var result = new WorldPacket((ushort)WorkerServerOpcodes.ICMSG_CREATE_PLAYER, 9);
         result.WriteUInt32(accountId);
-        result.WriteByte((byte)LoginErrorCode.CHAR_CREATE_ERROR);
+        result.WriteByte((byte)createResult);
+        if (createResult == LoginErrorCode.CHAR_CREATE_SUCCESS)
+            result.WriteUInt32(createdGuid);
         SendPacket(result);
-        result.Dispose();
+    }
+
+    private static void HandleCharacterCreated(WorldPacket packet)
+    {
+        if (packet.Size != 8)
+            throw new System.IO.InvalidDataException("Invalid character creation notification.");
+
+        uint accountId = packet.ReadUInt32();
+        uint guid = packet.ReadUInt32();
+        CLog.Success("[ClusterInterface]", R_S_CLUSTER_CHAR_CREATED, guid, accountId);
     }
 
     // ISMSG_DELETE_PLAYER: guid (uint64).

@@ -570,7 +570,16 @@ namespace WaadRealmServer
         {
             uint accountid = p.ReadUInt32();
             byte result = p.ReadByte();
-            CLog.Debug("[WServer]", string.Format(WaadShared.WorkerServer.R_D_WORKMGR_CREATE_PLAYER_RESULT, result));
+            CLog.Debug("[WServer]", string.Format(R_D_WORKMGR_CREATE_PLAYER_RESULT, result));
+            if (result == (byte)LoginErrorCode.CHAR_CREATE_SUCCESS)
+            {
+                uint guid = p.ReadUInt32();
+                using var notification = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_CHARACTER_CREATED, 8);
+                notification.WriteUInt32(accountid);
+                notification.WriteUInt32(guid);
+                ClusterMgr.Instance.DistributePacketToAll(notification);
+                new LogonCommHandler().UpdateAccountCount(accountid, 1);
+            }
             var session = ClientMgr.Instance.GetSessionByAccountId(accountid);
             if (session == null)
             {

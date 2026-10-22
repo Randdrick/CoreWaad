@@ -411,6 +411,13 @@ public static class Master
             BufferPool.Destroy();
             return;
         }
+        if (!objectMgr.LoadPlayerCreateInfos())
+        {
+            WorldDatabaseManager.RemoveDatabases();
+            NetworkThreadPool.Instance.Shutdown();
+            BufferPool.Destroy();
+            return;
+        }
         _ = MapMgr.GetInstance();
 
         // Initialisation de la table des gestionnaires de paquets (WorldSession::InitPacketHandlerTable)

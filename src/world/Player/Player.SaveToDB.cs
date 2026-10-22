@@ -25,6 +25,7 @@ using System.Globalization;
 using System.Linq;
 using WaadShared;
 using WaadShared.Database;
+using static WaadShared.PlayerMessages;
 
 namespace WaadWorldServer;
 
@@ -89,9 +90,29 @@ public sealed partial class Player
     {
         lock (Session.SyncRoot)
         {
-            if (newCharacter || !IsLoaded || _characterColumns == null || _characterColumns.Length < 85)
+            if (newCharacter)
             {
-                CLog.Error("[Player]", "Sauvegarde refusee pour {0}: personnage non charge ou creation non portee.", Guid);
+                if (_createInfo == null)
+                    return false;
+
+                Database createDatabase = WorldDatabaseManager.GetCharacterDatabase();
+                if (createDatabase == null || !createDatabase.IsInitialized)
+                    return false;
+
+                try
+                {
+                    return createDatabase.ExecuteTransaction(BuildCreateStatements(createDatabase));
+                }
+                catch (Exception ex)
+                {
+                    CLog.Error("[Player]", W_E_PLAYER_CREATE_FAILED, Guid, ex.Message);
+                    return false;
+                }
+            }
+
+            if (!IsLoaded || _characterColumns == null || _characterColumns.Length < 85)
+            {
+                CLog.Error("[Player]", W_E_PLAYER_SAVE_REFUSED_NOT_LOADED, Guid);
                 return false;
             }
 
@@ -123,6 +144,134 @@ public sealed partial class Player
             if (Session.IsLoggingOut)
                 TimeLogoff = timestamp;
             return true;
+        }
+    }
+
+    private List<DatabaseStatement> BuildCreateStatements(Database database)
+    {
+        object[] character = new object[85];
+        Array.Fill(character, 0u);
+        character[0] = Guid;
+        character[1] = Session.AccountId;
+        character[2] = Name;
+        character[3] = Race;
+        character[4] = Class;
+        character[5] = Gender;
+        character[6] = CustomFaction;
+        character[7] = Level;
+        character[8] = XP;
+        character[9] = Csv(ExploredZones);
+        character[10] = string.Empty;
+        character[11] = WatchedFactionIndex;
+        character[12] = ChosenTitle;
+        character[13] = KnownTitles;
+        character[14] = KnownTitles1;
+        character[15] = Coinage;
+        character[16] = AmmoId;
+        character[17] = CharacterPoints2;
+        character[18] = MaxTalentPoints;
+        character[19] = Health;
+        character[20] = Mana;
+        character[21] = PlayerBytes3 >> 24;
+        character[22] = PlayerBytes;
+        character[23] = PlayerBytes2;
+        character[24] = PlayerFlags;
+        character[25] = PlayerFieldBytes;
+        character[26] = PositionX;
+        character[27] = PositionY;
+        character[28] = PositionZ;
+        character[29] = Orientation;
+        character[30] = MapId;
+        character[31] = ZoneId;
+        character[32] = string.Join(" ", TaxiMask);
+        character[33] = Banned;
+        character[34] = BanReason;
+        character[35] = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        character[36] = 0u;
+        character[37] = BindPositionX;
+        character[38] = BindPositionY;
+        character[39] = BindPositionZ;
+        character[40] = BindMapId;
+        character[41] = BindZoneId;
+        character[42] = IsResting ? 1u : 0u;
+        character[43] = RestState;
+        character[44] = RestAmount;
+        character[45] = "0 0 0 ";
+        character[46] = (uint)DeathState;
+        character[47] = TalentResetTimes;
+        character[48] = FirstLogin ? 1u : 0u;
+        character[49] = RenamePending ? 1u : 0u;
+        character[50] = ArenaPoints;
+        character[51] = StableSlotCount;
+        character[52] = InstanceId;
+        character[53] = BgEntryPointMap;
+        character[54] = BgEntryPointX;
+        character[55] = BgEntryPointY;
+        character[56] = BgEntryPointZ;
+        character[57] = BgEntryPointO;
+        character[58] = BgEntryPointInstance;
+        character[59] = TaxiPath;
+        character[60] = TaxiLastNode;
+        character[61] = TaxiMountDisplayId;
+        character[62] = TransporterGuid;
+        character[63] = TransporterX;
+        character[64] = TransporterY;
+        character[65] = TransporterZ;
+        character[66] = Csv(DeletedSpells.OrderBy(value => value));
+        character[67] = Csv(Reputation.OrderBy(entry => entry.Key).SelectMany(entry => new long[]
+            { entry.Key, entry.Value.Flag, entry.Value.BaseStanding, entry.Value.Standing }));
+        character[68] = Csv(Actions.SelectMany(action => new uint[] { action.Action, action.Type, action.Misc }));
+        character[69] = string.Empty;
+        character[70] = Csv(FinishedQuests.OrderBy(value => value));
+        character[71] = Csv(FinishedDailyQuests.OrderBy(value => value));
+        character[72] = HonorRolloverTime;
+        character[73] = KillsToday;
+        character[74] = KillsYesterday;
+        character[75] = KillsLifetime;
+        character[76] = HonorToday;
+        character[77] = HonorYesterday;
+        character[78] = HonorPoints;
+        character[79] = InstanceDifficulty;
+        character[80] = Height;
+        character[81] = Phase;
+        character[82] = TalentActiveSpec;
+        character[83] = TalentSpecsCount;
+        character[84] = NeedTalentReset ? 1u : 0u;
+
+        var statements = new List<DatabaseStatement>();
+        AddInsert("characters", character);
+        foreach (var skill in Skills.OrderBy(entry => entry.Key))
+            AddInsert("playerskills", [Guid, skill.Key, skill.Value.Type, skill.Value.CurrentValue, skill.Value.MaximumValue],
+                " (player_guid,skill_id,type,currentlvl,maxlvl)");
+        foreach (uint spell in Spells.OrderBy(value => value))
+            AddInsert("playerspells", [Guid, spell], " (guid,spellid)");
+        AddInsert("tutorials", [Guid, .. Tutorials.Cast<object>()]);
+        AddQuestLogStatements(statements);
+
+        for (int spec = 0; spec < Specs.Length; spec++)
+            AddInsert("playerglyphs", [Guid, (uint)spec, .. Specs[spec].Glyphs.Cast<object>()]);
+
+        uint itemGuid = _firstStartingItemGuid;
+        foreach (CreateInfoItem item in _createInfo.Items)
+        {
+            if (item.ItemId == 0)
+                continue;
+            if (itemGuid == 0 || itemGuid == uint.MaxValue)
+                throw new InvalidOperationException("Espace des GUID d'objets epuise.");
+
+            AddInsert("playeritems", [Guid, itemGuid++, item.ItemId, 0u, 0u, 0u, item.Amount,
+                0u, 0u, 0u, 0u, 0u, 0u, -1, (int)item.Slot, string.Empty]);
+        }
+
+        return statements;
+
+        void AddInsert(string table, object[] values, string columns = "")
+        {
+            var parameters = new Dictionary<string, object>();
+            for (int index = 0; index < values.Length; index++)
+                parameters["@value" + index] = values[index];
+            string placeholders = string.Join(",", parameters.Keys);
+            statements.Add(new DatabaseStatement($"INSERT INTO {table}{columns} VALUES ({placeholders})", parameters));
         }
     }
 

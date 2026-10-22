@@ -162,6 +162,10 @@ public static class PlayerMessages
     public const string W_D_PLAYER_SPECIALIZATION_OUT_OF_RANGE_TALENTS = "Spécialisation hors limites [{0}] pour le joueur {1} dans playertalents.";
     public const string W_D_PLAYER_SPECIALIZATION_OUT_OF_RANGE_GLYPHS = "Spécialisation hors limites [{0}] pour le joueur {1} dans playerglyphs.";
     public const string W_E_PLAYER_INVALID_COOLDOWN_TYPE = "({0} - {1}) Type de cooldown invalide {2}.";
+    public const string W_E_PLAYER_CREATE_FAILED = "Echec de création du joueur {0}: {1}";
+    public const string W_E_PLAYER_SAVE_REFUSED_NOT_LOADED = "Sauvegarde refusée pour {0}: personnage non chargé.";
+    public const string W_W_PLAYER_QUESTLOG_INCOMPLETE_ROW = "Ligne questlog incomplète pour le joueur {0}.";
+    public const string W_W_PLAYER_QUESTLOG_INVALID_ROW = "Ligne questlog invalide pour le joueur {0}: quête {1}, slot {2}.";
 }
 
 public static class WorldSessionMessages
@@ -522,10 +526,10 @@ public static class WorkerServer
     public const string R_E_WORKMGR_ERROR_DETACHING_INSTANCES = "Erreur lors du détachement des instances : {0}";
     public const string R_E_WORKMGR_DISPOSE_FAILED = "Échec de la suppression : {0}";
     public const string R_D_WORKMGR_TELEPORT_REQUEST = "session {0}, mapid {1}, instanceid {2}";
-    public const string R_D_WORKMGR_CREATE_PLAYER_RESULT = "Received ICMSG_CREATE_PLAYER, result {0}";
+    public const string R_D_WORKMGR_CREATE_PLAYER_RESULT = "Réception de ICMSG_CREATE_PLAYER, résultat : {0}";
     public const string R_D_WORKMGR_CHANNEL_UPDATE_TYPE = "ChannelUpdate type: {0}";
     public const string R_D_WORKMGR_LFG_CHANNEL_JOIN = "{0}, unk {1}";
-    public const string R_D_WORKMGR_DISPOSING = "Disposing WorkerServer {0}";
+    public const string R_D_WORKMGR_DISPOSING = "Suppression du WorkerServer {0}";
 }
 
 public static class WorkerServerSocket
@@ -650,6 +654,19 @@ public static class ClusterInterface
     public const string R_W_CLUSTER_TELEPORT_UNEXPECTED_RESULT = "HandlePlayerTeleport: résultat inattendu {0}.";
     public const string R_W_CLUSTER_PLAYER_CREATION_NOT_IMPLEMENTED = "Création de personnage demandée pour le compte {0} (opcode {1}), système Player non porté.";
     public const string R_W_CLUSTER_CHANNEL_ACTION_UNHANDLED = "HandleChannelAction: action non gérée {0}.";
+    public const string R_E_CLUSTER_CHAR_CREATE_INVALID_SIZE = "Taille CMSG_CHAR_CREATE invalide pour le compte {0}.";
+    public const string R_S_CLUSTER_CHAR_CREATED = "Personnage {0} créé pour le compte {1}.";
+}
+
+public static class ObjectMgrMessages
+{
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_LOAD_FAILED = "[ObjectMgr] Impossible de charger playercreateinfo.";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_TOO_FEW_COLUMNS = "[ObjectMgr] playercreateinfo contient moins de 24 colonnes.";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_INVALID_OR_DUPLICATE = "[ObjectMgr] Fiche playercreateinfo invalide ou dupliquée pour race {0}, classe {1}.";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_LOAD_ERROR = "[ObjectMgr] Erreur de chargement de playercreateinfo: {0}";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_NONE_LOADED = "[ObjectMgr] Aucune fiche playercreateinfo n'a été chargée.";
+    public const string W_N_OBJMGR_PLAYERCREATEINFO_LOADED = "[ObjectMgr] {0} fiches playercreateinfo chargées.";
+    public const string W_E_OBJMGR_CHARACTER_CREATE_FAILED = "[ObjectMgr] Echec de création de personnage pour le compte {0}: {1}";
 }
 
 public static class ItemPrototype

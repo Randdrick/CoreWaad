@@ -300,8 +300,7 @@ namespace WaadRealmServer
             byte classId = p.ReadByte();
             var sLog = new Logger();
 
-            // Vérifier la taille du paquet (doit être 10 octets pour un Personnage)
-            var SizeOfCharacterCreatePacket = 10;
+            var SizeOfCharacterCreatePacket = Encoding.ASCII.GetByteCount(name) + 10;
             if (!Utils.CheckPacketSize(p, SizeOfCharacterCreatePacket, this))
             {
                 sLog.OutError("CMSG_CHAR_CREATE", R_E_CHARHAN_COM, p.Size, SizeOfCharacterCreatePacket);
@@ -391,17 +390,15 @@ namespace WaadRealmServer
                 return;
             }
 
-            if (GetAccountId() != 0)
+            if (GetAccountId() != 0 && instance.Server?.ServerSocket != null)
             {
                 // Build and distribute creation packet
-                var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_CREATE_PLAYER, 10 + p.Size);
-                var sLogonCommHandler = new LogonCommHandler();
+                using var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_CREATE_PLAYER, 10 + p.Size);
                 data.WriteUInt32(GetAccountId());
                 data.WriteUInt16(p.Opcode);
                 data.WriteUInt32((uint)p.Size);
                 data.WriteBytes(p.ToArray()); // Use ToArray() for packet bytes
-                sClusterMgr.DistributePacketToAll(data);
-                sLogonCommHandler.UpdateAccountCount(GetAccountId(), 1);
+                instance.Server.SendPacket(data);
             }
             else
             {

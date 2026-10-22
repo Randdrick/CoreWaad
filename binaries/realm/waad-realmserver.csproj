@@ -50,8 +50,20 @@
   
   <Target Name="GenerateGitInfo" BeforeTargets="BeforeBuild">
       <Exec WorkingDirectory="$(MSBuildThisFileDirectory)"
-        Command="dotnet run --project &quot;$(MSBuildThisFileDirectory)..\..\extras\GitExtractor\GitExtractor.csproj&quot; -- GenerateGitInfo &quot;$(MSBuildProjectDirectory)\GitInfo.txt&quot; &gt; &quot;$(MSBuildProjectDirectory)\GitInfoLog.txt&quot; 2&gt;&amp;1"
-          ContinueOnError="WarnAndContinue" />
+        Command="git rev-parse --abbrev-ref HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low"
+        IgnoreExitCode="true" ContinueOnError="WarnAndContinue">
+        <Output TaskParameter="ConsoleOutput" PropertyName="GitBranchName" />
+      </Exec>
+      <Exec WorkingDirectory="$(MSBuildThisFileDirectory)"
+        Command="git rev-list --count HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low"
+        IgnoreExitCode="true" ContinueOnError="WarnAndContinue">
+        <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitCount" />
+      </Exec>
+      <PropertyGroup>
+        <GitBranchName Condition="'$(GitBranchName)' == ''">unknown</GitBranchName>
+        <GitCommitCount Condition="'$(GitCommitCount)' == ''">0</GitCommitCount>
+      </PropertyGroup>
+      <WriteLinesToFile File="$(MSBuildProjectDirectory)\GitInfo.txt" Lines="Branch: $(GitBranchName);Commit Count: $(GitCommitCount)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 
   <ItemGroup>

@@ -29,9 +29,9 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
 {
     public uint Guid { get; } = guid;
     public ClusterPlayerSession Session { get; } = session;
-    private uint[] _uint32Values { get; } = CreateUpdateValues(guid);
+    private uint[] Uint32Values { get; } = CreateUpdateValues(guid);
     public PlayerUpdateMask UpdateMask { get; } = CreateInitialUpdateMask();
-    public ReadOnlyMemory<uint> UInt32Values => _uint32Values;
+    public ReadOnlyMemory<uint> UInt32Values => Uint32Values;
 
     private static uint[] CreateUpdateValues(uint guid)
     {
@@ -49,14 +49,14 @@ public sealed partial class Player(uint guid, ClusterPlayerSession session)
         return mask;
     }
 
-    public uint GetUInt32Value(int index) => _uint32Values[index];
+    public uint GetUInt32Value(int index) => Uint32Values[index];
 
     public void SetUInt32Value(int index, uint value)
     {
-        if (_uint32Values[index] == value)
+        if (Uint32Values[index] == value)
             return;
 
-        _uint32Values[index] = value;
+        Uint32Values[index] = value;
         UpdateMask.SetBit(index);
     }
 
