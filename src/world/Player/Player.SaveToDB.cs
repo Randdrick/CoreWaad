@@ -54,7 +54,10 @@ public sealed partial class Player
                 return;
             MapId = Session.MapId;
             InstanceId = Session.InstanceId;
+            RebuildInventoryViews();
+            MarkInventoryFieldsForUpdate();
             SendInitialLogonPackets();
+            SpawnActivePet();
             IsInWorld = true;
             IsBeingPushed = false;
             OnTimeSyncRequest();
@@ -247,6 +250,10 @@ public sealed partial class Player
             AddInsert("playerspells", [Guid, spell], " (guid,spellid)");
         AddInsert("tutorials", [Guid, .. Tutorials.Cast<object>()]);
         AddQuestLogStatements(statements);
+        AddInventoryStatements(statements);
+        AddPetStatements(statements);
+        AddMailStatements(statements);
+        AddAchievementStatements(statements);
 
         for (int spec = 0; spec < Specs.Length; spec++)
             AddInsert("playerglyphs", [Guid, (uint)spec, .. Specs[spec].Glyphs.Cast<object>()]);

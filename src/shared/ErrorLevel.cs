@@ -667,6 +667,11 @@ public static class ObjectMgrMessages
     public const string W_E_OBJMGR_PLAYERCREATEINFO_NONE_LOADED = "[ObjectMgr] Aucune fiche playercreateinfo n'a été chargée.";
     public const string W_N_OBJMGR_PLAYERCREATEINFO_LOADED = "[ObjectMgr] {0} fiches playercreateinfo chargées.";
     public const string W_E_OBJMGR_CHARACTER_CREATE_FAILED = "[ObjectMgr] Echec de création de personnage pour le compte {0}: {1}";
+    public const string W_E_OBJMGR_ITEMS_LOAD_FAILED = "[ObjectMgr] Impossible de charger la table items.";
+    public const string W_W_OBJMGR_ITEM_PROTOTYPE_INVALID_OR_DUPLICATE = "[ObjectMgr] Prototype d'objet invalide ou dupliqué: {0}.";
+    public const string W_E_OBJMGR_ITEM_PROTOTYPES_LOAD_ERROR = "[ObjectMgr] Erreur de chargement des prototypes d'objets: {0}";
+    public const string W_E_OBJMGR_ITEM_PROTOTYPES_NONE_LOADED = "[ObjectMgr] Aucun prototype d'objet n'a été chargé.";
+    public const string W_N_OBJMGR_ITEM_PROTOTYPES_LOADED = "[ObjectMgr] {0} prototypes d'objets chargés.";
 }
 
 public static class ItemPrototype

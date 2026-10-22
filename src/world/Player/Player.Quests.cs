@@ -113,7 +113,10 @@ public sealed partial class Player
         SetUInt32Value(baseIndex, entry.QuestId);
         SetUInt32Value(baseIndex + 1, 0);
         SetUInt64Value(baseIndex + 2, progress);
-        SetUInt32Value(baseIndex + 4, entry.TimeLeft);
+        uint expiration = entry.TimeLeft == 0
+            ? 0
+            : (uint)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + entry.TimeLeft / 1000);
+        SetUInt32Value(baseIndex + 4, expiration);
     }
 
     private void AddQuestLogStatements(List<DatabaseStatement> statements)

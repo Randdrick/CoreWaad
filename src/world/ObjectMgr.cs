@@ -50,6 +50,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
 
     private bool _playerDbcsLoaded;
     private readonly Dictionary<(byte Race, byte Class), PlayerCreateInfo> _playerCreateInfos = [];
+    private readonly Dictionary<uint, ItemPrototype> _itemPrototypes = [];
     private readonly object _characterCreateLock = new();
 
     public bool LoadPlayerDbcs(string dbcPath)
@@ -170,6 +171,55 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         sLog.OutString(W_N_OBJMGR_PLAYERCREATEINFO_LOADED, _playerCreateInfos.Count);
         return true;
     }
+
+    public bool LoadItemPrototypes()
+    {
+        Database database = WorldDatabaseManager.GetWorldDatabase();
+        QueryResult result = database?.Query("SELECT * FROM items");
+        if (result == null)
+        {
+            sLog.OutError(W_E_OBJMGR_ITEMS_LOAD_FAILED);
+            return false;
+        }
+
+        var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < result.FieldCount; index++)
+            columns[result.GetFieldName(index).ToLowerInvariant()] = index;
+
+        var prototypes = new Dictionary<uint, ItemPrototype>();
+        try
+        {
+            while (result.NextRow())
+            {
+                ItemPrototype prototype = ItemPrototypeReader.Read(result, columns);
+                if (prototype.ItemId == 0 || !prototypes.TryAdd(prototype.ItemId, prototype))
+                {
+                    sLog.OutWarning(W_W_OBJMGR_ITEM_PROTOTYPE_INVALID_OR_DUPLICATE, prototype.ItemId);
+                    continue;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            sLog.OutError(W_E_OBJMGR_ITEM_PROTOTYPES_LOAD_ERROR, ex.Message);
+            return false;
+        }
+
+        if (prototypes.Count == 0)
+        {
+            sLog.OutError(W_E_OBJMGR_ITEM_PROTOTYPES_NONE_LOADED);
+            return false;
+        }
+
+        _itemPrototypes.Clear();
+        foreach (var entry in prototypes)
+            _itemPrototypes.Add(entry.Key, entry.Value);
+        sLog.OutString(W_N_OBJMGR_ITEM_PROTOTYPES_LOADED, _itemPrototypes.Count);
+        return true;
+    }
+
+    public bool TryGetItemPrototype(uint itemId, out ItemPrototype prototype) =>
+        _itemPrototypes.TryGetValue(itemId, out prototype);
 
     public bool TryGetPlayerCreateInfo(byte race, byte classId, out PlayerCreateInfo info) =>
         _playerCreateInfos.TryGetValue((race, classId), out info);

@@ -301,9 +301,15 @@ public sealed partial class Player
         LoadPlayerCooldowns(results[Q_COOLDOWNS]);
         LoadSocial(results[Q_SOCIAL_FRIENDS], results[Q_SOCIAL_FRIENDED_BY], results[Q_SOCIAL_IGNORES]);
         LoadQuestLog(results[3]);
+        LoadInventory(results[4]);
+        LoadPets(results[5]);
+        LoadPetSpells(results[6]);
+        LoadPetActionBars(results[13]);
+        LoadMail(results[7]);
+        LoadAchievements(results[11]);
 
-        // TODO: items [4], pets [5]/[6]/[13], mailbox [7], achievements [11]
-        // une fois ItemInterface/Pet/MailSystem/AchievementInterface portés.
+        // Les handlers de progression et la construction des paquets d'achievements
+        // restent à porter autour de la collection restaurée ci-dessus.
 
         _characterColumns = new string[result.FieldCount];
         for (int index = 0; index < _characterColumns.Length; index++)
