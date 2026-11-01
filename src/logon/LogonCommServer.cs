@@ -242,13 +242,14 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
                     }
                 }
 
-                // Do we have a full packet?
+                // Paquet incomplet : l'en-tête est déjà lu et déchiffré, on conserve opcode/remaining
+                // et on attend la suite. Les réinitialiser désynchroniserait le flux et le RC4.
                 if (GetReadBuffer().GetSize() < remaining)
                 {
-                    CLog.Error("[LogonCommServer]", R_E_LOGCOMCLT);
+                    CLog.Warning("[LogonCommServer]", R_W_LOGCOMCLT);
                     // Réinitialiser pour éviter un état bloquant
-                    remaining = 0;
-                    opcode = 0;
+                    // remaining = 0;
+                    // opcode = 0;
                     return;
                 }
                     
@@ -312,6 +313,7 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         
         if (authenticated == 0 && recvData.Opcode != (ushort)RCMSG_AUTH_CHALLENGE)
         {
+            CLog.Warning("[LogonCommServer]", $"Packet {recvData.Opcode} received from {GetRemoteIP()} before authentication. Disconnecting.");
             OnDisconnect();
             recvData.Dispose();
             return;
@@ -545,64 +547,35 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
             return false;
         }
 
+        // Même verrou que SendPacket : le RC4 n'est pas thread-safe et l'ordre de chiffrement
+        // doit être celui de l'envoi (PING depuis le timer, réponses depuis l'IOCP).
+        BurstBegin();
         try
         {
-            // Build 6-byte header: 2 bytes opcode, 4 bytes size
-            byte[] header = new byte[6];
+            byte[] packetData = new byte[6 + data.Size];
+            BlockCopy(BitConverter.GetBytes((ushort)data.GetOpcode()), 0, packetData, 0, 2);
+            BlockCopy(BitConverter.GetBytes((uint)data.Size), 0, packetData, 2, 4);
+            if (data.Size > 0)
+                BlockCopy(data.Contents, 0, packetData, 6, data.Size);
 
-            ushort op = (ushort)data.GetOpcode();
-            uint size = (uint)data.Size;
-
-            BlockCopy(BitConverter.GetBytes(op), 0, header, 0, 2);
-            BlockCopy(BitConverter.GetBytes(size), 0, header, 2, 4);
-
-            // Combine header and payload into a single buffer to send atomically
-            byte[] packetData;
             if (useCrypto && !noCrypto)
             {
-                // Need to encrypt header and payload separately, then combine
-                var encHeader = new byte[6];
-                sendCrypto.Process(header, encHeader);
-                
-                if (data.Size > 0)
-                {
-                    var payload = data.Contents;
-                    var encPayload = new byte[payload.Length];
-                    sendCrypto.Process(payload, encPayload);
-                    
-                    // Combine encrypted header + encrypted payload
-                    packetData = new byte[6 + payload.Length];
-                    BlockCopy(encHeader, 0, packetData, 0, 6);
-                    BlockCopy(encPayload, 0, packetData, 6, payload.Length);
-                }
-                else
-                {
-                    packetData = encHeader;
-                }
-            }
-            else
-            {
-                // No encryption: combine header + payload directly
-                if (data.Size > 0)
-                {
-                    var payload = data.Contents;
-                    packetData = new byte[6 + payload.Length];
-                    BlockCopy(header, 0, packetData, 0, 6);
-                    BlockCopy(payload, 0, packetData, 6, payload.Length);
-                }
-                else
-                {
-                    packetData = header;
-                }
+                // Le flux RC4 est continu : chiffrer en un bloc équivaut à en-tête puis contenu.
+                var encrypted = new byte[packetData.Length];
+                sendCrypto.Process(packetData, encrypted);
+                packetData = encrypted;
             }
 
-            // Send the complete packet (header + payload) in a single atomic operation
             return SendPacketDirect(packetData, packetData.Length);
         }
         catch (Exception ex)
         {
             CLog.Error("[LogonCommServer]", string.Format("SendPacketDirect error: {0}", ex.Message));
             return false;
+        }
+        finally
+        {
+            BurstEnd();
         }
     }
 

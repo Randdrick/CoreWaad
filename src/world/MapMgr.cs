@@ -19,7 +19,7 @@
  *
  */
 
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using WaadShared;
 
 namespace WaadWorldServer;
@@ -27,19 +27,25 @@ namespace WaadWorldServer;
 public sealed class MapMgr : Singleton<MapMgr>
 {
     private readonly Logger sLog = new();
+    private readonly ConcurrentDictionary<(uint MapId, uint InstanceId), WorldMap> _maps = new();
 
-    // Portage minimal de ClusterInterface::HandleCreateInstance (MapMgr* mgr = sInstanceMgr.ClusterCreateInstance(...)).
-    // TODO: charger réellement la carte/instance une fois le système de cartes (Map/InstanceMgr) porté.
-    private readonly HashSet<(uint MapId, uint InstanceId)> _clusterInstances = [];
-    private readonly object _clusterInstancesLock = new();
-
+    // ISMSG_CREATE_INSTANCE ; le terrain (maps/vmaps) n'est pas encore chargé.
     public bool ClusterCreateInstance(uint mapId, uint instanceId)
     {
-        lock (_clusterInstancesLock)
-        {
-            _clusterInstances.Add((mapId, instanceId));
-            return true;
-        }
+        GetOrCreateMap(mapId, instanceId);
+        return true;
+    }
+
+    public WorldMap GetMap(uint mapId, uint instanceId) =>
+        _maps.TryGetValue((mapId, instanceId), out WorldMap map) ? map : null;
+
+    public WorldMap GetOrCreateMap(uint mapId, uint instanceId) =>
+        _maps.GetOrAdd((mapId, instanceId), key => new WorldMap(key.MapId, key.InstanceId));
+
+    public WorldMap AddPlayer(Player player)
+    {
+        WorldMap map = GetOrCreateMap(player.MapId, player.InstanceId);
+        return map.AddPlayer(player) ? map : null;
     }
 
     public void Update()
@@ -50,5 +56,6 @@ public sealed class MapMgr : Singleton<MapMgr>
     public void Dispose()
     {
         sLog.OutDebug("[MapMgr] Nettoyage des cartes...");
+        _maps.Clear();
     }
 }

@@ -25,18 +25,24 @@ public static partial class DBCStores
     public struct DestructibleModelDataEntry
     {
         public uint entry;                    // Unknown9 from gameobject_names
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 5)]
-        public uint[] displayId;
+        public uint displayId0;
+        public uint displayId1;
+        public uint displayId2;
+        public uint displayId3;
 
-        public uint GetDisplayId(byte state)
+        public readonly uint GetDisplayId(byte state)
         {
+            uint[] ids = [displayId0, displayId1, displayId2, displayId3];
+            if (state >= ids.Length)
+                state = (byte)(ids.Length - 1);
+
             for (int i = 0; i < state; ++i)
             {
-                if (displayId[i] != 0)
-                    return displayId[i];
+                if (ids[i] != 0)
+                    return ids[i];
             }
 
-            return displayId[state];
+            return ids[state];
         }
     }
 }

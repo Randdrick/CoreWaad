@@ -43,15 +43,73 @@ public static partial class WorldSession
 
     private static ConcurrentDictionary<ushort, OpcodeHandler> CreatePacketHandlers()
     {
-        return new ConcurrentDictionary<ushort, OpcodeHandler>
+        return AddMovementHandlers(new ConcurrentDictionary<ushort, OpcodeHandler>
         {
             [(ushort)Opcodes.CMSG_PING] = new(SessionStatus.STATUS_AUTHED, HandlePingOpcode),
             [(ushort)Opcodes.CMSG_REALM_SPLIT] = new(SessionStatus.STATUS_AUTHED, HandleRealmSplitOpcode),
             [(ushort)Opcodes.CMSG_LOGOUT_REQUEST] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutRequestOpcode),
             [(ushort)Opcodes.CMSG_LOGOUT_CANCEL] = new(SessionStatus.STATUS_LOGGEDIN, HandleLogoutCancelOpcode),
             [(ushort)Opcodes.CMSG_TIME_SYNC_RESP] = new(SessionStatus.STATUS_LOGGEDIN, HandleTimeSyncResponseOpcode),
-            [(ushort)Opcodes.CMSG_SET_TITLE] = new(SessionStatus.STATUS_LOGGEDIN, HandleSetTitleOpcode)
-        };
+            [(ushort)Opcodes.CMSG_SET_TITLE] = new(SessionStatus.STATUS_LOGGEDIN, HandleSetTitleOpcode),
+            [(ushort)Opcodes.CMSG_SET_ACTIVE_MOVER] = new(SessionStatus.STATUS_LOGGEDIN, (_, _) => { })
+        });
+    }
+
+    private static ConcurrentDictionary<ushort, OpcodeHandler> AddMovementHandlers(ConcurrentDictionary<ushort, OpcodeHandler> handlers)
+    {
+        Opcodes[] movement =
+        [
+            Opcodes.MSG_MOVE_START_FORWARD, Opcodes.MSG_MOVE_START_BACKWARD, Opcodes.MSG_MOVE_STOP,
+            Opcodes.MSG_MOVE_START_STRAFE_LEFT, Opcodes.MSG_MOVE_START_STRAFE_RIGHT, Opcodes.MSG_MOVE_STOP_STRAFE,
+            Opcodes.MSG_MOVE_JUMP, Opcodes.MSG_MOVE_START_TURN_LEFT, Opcodes.MSG_MOVE_START_TURN_RIGHT,
+            Opcodes.MSG_MOVE_STOP_TURN, Opcodes.MSG_MOVE_START_PITCH_UP, Opcodes.MSG_MOVE_START_PITCH_DOWN,
+            Opcodes.MSG_MOVE_STOP_PITCH, Opcodes.MSG_MOVE_SET_RUN_MODE, Opcodes.MSG_MOVE_SET_WALK_MODE,
+            Opcodes.MSG_MOVE_FALL_LAND, Opcodes.MSG_MOVE_START_SWIM, Opcodes.MSG_MOVE_STOP_SWIM,
+            Opcodes.MSG_MOVE_SET_FACING, Opcodes.MSG_MOVE_SET_PITCH, Opcodes.MSG_MOVE_HEARTBEAT,
+            Opcodes.MSG_MOVE_START_ASCEND, Opcodes.MSG_MOVE_STOP_ASCEND, Opcodes.MSG_MOVE_START_DESCEND
+        ];
+        foreach (Opcodes opcode in movement)
+            handlers[(ushort)opcode] = new(SessionStatus.STATUS_LOGGEDIN, HandleMovementOpcode);
+        handlers[(ushort)Opcodes.CMSG_SWAP_INV_ITEM] = new(SessionStatus.STATUS_LOGGEDIN, HandleSwapInvItemOpcode);
+        handlers[(ushort)Opcodes.CMSG_SWAP_ITEM] = new(SessionStatus.STATUS_LOGGEDIN, HandleSwapItemOpcode);
+        handlers[(ushort)Opcodes.CMSG_AUTOEQUIP_ITEM] = new(SessionStatus.STATUS_LOGGEDIN, HandleAutoEquipItemOpcode);
+        return handlers;
+    }
+
+    // Ordre des octets du client : destination avant source.
+    private static void HandleSwapInvItemOpcode(ClusterPlayerSession session, WorldPacket packet)
+    {
+        if (packet.Size != 2)
+            return;
+        byte dstSlot = packet.ReadByte();
+        byte srcSlot = packet.ReadByte();
+        session.Player.HandleSwapItems(255, srcSlot, 255, dstSlot);
+    }
+
+    private static void HandleSwapItemOpcode(ClusterPlayerSession session, WorldPacket packet)
+    {
+        if (packet.Size != 4)
+            return;
+        byte dstBag = packet.ReadByte();
+        byte dstSlot = packet.ReadByte();
+        byte srcBag = packet.ReadByte();
+        byte srcSlot = packet.ReadByte();
+        session.Player.HandleSwapItems(srcBag, srcSlot, dstBag, dstSlot);
+    }
+
+    private static void HandleAutoEquipItemOpcode(ClusterPlayerSession session, WorldPacket packet)
+    {
+        if (packet.Size != 2)
+            return;
+        byte srcBag = packet.ReadByte();
+        byte srcSlot = packet.ReadByte();
+        session.Player.HandleAutoEquip(srcBag, srcSlot);
+    }
+
+    private static void HandleMovementOpcode(ClusterPlayerSession session, WorldPacket packet)
+    {
+        if (!session.Player.HandleMovement(packet))
+            CLog.Warning("[WorldSession]", "Paquet de mouvement invalide ignoré, session {0}.", session.SessionId);
     }
 
     public static void RegisterPacketHandler(Opcodes opcode, Action<ClusterPlayerSession, WorldPacket> handler)

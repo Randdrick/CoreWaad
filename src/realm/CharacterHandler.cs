@@ -913,9 +913,6 @@ namespace WaadRealmServer
                 }
             }
 
-            // Envoi du paquet de succès au client
-            Ws.OutPacket((ushort)WorkerServerOpcodes.ICMSG_PLAYER_LOGIN_RESULT, 1, [(byte)LoginErrorCode.CHAR_LOGIN_SUCCESS]);
-
             // Envoi des données au serveur de monde
             destinationInstance.Server.SendPacket(playerLoginData);
             m_nextServer = destinationInstance.Server;

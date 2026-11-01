@@ -421,7 +421,6 @@ public static class ConsoleThread
 }
 public static class LogonCommClient
 {
-    public const string R_E_LOGCOMCLT = "Taille du paquet invalide.\n";
     public const string R_E_LOGCOMCLT_1 = "Réception d'un paquet inconnu : {0}\n";
     public const string R_E_LOGCOMCLT_2 = "Abandon de la connexion due à la déconnexion du serveur de Logon.\n";
     public const string R_E_LOGCOMCLT_3 = "Échec de l'authentification !";
@@ -430,6 +429,7 @@ public static class LogonCommClient
     public const string R_E_LOGCOMCLT_6 = "deflate: Échec.";
     public const string R_E_LOGCOMCLT_7 = "deflate: Échec. N'a pas mis fin au flux";
     public const string R_E_LOGCOMCLT_8 = "deflateEnd: Échec.";
+    public const string R_W_LOGCOMCLT = "Taille du paquet invalide.\n";
     public const string R_N_LOGCOMCLT = "\n        >> Le serveur de Royaume(s) `{0}` est enregistré sous l'id ";
     public const string R_N_LOGCOMCLT_1 = "A pris {0} msec pour construire la liste de la cartographie des personnages pour le royaume {1}";
     public const string R_D_LOGCOMCLT = ">> Latence du Serveur de Logon: {0} ms";
@@ -438,7 +438,7 @@ public static class LogonCommClient
     public const string R_D_LOGCOMCLT_PARSED = "Analyse : payloadSize={0}, opcode=0x{1:X4}";
     public const string R_E_LOGCOMCLT_PAYLOAD_TOO_LARGE = "Taille de charge utile {0} trop grande, déconnexion.";
     public const string R_D_LOGCOMCLT_AUTH_RESULT = "Résultat de l'authentification : {0}";
-    public const string R_D_LOGCOMCLT_PING_SENT_DIRECTLY = "PING sent directly (no buffer).";
+    public const string R_D_LOGCOMCLT_PING_SENT_DIRECTLY = "PING sent directly (no buffer).";    
 }
 
 public static class LogonCommHandler

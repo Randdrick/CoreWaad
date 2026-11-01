@@ -479,7 +479,7 @@ public static class SocketExtensions
                                  ex.SocketErrorCode == SocketError.Shutdown)
                         {
                             if (socket.IsConnected() && !socket.IsDeleted())
-                                CLog.Warning("[SocketMgr]", $"SetupReadEvent receive aborted on active socket: {ex.Message} (Code: {ex.SocketErrorCode})");
+                                CLog.Warning("[SocketMgr]", $"SetupReadEvent receive aborted on active socket {socket.GetType().Name} ({socket.GetRemoteIP()}:{socket.GetRemotePort()}): {ex.Message} (Code: {ex.SocketErrorCode})");
                             disconnectSocket = true;
                         }
                         else
@@ -548,7 +548,7 @@ public static class SocketExtensions
                 {
                     if (socket.IsConnected() && !socket.IsDeleted())
                     {
-                        CLog.Warning("[SocketMgr]", $"SetupReadEvent aborted on active socket: {ex.Message} (Code: {ex.SocketErrorCode})");
+                        CLog.Warning("[SocketMgr]", $"SetupReadEvent aborted on active socket {socket.GetType().Name} ({socket.GetRemoteIP()}:{socket.GetRemotePort()}): {ex.Message} (Code: {ex.SocketErrorCode})");
                         socket.Disconnect();
                     }
                     return;

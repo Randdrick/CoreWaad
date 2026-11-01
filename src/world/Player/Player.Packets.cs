@@ -55,25 +55,44 @@ public sealed partial class Player
         }
     }
 
-    internal WorldPacket BuildValuesUpdatePacket()
+    internal WorldPacket BuildValuesUpdatePacket() => BuildValuesUpdatePacket(UpdateMask);
+
+    internal WorldPacket BuildValuesUpdatePacket(PlayerUpdateMask mask)
     {
-        if (UpdateMask.IsEmpty)
+        if (mask.IsEmpty)
             throw new InvalidOperationException("Aucun champ joueur modifie a serialiser.");
 
         var packet = new WorldPacket((ushort)Opcodes.SMSG_UPDATE_OBJECT,
-            4 + 1 + 9 + 1 + (UpdateMask.WordCount * sizeof(uint)) + (UpdateMask.BitCount * sizeof(uint)));
+            4 + 1 + 9 + 1 + (mask.WordCount * sizeof(uint)) + (mask.BitCount * sizeof(uint)));
         packet.WriteUInt32(1);
         packet.WriteByte(0); // UPDATETYPE_VALUES
         WritePackedGuid(packet, Guid);
-        packet.WriteByte((byte)UpdateMask.WordCount);
-        for (int wordIndex = 0; wordIndex < UpdateMask.WordCount; wordIndex++)
-            packet.WriteUInt32(UpdateMask.GetWord(wordIndex));
+        packet.WriteByte((byte)mask.WordCount);
+        for (int wordIndex = 0; wordIndex < mask.WordCount; wordIndex++)
+            packet.WriteUInt32(mask.GetWord(wordIndex));
 
-        for (int fieldIndex = 0; fieldIndex < UpdateMask.BitCount; fieldIndex++)
-            if (UpdateMask.IsSet(fieldIndex))
+        for (int fieldIndex = 0; fieldIndex < mask.BitCount; fieldIndex++)
+            if (mask.IsSet(fieldIndex))
                 packet.WriteUInt32(GetUInt32Value(fieldIndex));
 
         return packet;
+    }
+
+    // Les autres joueurs ne reçoivent que les champs publics modifiés.
+    private void BroadcastPublicFields()
+    {
+        if (CurrentMap == null)
+            return;
+
+        var publicMask = new PlayerUpdateMask(EPlayerFields.PLAYER_END);
+        for (int index = 0; index < publicMask.BitCount; index++)
+            if (UpdateMask.IsSet(index) && VisibleMask.IsSet(index))
+                publicMask.SetBit(index);
+        if (publicMask.IsEmpty)
+            return;
+
+        using var packet = BuildValuesUpdatePacket(publicMask);
+        CurrentMap.BroadcastValues(this, packet.Contents.AsSpan(4).ToArray());
     }
 
     public bool SendPendingUpdateFields()
@@ -83,9 +102,11 @@ public sealed partial class Player
             if (!IsInWorld || Session.IsDisposed || Session.IsDisconnected || UpdateMask.IsEmpty)
                 return false;
 
+            BroadcastPublicFields();
             using var packet = BuildValuesUpdatePacket();
-            ClusterInterface.Instance.ForwardWoWPacket(Session.SessionId, packet);
+            PushUpdateData(packet.Contents.AsSpan(4), 1);
             UpdateMask.ClearAll();
+            ProcessPendingUpdates();
             return true;
         }
     }
@@ -232,6 +253,7 @@ public sealed partial class Player
         packet.WriteUInt32(0);
         SendPacket(packet);
         SendInitialActions();
+        SendInitialFactions();
 
         packet.Initialize((ushort)Opcodes.SMSG_LOGIN_SETTIMESPEED);
         packet.WriteUInt32(PackGameTime(DateTime.Now));

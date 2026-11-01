@@ -281,60 +281,34 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
         if (!IsConnected() || IsDeleted())
             return false;
 
-        LogonPacket header = new()
+        // Même verrou que SendPacket : le RC4 n'est pas thread-safe et l'ordre de chiffrement
+        // doit être celui de l'envoi (PING depuis le thread principal, réponses depuis l'IOCP).
+        BurstBegin();
+        try
         {
-            Opcode = data.GetOpcode(),
-            Size = (uint)data.Size
-        };
+            byte[] headerBytes = new byte[6];
+            Array.Copy(BitConverter.GetBytes(data.GetOpcode()), 0, headerBytes, 0, 2);
+            Array.Copy(BitConverter.GetBytes((uint)data.Size), 0, headerBytes, 2, 4);
 
-        // Conversion en bytes (endianness)
-        byte[] headerBytes = new byte[6];
-        Array.Copy(BitConverter.GetBytes(header.Opcode), 0, headerBytes, 0, 2);
-        uint sizeNet = header.Size;
-
-        Array.Copy(BitConverter.GetBytes(sizeNet), 0, headerBytes, 2, 4);
-
-        // Combine header and payload into a single buffer to send atomically
-        byte[] packetData;
-        if (use_crypto && !noCrypto)
-        {
-            byte[] tmp = new byte[6];
-            _sendCrypto.Process(headerBytes, tmp);
-            
+            byte[] packetData = new byte[6 + data.Size];
+            Array.Copy(headerBytes, 0, packetData, 0, 6);
             if (data.Size > 0)
-            {
-                byte[] payload = data.Contents;
-                byte[] encPayload = new byte[payload.Length];
-                _sendCrypto.Process(payload, encPayload);
-                
-                // Combine encrypted header + encrypted payload
-                packetData = new byte[6 + payload.Length];
-                Array.Copy(tmp, 0, packetData, 0, 6);
-                Array.Copy(encPayload, 0, packetData, 6, payload.Length);
-            }
-            else
-            {
-                packetData = tmp;
-            }
-        }
-        else
-        {
-            // No encryption: combine header + payload directly
-            if (data.Size > 0)
-            {
-                byte[] payload = data.Contents;
-                packetData = new byte[6 + payload.Length];
-                Array.Copy(headerBytes, 0, packetData, 0, 6);
-                Array.Copy(payload, 0, packetData, 6, payload.Length);
-            }
-            else
-            {
-                packetData = headerBytes;
-            }
-        }
+                Array.Copy(data.Contents, 0, packetData, 6, data.Size);
 
-        // Send the complete packet (header + payload) in a single atomic operation
-        return SendPacketDirect(packetData, packetData.Length);
+            if (use_crypto && !noCrypto)
+            {
+                // Le flux RC4 est continu : chiffrer en un bloc équivaut à en-tête puis contenu.
+                byte[] encrypted = new byte[packetData.Length];
+                _sendCrypto.Process(packetData, encrypted);
+                packetData = encrypted;
+            }
+
+            return SendPacketDirect(packetData, packetData.Length);
+        }
+        finally
+        {
+            BurstEnd();
+        }
     }
 
     // Utilitaire pour swap32 (endianness)
@@ -604,21 +578,20 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
         uint realmId = recvData.ReadUInt32();
         var mappingToSend = new Dictionary<uint, byte>();
 
-        var db = RealmDatabaseManager.GetDatabase();
+        var db = RealmDatabaseManager.GetCharacterDatabase();
         if (db == null || !db.IsInitialized)
             return;
 
-        var result = db.Query("SELECT acct FROM characters");
+        var result = db.Query("SELECT acct, COUNT(*) FROM characters GROUP BY acct");
         if (result != null)
         {
-            do
+            // NextRow() doit être appelé avant la lecture de la première ligne
+            while (result.NextRow())
             {
-                uint accountId = (uint)Convert.ToInt32(result.GetValue(0));
-                if (mappingToSend.TryGetValue(accountId, out byte value))
-                    mappingToSend[accountId] = ++value;
-                else
-                    mappingToSend[accountId] = 1;
-            } while (result.NextRow());
+                uint accountId = Convert.ToUInt32(result.GetValue(0));
+                long count = Convert.ToInt64(result.GetValue(1));
+                mappingToSend[accountId] = (byte)Math.Min(count, byte.MaxValue);
+            }
         }
 
         if (mappingToSend.Count == 0)
@@ -694,26 +667,22 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
     {
         // Portage fidèle du C++ : compression Deflate, header, envoi
         int srcLen = uncompressed.Size;
-        int destLen = srcLen + srcLen / 10 + 16;
-        var packet = new WorldPacket((ushort)RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY, destLen + 4);
 
-        // Réserver 4 octets pour la taille non compressée
-        // (sera écrite en little endian)
-        byte[] compressed = new byte[destLen];
-        int compressedSize = 0;
-        using (var ms = new MemoryStream(compressed))
-        using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
+        byte[] compressed;
+        using (var ms = new MemoryStream(srcLen + srcLen / 10 + 16))
         {
-            ds.Write(uncompressed.ToArray(), 0, srcLen);
-            ds.Flush();
-            compressedSize = (int)ms.Position;
+            // Le DeflateStream doit être fermé pour écrire le bloc final avant lecture
+            using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
+            {
+                ds.Write(uncompressed.ToArray(), 0, srcLen);
+            }
+            compressed = ms.ToArray();
         }
 
-        // Écrire la taille non compressée (4 octets, little endian)
-        Array.Copy(BitConverter.GetBytes(srcLen), 0, packet.Contents, 0, 4);
-        // Copier les données compressées après les 4 octets
-        Array.Copy(compressed, 0, packet.Contents, 4, compressedSize);
-        packet.Size = compressedSize + 4;
+        // Contents renvoie une copie : on passe par l'API d'écriture du paquet
+        var packet = new WorldPacket((ushort)RCMSG_ACCOUNT_CHARACTER_MAPPING_REPLY, compressed.Length + 4);
+        packet.WriteUInt32((uint)srcLen);
+        packet.Write(compressed, 0, compressed.Length);
 
         SendPacket(packet, false);
         packet.Dispose();

@@ -49,7 +49,7 @@ public static class Master
 
     private static string configFile = Path.Combine(AppContext.BaseDirectory, "waad-world.ini");
     private static readonly Logger sLog = new();
-    private static readonly ConfigMgr Config = new();
+    private static readonly ConfigMgr Config = WaadShared.Config.Config.Instance;
     private static readonly BufferPool BufferPool = new();
     private static readonly SocketMgr SocketMgr = new();
     private static DateTime UNIXTIME;
@@ -329,8 +329,8 @@ public static class Master
         );
 
         // Vérification des configurations "die"
-        string die = Config.WorldConfig.GetString("die", "msg");
-        string die2 = Config.WorldConfig.GetString("die2", "msg");
+        string die = Config.WorldConfig.GetString("Die", "msg");
+        string die2 = Config.WorldConfig.GetString("Die2", "msg");
         if (!string.IsNullOrEmpty(die) || !string.IsNullOrEmpty(die2))
         {
             sLog.OutError("[Config] Le serveur est configuré pour ne pas démarrer (die/die2).");

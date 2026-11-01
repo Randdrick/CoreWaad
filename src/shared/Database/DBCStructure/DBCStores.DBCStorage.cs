@@ -31,7 +31,7 @@ public static partial class DBCStores
         private uint m_max;
         private uint m_numrows;
         private uint m_stringlength;
-        private string m_stringData;
+        private byte[] m_stringData;
 
         public DBCStorage()
         {
@@ -69,17 +69,20 @@ public static partial class DBCStores
 
                     if (loadStrings)
                     {
-                        fs.Seek(20 + (rows * cols * 4), SeekOrigin.Begin);
-                        char[] stringDataChars = reader.ReadChars((int)stringLength);
-                        m_stringData = new string(stringDataChars);
-                        m_stringlength = stringLength;
+                        fs.Seek(20 + (long)rows * uselessShit, SeekOrigin.Begin);
+                        m_stringData = reader.ReadBytes((int)stringLength);
+                        m_stringlength = (uint)m_stringData.Length;
                     }
 
                     fs.Seek(pos, SeekOrigin.Begin);
+                    m_max = 0;
                     m_heapBlock = new T[rows];
+                    uint recordSize = uselessShit;
 
                     for (uint i = 0; i < rows; ++i)
                     {
+                        // Chaque enregistrement est lu à partir de son offset réel, même si le format est plus court que le nombre de colonnes
+                        fs.Seek(pos + (long)i * recordSize, SeekOrigin.Begin);
                         m_heapBlock[i] = new T();
                         ReadEntry(reader, ref m_heapBlock[i], format, cols, filename);
 
@@ -120,9 +123,9 @@ public static partial class DBCStores
             FieldInfo[] fields = typeof(T).GetFields(BindingFlags.Public | BindingFlags.Instance);
             foreach (FieldInfo field in fields)
             {
-                if (field.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
-                    field.Name.Equals("id", StringComparison.OrdinalIgnoreCase) ||
-                    field.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase))
+                if (field.FieldType == typeof(uint) &&
+                    (field.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
+                     field.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)))
                 {
                     return (uint)field.GetValue(entry);
                 }
@@ -148,6 +151,7 @@ public static partial class DBCStores
 
             FieldInfo[] fields = typeof(T).GetFields(BindingFlags.Public | BindingFlags.Instance);
             int fieldIndex = 0;
+            object boxed = dest;
 
             while (index < formatChars.Length && formatChars[index] != 0 && fieldIndex < fields.Length)
             {
@@ -173,10 +177,14 @@ public static partial class DBCStores
                 {
                     if (fields[fieldIndex].FieldType == typeof(string))
                     {
-                        string str = (val < m_stringlength) ?
-                            new string(m_stringData.ToCharArray(), (int)val, m_stringData.Length - (int)val) :
-                            string.Empty;
-                        fields[fieldIndex].SetValue(dest, str);
+                        string str = string.Empty;
+                        if (val < m_stringlength)
+                        {
+                            int end = Array.IndexOf(m_stringData, (byte)0, (int)val);
+                            if (end < 0) end = m_stringData.Length;
+                            str = System.Text.Encoding.UTF8.GetString(m_stringData, (int)val, end - (int)val);
+                        }
+                        fields[fieldIndex].SetValue(boxed, str);
                     }
                 }
                 else if (formatChars[index] == 'f')
@@ -184,24 +192,26 @@ public static partial class DBCStores
                     if (fields[fieldIndex].FieldType == typeof(float))
                     {
                         float floatVal = BitConverter.ToSingle(BitConverter.GetBytes(val), 0);
-                        fields[fieldIndex].SetValue(dest, floatVal);
+                        fields[fieldIndex].SetValue(boxed, floatVal);
                     }
                 }
                 else // 'u' ou autre type numérique
                 {
                     if (fields[fieldIndex].FieldType == typeof(uint))
                     {
-                        fields[fieldIndex].SetValue(dest, val);
+                        fields[fieldIndex].SetValue(boxed, val);
                     }
                     else if (fields[fieldIndex].FieldType == typeof(int))
                     {
-                        fields[fieldIndex].SetValue(dest, unchecked((int)val));
+                        fields[fieldIndex].SetValue(boxed, unchecked((int)val));
                     }
                 }
 
                 index++;
                 fieldIndex++;
             }
+
+            dest = (T)boxed;
         }
 
 #if USING_BIG_ENDIAN

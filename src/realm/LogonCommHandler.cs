@@ -164,13 +164,13 @@ public class LogonCommHandler : IDisposable
         var result = CharacterDatabase.Query("SELECT * FROM account_forced_permissions");
         if (result != null)
         {
-            do
+            while (result.NextRow())
             {
                 string acct = result.GetValue(0)?.ToString()?.ToUpperInvariant();
                 string perm = result.GetValue(1)?.ToString();
                 if (!string.IsNullOrEmpty(acct))
                     newPerms[acct] = perm ?? string.Empty;
-            } while (result.NextRow());
+            }
         }
 
         // Replace all entries atomically: remove keys gone, add/update new ones.

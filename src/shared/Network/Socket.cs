@@ -421,36 +421,61 @@ public class Socket : IDisposable
         Monitor.Exit(m_writeMutex);
     }
 
+    // Les données sont souvent déjà chiffrées (RC4) : elles doivent partir dans l'ordre de chiffrement
+    // et ne jamais être perdues. D'où le verrou d'écriture commun avec BurstPush et la mise en file
+    // de tout reste non envoyé. Retourne false uniquement si la socket n'est plus utilisable.
     public bool SendPacketDirect(byte[] data, int size)
     {
-        if (_socket == null || !m_connected)
-            return false;
-
-        try
+        lock (m_writeMutex)
         {
+            if (_socket == null || !m_connected)
+                return false;
+
+            // Des octets plus anciens attendent : on passe derrière eux pour préserver l'ordre.
+            if (writeBuffer.GetSize() > 0)
+                return QueueUnsent(data, 0, size);
+
             int totalSent = 0;
-            while (totalSent < size)
+            try
             {
-                try
+                while (totalSent < size)
                 {
-                    int sent = _socket.Send(data, totalSent, size - totalSent, SocketFlags.None);
-                    if (sent <= 0)
-                        return false;
-                    totalSent += sent;
-                }
-                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
-                {
-                    if (!_socket.Poll(100_000, SelectMode.SelectWrite))
-                        return false;
+                    try
+                    {
+                        int sent = _socket.Send(data, totalSent, size - totalSent, SocketFlags.None);
+                        if (sent <= 0)
+                            break;
+                        totalSent += sent;
+                    }
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
+                    {
+                        if (!_socket.Poll(100_000, SelectMode.SelectWrite))
+                            break;
+                    }
                 }
             }
-            return true;
+            catch (Exception ex)
+            {
+                CLog.Error("[SOCKET]", string.Format("SendPacketDirect error: {0}", ex.Message));
+                return false;
+            }
+
+            return totalSent >= size || QueueUnsent(data, totalSent, size - totalSent);
         }
-        catch (Exception ex)
+    }
+
+    private bool QueueUnsent(byte[] data, int offset, int count)
+    {
+        byte[] pending = new byte[count];
+        Buffer.BlockCopy(data, offset, pending, 0, count);
+        if (!writeBuffer.Write(pending, count))
         {
-            CLog.Error("[SOCKET]", string.Format("SendPacketDirect error: {0}", ex.Message));
+            CLog.Error("[SOCKET]", $"SendPacketDirect: failed to queue {count} bytes; disconnecting {GetRemoteIP()}:{GetRemotePort()}");
+            Disconnect();
             return false;
         }
+        BurstPush();
+        return true;
     }
 
     public string GetRemoteIP()

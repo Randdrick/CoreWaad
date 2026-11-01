@@ -52,14 +52,17 @@ public sealed partial class Player
                 throw new InvalidOperationException("Joueur non charge ou session detruite.");
             if (IsInWorld)
                 return;
+            IsBeingPushed = true;
             MapId = Session.MapId;
             InstanceId = Session.InstanceId;
             RebuildInventoryViews();
             MarkInventoryFieldsForUpdate();
-            SendInitialLogonPackets();
+            OnPrePushToWorld();
             SpawnActivePet();
+            SendCreateForSelf();
             IsInWorld = true;
             IsBeingPushed = false;
+            EnterMap();
             OnTimeSyncRequest();
         }
     }
@@ -68,6 +71,7 @@ public sealed partial class Player
     {
         lock (Session.SyncRoot)
         {
+            LeaveMap();
             IsInWorld = false;
             IsBeingPushed = false;
             IsLogoutRooted = false;
@@ -80,7 +84,7 @@ public sealed partial class Player
         lock (Session.SyncRoot)
         {
             SendPendingUpdateFields();
-
+            ProcessPendingUpdates();
             if (IsInWorld && !Session.IsDisposed && Environment.TickCount64 >= _nextSaveMs)
             {
                 if (!SaveToDB())

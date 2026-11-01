@@ -38,15 +38,18 @@ public sealed class PlayerInventoryItem
     public uint Creator { get; init; }
     public uint StackCount { get; init; }
     public uint Charges { get; init; }
-    public uint Flags { get; init; }
+    public uint Flags { get; set; }
     public uint RandomProperty { get; init; }
     public uint RandomSuffix { get; init; }
     public uint ItemTextId { get; init; }
     public uint Durability { get; init; }
-    public int ContainerSlot { get; init; }
-    public int Slot { get; init; }
+    public int ContainerSlot { get; set; }
+    public int Slot { get; set; }
     public string Enchantments { get; init; } = string.Empty;
     public ItemPrototype Prototype { get; init; }
+
+    // HIGHGUID_ITEM (0x4000) partagé par les objets et les conteneurs en 3.3.5a.
+    public ulong Guid64 => (0x4000UL << 48) | ItemGuid;
 }
 
 public sealed partial class Player
@@ -55,9 +58,17 @@ public sealed partial class Player
     public const int TopLevelInventorySlotCount = 23;
     public const int BagSlotStart = 19;
     public const int BagSlotEnd = 23;
+    public const int BankBagSlotStart = 67;
+    public const int BankBagSlotEnd = 74;
+    // Emplacements de niveau racine jusqu'au porte-clés inclus (champs INV_SLOT_HEAD..KEYRING contigus).
+    public const int InventorySlotCount = 118;
     public Dictionary<uint, PlayerInventoryItem> Inventory { get; } = [];
     public PlayerInventoryItem[] Equipment { get; } = new PlayerInventoryItem[EquipmentSlotCount];
     public Dictionary<uint, List<PlayerInventoryItem>> BagContents { get; } = [];
+    private readonly List<PlayerInventoryItem> _placedItems = [];
+
+    private static bool IsBagContainerSlot(int slot) =>
+        slot is (>= BagSlotStart and < BagSlotEnd) or (>= BankBagSlotStart and < BankBagSlotEnd);
 
     private void LoadInventory(QueryResult result)
     {
@@ -119,53 +130,41 @@ public sealed partial class Player
     {
         Array.Clear(Equipment);
         BagContents.Clear();
+        _placedItems.Clear();
 
-        for (int slot = 0; slot < TopLevelInventorySlotCount; slot++)
-            SetUInt64Value(EPlayerFields.PLAYER_FIELD_INV_SLOT_HEAD + slot * 2, 0);
-        for (int slot = 0; slot < EPlayerFields.PLAYER_VISIBLE_ITEM_MAX; slot++)
-        {
-            int visibleBase = EPlayerFields.PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * EPlayerFields.PLAYER_VISIBLE_ITEM_LENGTH;
-            SetUInt32Value(visibleBase, 0);
-            SetUInt32Value(visibleBase + 1, 0);
-        }
-        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID, 0);
-        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID_1, 0);
-        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID_2, 0);
+        var slotGuids = new ulong[InventorySlotCount];
+        var visibleEntries = new uint[EPlayerFields.PLAYER_VISIBLE_ITEM_MAX];
+        var visibleEnchants = new uint[EPlayerFields.PLAYER_VISIBLE_ITEM_MAX];
+        var virtualItems = new uint[3];
 
-        foreach (PlayerInventoryItem item in Inventory.Values)
+        foreach (PlayerInventoryItem item in Inventory.Values.OrderBy(item => item.ItemGuid))
         {
+            // Sans prototype, le client ne peut pas recevoir l'objet : il reste en base mais hors des vues.
+            if (item.Prototype == null)
+                continue;
+
             if (item.ContainerSlot < 0)
             {
-                if ((uint)item.Slot >= TopLevelInventorySlotCount)
+                if ((uint)item.Slot >= InventorySlotCount)
                     continue;
 
-                SetUInt64Value(EPlayerFields.PLAYER_FIELD_INV_SLOT_HEAD + item.Slot * 2, item.ItemGuid);
+                slotGuids[item.Slot] = item.Guid64;
+                _placedItems.Add(item);
                 if (item.Slot < Equipment.Length)
                 {
                     Equipment[item.Slot] = item;
-                    int visibleBase = EPlayerFields.PLAYER_VISIBLE_ITEM_1_ENTRYID + item.Slot * EPlayerFields.PLAYER_VISIBLE_ITEM_LENGTH;
-                    SetUInt32Value(visibleBase, item.Entry);
-                    SetUInt32Value(visibleBase + 1, GetPermanentEnchantment(item.Enchantments));
+                    visibleEntries[item.Slot] = item.Entry;
+                    visibleEnchants[item.Slot] = GetPermanentEnchantment(item.Enchantments);
                 }
 
-                switch (item.Slot)
-                {
-                    case 15:
-                        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID, item.Entry);
-                        break;
-                    case 16:
-                        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID_1, item.Entry);
-                        break;
-                    case 17:
-                        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID_2, item.Entry);
-                        break;
-                }
+                if (item.Slot is >= 15 and <= 17)
+                    virtualItems[item.Slot - 15] = item.Entry;
                 continue;
             }
 
-            if (item.ContainerSlot < BagSlotStart || item.ContainerSlot >= BagSlotEnd || item.Slot < 0)
+            if (!IsBagContainerSlot(item.ContainerSlot) || item.Slot < 0)
                 continue;
-            if (item.Prototype != null && (uint)item.Slot >= item.Prototype.ContainerSlots)
+            if ((uint)item.Slot >= item.Prototype.ContainerSlots)
             {
                 CLog.Warning("[Player]", "Objet {0} depasse la capacite du sac {1} pour le joueur {2}.",
                     item.ItemGuid, item.ContainerSlot, Guid);
@@ -177,12 +176,25 @@ public sealed partial class Player
                 BagContents.Add((uint)item.ContainerSlot, contents);
             }
             contents.Add(item);
+            _placedItems.Add(item);
         }
+
+        for (int slot = 0; slot < InventorySlotCount; slot++)
+            SetUInt64Value(EPlayerFields.PLAYER_FIELD_INV_SLOT_HEAD + slot * 2, slotGuids[slot]);
+        for (int slot = 0; slot < EPlayerFields.PLAYER_VISIBLE_ITEM_MAX; slot++)
+        {
+            int visibleBase = EPlayerFields.PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * EPlayerFields.PLAYER_VISIBLE_ITEM_LENGTH;
+            SetUInt32Value(visibleBase, visibleEntries[slot]);
+            SetUInt32Value(visibleBase + 1, visibleEnchants[slot]);
+        }
+        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID, virtualItems[0]);
+        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID_1, virtualItems[1]);
+        SetUInt32Value(EUnitFields.UNIT_VIRTUAL_ITEM_SLOT_ID_2, virtualItems[2]);
     }
 
     private void MarkInventoryFieldsForUpdate()
     {
-        for (int slot = 0; slot < TopLevelInventorySlotCount * 2; slot++)
+        for (int slot = 0; slot < InventorySlotCount * 2; slot++)
             UpdateMask.SetBit(EPlayerFields.PLAYER_FIELD_INV_SLOT_HEAD + slot);
         for (int slot = 0; slot < EPlayerFields.PLAYER_VISIBLE_ITEM_MAX * EPlayerFields.PLAYER_VISIBLE_ITEM_LENGTH; slot++)
             UpdateMask.SetBit(EPlayerFields.PLAYER_VISIBLE_ITEM_1_ENTRYID + slot);

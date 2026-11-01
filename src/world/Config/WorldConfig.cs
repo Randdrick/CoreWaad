@@ -25,7 +25,7 @@ namespace WaadWorldServer;
 
 public static class WorldConfig
 {
-    private static readonly ConfigMgr Config = new();
+    private static readonly ConfigMgr Config = WaadShared.Config.Config.Instance;
     // Chemins
     public static string MapPath => Config.WorldConfig.GetString("Path", "MapPath", "maps");
     public static string VMapPath => Config.WorldConfig.GetString("Path", "vMapPath", "vmaps");

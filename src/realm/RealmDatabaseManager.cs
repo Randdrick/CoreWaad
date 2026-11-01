@@ -43,6 +43,9 @@ public static class RealmDatabaseManager
     // Permet d'obtenir l'instance active de base de données Character
     public static Database GetCharacterDatabase()
     {
+        if (CharacterUsesRealmDb)
+            return GetDatabase();
+
         return CharacterDbType switch
         {
             1 => sCharacterSQL,
@@ -60,6 +63,7 @@ public static class RealmDatabaseManager
     private static readonly SQLiteDatabase slCharacterSQL = new();
     public static int DbType { get; private set; } = 1; // Default to MySQL
     public static int CharacterDbType { get; private set; } = 1; // Default to MySQL
+    private static bool CharacterUsesRealmDb { get; set; }
 
     internal static string GetConnectionString(int dbType, ConfigMgr configMgr)
     {
@@ -154,16 +158,19 @@ public static class RealmDatabaseManager
             {
                 sLog.OutWarning("[Database] Character DB init failed, falling back to Realm DB for character queries.");
                 CharacterDbType = DbType;
+                CharacterUsesRealmDb = true;
             }
             else
             {
                 CharacterDbType = charType;
+                CharacterUsesRealmDb = false;
             }
         }
         else
         {
             sLog.OutWarning("[Database] Character DB config missing, falling back to Realm DB for character queries.");
             CharacterDbType = DbType;
+            CharacterUsesRealmDb = true;
             charOk = true;
         }
 
@@ -178,6 +185,9 @@ public static class RealmDatabaseManager
             pRealmSQL.Shutdown();
         else if (DbType == 3)
             slRealmSQL.Shutdown();
+
+        if (CharacterUsesRealmDb)
+            return;
 
         if (CharacterDbType == 1)
             sCharacterSQL.Shutdown();

@@ -409,8 +409,8 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "AuctionHouse.dbc", AuctionHouseDBCFormat, true, ref dbcAuctionHouse, false)) return false;
         if (!LoaderStub(dbcPath, "BankBagSlotPrices.dbc", BankSlotPriceFormat, true, ref dbcBankSlotPrices, false)) return false;
         if (!LoaderStub(dbcPath, "BarberShopStyle.dbc", BarberShopStyleFormat, true, ref dbcBarberShopStyle, true)) return false;
-        if (!LoaderStub(dbcPath, "CharClasses.dbc", CharClassFormat, true, ref dbcCharClass, true)) return false;
-        if (!LoaderStub(dbcPath, "CharRaces.dbc", CharRaceFormat, true, ref dbcCharRace, true)) return false;
+        if (!LoaderStub(dbcPath, "ChrClasses.dbc", CharClassFormat, true, ref dbcCharClass, true)) return false;
+        if (!LoaderStub(dbcPath, "ChrRaces.dbc", CharRaceFormat, true, ref dbcCharRace, true)) return false;
         if (!LoaderStub(dbcPath, "CharTitles.dbc", CharTitlesEntryFmt, true, ref dbcCharTitlesEntry, false)) return false;
         if (!LoaderStub(dbcPath, "ChatChannels.dbc", ChatChannelFormat, true, ref dbcChatChannels, false)) return false;
         if (!LoaderStub(dbcPath, "CreatureDisplayInfo.dbc", CreatureDisplayFormat, true, ref dbcCreatureDisplayInfo, true)) return false;
@@ -431,10 +431,10 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "gtChanceToSpellCrit.dbc", GTFloatFormat, false, ref dbcSpellCrit, false)) return false;
         if (!LoaderStub(dbcPath, "gtChanceToSpellCritBase.dbc", GTFloatFormat, false, ref dbcSpellCritBase, false)) return false;
         if (!LoaderStub(dbcPath, "gtCombatRatings.dbc", GTFloatFormat, false, ref dbcCombatRating, false)) return false;
-        if (!LoaderStub(dbcPath, "gtManaRegenBase.dbc", GTFloatFormat, false, ref dbcManaRegenBase, false)) return false;
-        if (!LoaderStub(dbcPath, "gtManaRegenMPPerSpt.dbc", GTFloatFormat, false, ref dbcManaRegen, false)) return false;
-        if (!LoaderStub(dbcPath, "gtRegenHPPerSpt.dbc", GTFloatFormat, false, ref dbcHPRegen, false)) return false;
-        if (!LoaderStub(dbcPath, "gtRegenHPPerSptBase.dbc", GTFloatFormat, false, ref dbcHPRegenBase, false)) return false;
+        if (!LoaderStub(dbcPath, "gtRegenMPPerSpt.dbc", GTFloatFormat, false, ref dbcManaRegenBase, false)) return false;
+        if (!LoaderStub(dbcPath, "gtOCTRegenMP.dbc", GTFloatFormat, false, ref dbcManaRegen, false)) return false;
+        if (!LoaderStub(dbcPath, "gtOCTRegenHP.dbc", GTFloatFormat, false, ref dbcHPRegen, false)) return false;
+        if (!LoaderStub(dbcPath, "gtRegenHPPerSpt.dbc", GTFloatFormat, false, ref dbcHPRegenBase, false)) return false;
         if (!LoaderStub(dbcPath, "ItemExtendedCost.dbc", ItemExtendedCostFormat, true, ref dbcItemExtendedCost, false)) return false;
         if (!LoaderStub(dbcPath, "ItemRandomProperties.dbc", RandomPropsFormat, true, ref dbcRandomProps, false)) return false;
         if (!LoaderStub(dbcPath, "ItemRandomSuffix.dbc", ItemRandomSuffixFormat, true, ref dbcItemRandomSuffix, false)) return false;
@@ -468,6 +468,7 @@ public static partial class DBCStores
         if (!LoaderStub(dbcPath, "WMOAreaTable.dbc", WMOAreaFormat, true, ref dbcWMOAreaTable, false)) return false;
         if (!LoaderStub(dbcPath, "WorldMapOverlay.dbc", WorldMapOverlayFmt, true, ref dbcWorldMapOverlay, true)) return false;
         if (!LoaderStub(dbcPath, "WorldSafeLocs.dbc", WorldSafeLocsStoreFormat, true, ref dbcWorldSafeLocsStore, true)) return false;
+        SignalDbcLoadingComplete();
         return true;
     }
     public static string DbcPath { get; set; } = "dbc";
