@@ -134,7 +134,7 @@ public class LogonCommHandler : IDisposable
     }
     public void RequestAddition(LogonCommClientSocket socket)
     {
-        CLog.Notice("[LogonCommHandler]", R_D_LOGCOMHAN_REQUEST_ADDITION, realms.Count);
+        CLog.Debug("[LogonCommHandler]", R_D_LOGCOMHAN_REQUEST_ADDITION, realms.Count);
         foreach (var realm in realms)
         {
             var data = new WorldPacket((ushort)RCMSG_REGISTER_REALM, 100);
@@ -152,7 +152,10 @@ public class LogonCommHandler : IDisposable
     public void Startup()
     {
         // Connect to all logons
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN);
         LoadRealmConfiguration();
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_COUNT, servers.Count, realms.Count);
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_1);
         foreach (var server in servers)
             Connect(server);
     }
@@ -391,8 +394,6 @@ public class LogonCommHandler : IDisposable
 
         // Start connection process - this will trigger callbacks asynchronously
         conn.SendChallenge();
-
-        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_4);
     }
     
     private void HandleAuthCompletion(LogonServer server, LogonCommClientSocket conn, bool success)
@@ -403,6 +404,7 @@ public class LogonCommHandler : IDisposable
             return;
         }
         
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_4);
         if (!success)
         {
             Logger.OutColor(LogColor.TRED, R_E_LOGCOMHAN_1);
@@ -446,7 +448,26 @@ public class LogonCommHandler : IDisposable
                 Logger.OutColor(LogColor.TYELLOW, R_N_LOGCOMHAN_LATENCE, conn.latency);
                 Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMHAN_NEWLINE);
             }
+            _ = Interlocked.Increment(ref _startupReports);
         });
+    }
+
+    private int _startupReports;
+
+    /// <summary>
+    /// Attend la fin de la séquence de connexion initiale (enregistrement + ping) ou l'échec/timeout.
+    /// </summary>
+    public void WaitForStartup(int timeoutMs)
+    {
+        long deadline = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < deadline && !_shuttingDown)
+        {
+            if (Volatile.Read(ref _startupReports) >= servers.Count)
+                return;
+            if (servers.All(s => !s.IsConnecting && !s.Registered))
+                return;
+            Thread.Sleep(10);
+        }
     }
     
     private void CleanupConnection(LogonServer server, LogonCommClientSocket conn)

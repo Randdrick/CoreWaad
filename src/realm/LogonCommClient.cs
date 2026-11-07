@@ -456,8 +456,9 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
             else
             {
                 authenticated = 1;
-                LogonCommHandler.Instance.RequestAddition(this);
+                // Le callback d'authentification doit s'afficher avant la réponse d'enregistrement
                 AuthCompleted?.Invoke(true);
+                LogonCommHandler.Instance.RequestAddition(this);
             }
             use_crypto = true;
         }
@@ -577,6 +578,7 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
     {            
         uint realmId = recvData.ReadUInt32();
         var mappingToSend = new Dictionary<uint, byte>();
+        var mappingTimer = System.Diagnostics.Stopwatch.StartNew();
 
         var db = RealmDatabaseManager.GetCharacterDatabase();
         if (db == null || !db.IsInitialized)
@@ -593,6 +595,8 @@ public class LogonCommClientSocket : WaadShared.Network.Socket, IDisposable
                 mappingToSend[accountId] = (byte)Math.Min(count, byte.MaxValue);
             }
         }
+
+        Logger.OutColor(LogColor.TNORMAL, R_N_LOGCOMCLT_1 + "\n", mappingTimer.ElapsedMilliseconds, realmId);
 
         if (mappingToSend.Count == 0)
             return; // Rien à envoyer

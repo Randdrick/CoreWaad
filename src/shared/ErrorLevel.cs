@@ -128,6 +128,8 @@ public static class Main
     public const string L_W_MAIN_AI = "Désactivé, aucun contrôle ne sera fait....";
     public const string L_W_MAIN_AI_1 = "Activé";
     public const string R_N_MAIN_CONSOLE_THREAD_STARTED = "Thread de console local démarré.";
+    public const string R_N_CONLIS_OPENING = "Ouverture de la console à distance...";
+    public const string R_W_CONLIS_NOT_STARTED = "Console à distance non démarrée ou désactivée.";
     public const string R_W_MAIN_SKIPPING_PERMISSIONS_RELOAD = "Skipping 5-minute permissions reload: previous run still in progress.";
     public const string R_E_MAIN_PERMISSIONS_RELOAD_FAILED = "5-minute permissions reload failed: {0}";
     public const string R_W_MAIN_SKIPPING_HEAVY_MAINTENANCE = "Skipping 5-minute heavy maintenance: previous run still in progress.";
@@ -445,6 +447,7 @@ public static class LogonCommClient
 public static class LogonCommHandler
 {
     public const string R_N_LOGCOMHAN = "\n >> Chargement des définitions des serveurs de Royaume(s) et de Logon... \n";
+    public const string R_N_LOGCOMHAN_COUNT = "{0} servers, {1} realms.\n";
     public const string R_N_LOGCOMHAN_1 = " >> Tentative de connexion à tous les serveurs de Logon... \n";
     public const string R_N_LOGCOMHAN_2 = "	>> Connexion à `{0}` sur `{1}:{2}`...";
     public const string R_N_LOGCOMHAN_3 = "        >> Authentification...\n";

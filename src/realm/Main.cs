@@ -366,6 +366,7 @@ public class Master
     public static void Run(string[] args)
     {
         UNIXTIME = DateTime.UtcNow;
+        var startupTimer = Stopwatch.StartNew();
         int fileLogLevel = -1;
         int screenLogLevel = 3;
         bool doCheckConf = false;
@@ -550,13 +551,20 @@ public class Master
         // 10. SocketMgr singleton (doit être démarré après les managers)
         SocketMgr.SpawnWorkerThreads();
 
-        // 11. Création des listeners réseau
+        // 11. Connexion aux serveurs de Logon (avant l'ouverture des ports clients)
+        _ = LogonCommHandler.Instance;
+        LogonCommHandler.Instance.Startup();
+        LogonCommHandler.Instance.WaitForStartup(15000);
+
+        // 12. Création des listeners réseau
         ListenSocket<WorldSocket> worldListener = null;
         ListenSocket<WorkerServerSocket> wsListener = null;
         try
         {
             CLog.Success("[Network]", R_S_MASTER_4);
+            CLog.Notice("[Network]", R_N_MASTER_4);
             worldListener = new ListenSocket<WorldSocket>("0.0.0.0", rlport, (socket) => new WorldSocket(socket));
+            CLog.Notice("[Network]", R_N_MASTER_5);
             wsListener = new ListenSocket<WorkerServerSocket>("0.0.0.0", rsport, (socket) => new WorkerServerSocket(socket));
         }
         catch (Exception ex)
@@ -623,10 +631,6 @@ public class Master
         };
         wsListenerThread.Start();
 
-        // 12. LogonCommHandler singleton (dépend du réseau)
-        _ = LogonCommHandler.Instance;
-        LogonCommHandler.Instance.Startup();
-
         // 13. Thread de console (entrée standard locale)
         // Use a dedicated background thread so stdin remains responsive
         // even if the network thread pool is saturated or unavailable.
@@ -652,12 +656,14 @@ public class Master
             Name = "RealmConsole"
         };
         localConsoleThread.Start();
-        CLog.Notice("[Console]", R_N_MAIN_CONSOLE_THREAD_STARTED);
+        sLog.OutDebug("[Console]", R_N_MAIN_CONSOLE_THREAD_STARTED);
 
         // 14. Listener de console à distance (si activé dans la configuration)
+        CLog.Notice("[RemoteConsole]", R_N_CONLIS_OPENING);
         try
         {
-            ConsoleListener.StartFromConfig();
+            if (!ConsoleListener.StartFromConfig())
+                CLog.Warning("[RemoteConsole]", R_W_CONLIS_NOT_STARTED);
         }
         catch (Exception ex)
         {
@@ -681,7 +687,7 @@ public class Master
             }
         }
 
-        sLog.OutString("[Main] Démarrage terminé. Entrée dans la boucle principale.");
+        CLog.Success("[Serveur]", R_S_MASTER_5, startupTimer.ElapsedMilliseconds);
 
         // === Boucle principale ===
         ulong loopcounter = 0;

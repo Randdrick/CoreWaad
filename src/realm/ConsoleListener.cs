@@ -205,14 +205,14 @@ public static class ConsoleListener
 {
     private static ListenSocket<ConsoleSession> listener;
     private static readonly List<ConsoleSession> sessions = [];
-    public static void StartFromConfig()
+    public static bool StartFromConfig()
     {
         var configPath = System.IO.Path.Combine(AppContext.BaseDirectory, "waad-world.ini");
         var configMgr = new WaadShared.Config.ConfigMgr();
         if (!configMgr.MainConfig.SetSource(configPath))
         {
             CLog.Warning("[ConsoleListener]", R_W_CONLIS_CONFIG_NOT_FOUND, configPath);
-            return;
+            return false;
         }
 
         string enabledStr = configMgr.MainConfig.GetString("RemoteConsole", "Enabled", "0");
@@ -221,10 +221,7 @@ public static class ConsoleListener
 
         bool enabled = enabledStr == "1" || enabledStr.Equals("true", StringComparison.OrdinalIgnoreCase);
         if (!enabled)
-        {
-            CLog.Notice("[ConsoleListener]", R_N_CONLIS_REMOTE_DISABLED);
-            return;
-        }
+            return false;
 
         _ = uint.TryParse(portStr, out uint port);
         CLog.Notice("[ConsoleListener]", R_N_CONLIS_REMOTE_ENABLED, address, port);
@@ -234,6 +231,7 @@ public static class ConsoleListener
             return new ConsoleSession(waadSocket);
         });
         _ = ThreadPool.QueueUserWorkItem(_ => RunListener());
+        return true;
     }
     private static void RunListener()
     {
