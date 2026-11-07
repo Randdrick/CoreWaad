@@ -1,6 +1,6 @@
-/*
+﻿/*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -44,6 +44,7 @@ namespace WaadRealmServer
         {
             if (packet.Size != expectedSize)
             {
+                CLog.Error("[Session]", $"Taille de paquet invalide pour l'opcode {packet.GetOpcode()} (0x{packet.GetOpcode():X}) : {packet.Size} octets reçus, {expectedSize} attendus. Déconnexion.");
                 session.Disconnect();
                 return false;
             }
@@ -113,8 +114,8 @@ namespace WaadRealmServer
     {
         private static ClusterMgr sClusterMgr = ClusterMgr.Instance;
         private static ClientMgr sClientMgr = ClientMgr.Instance;
-        public WorkerServerSocket Wss { get; set; }
-        public WorldSocket Ws { get; set; }
+        public WorldSocket Ws => m_socket;
+        public WorkerServerSocket Wss => m_server?.ServerSocket;
         public static DBCStorage<EnchantEntry> DbcEnchant { get; } = new DBCStorage<EnchantEntry>();
 
         #region Classe de données pour le personnage
@@ -127,10 +128,10 @@ namespace WaadRealmServer
             public float PositionY { get; } = Convert.ToSingle(result.GetValue(8));
             public float PositionZ { get; } = Convert.ToSingle(result.GetValue(9));
             public uint Banned { get; } = Convert.ToUInt32(result.GetValue(11));
-            public uint RecoveryMapId { get; } = Convert.ToUInt32(result.GetValue(15));
-            public float RecoveryPositionX { get; } = Convert.ToSingle(result.GetValue(16));
-            public float RecoveryPositionY { get; } = Convert.ToSingle(result.GetValue(17));
-            public float RecoveryPositionZ { get; } = Convert.ToSingle(result.GetValue(18));
+            public uint RecoveryMapId { get; } = Convert.ToUInt32(result.GetValue(16));
+            public float RecoveryPositionX { get; } = Convert.ToSingle(result.GetValue(17));
+            public float RecoveryPositionY { get; } = Convert.ToSingle(result.GetValue(18));
+            public float RecoveryPositionZ { get; } = Convert.ToSingle(result.GetValue(19));
         }
         #endregion
 
@@ -662,7 +663,7 @@ namespace WaadRealmServer
             response.WriteByte(errorCode);
             response.WriteUInt64(guid);
             response.WriteString(newName);
-            Wss.SendPacket(response);
+            SendPacket(response);
         }
         #endregion
         private void HandlePlayerLogin(WorldPacket p)
@@ -755,7 +756,7 @@ namespace WaadRealmServer
             var result = CharacterDatabase.Query(
                 @"SELECT guid, name, race, class, gender, level, mapId, positionX, positionY, positionZ,
                  zoneId, banned, restState, deathstate, player_flags, guild_data.guildid,
-                 recoveryMapId, recoveryPositionX, recoveryPositionY, recoveryPositionZ
+                 bindmapId, bindpositionX, bindpositionY, bindpositionZ
                 FROM characters
                 LEFT JOIN guild_data ON characters.guid = guild_data.playerid
                 WHERE guid = {0} AND acct = {1}",
@@ -934,7 +935,6 @@ namespace WaadRealmServer
             catch (Exception ex)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_1, ex.Message);
-                Disconnect();
                 return;
             }
 
@@ -942,7 +942,6 @@ namespace WaadRealmServer
             if (uiID > 7)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_2, uiID);
-                Disconnect();
                 return;
             }
 
@@ -955,7 +954,6 @@ namespace WaadRealmServer
             catch (Exception ex)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_3, ex.Message);
-                Disconnect();
                 return;
             }
 
@@ -968,7 +966,6 @@ namespace WaadRealmServer
             catch (Exception ex)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_4, ex.Message);
-                Disconnect();
                 return;
             }
 
@@ -983,14 +980,12 @@ namespace WaadRealmServer
             if (uiDecompressedSize > 100000)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_6, uiDecompressedSize);
-                Disconnect();
                 return;
             }
 
-            if (uiDecompressedSize >= 65534)
+            if (uiDecompressedSize > 0xFFFF)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_7, uiDecompressedSize);
-                Disconnect();
                 return;
             }
 
@@ -998,11 +993,10 @@ namespace WaadRealmServer
             byte[] compressedData;
             try
             {
-                int bytesRemaining = p.Contents.Length - p.Size;
+                int bytesRemaining = p.Size - p.Rpos;
                 if (bytesRemaining <= 0)
                 {
                     sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_8);
-                    Disconnect();
                     return;
                 }
                 compressedData = new byte[bytesRemaining];
@@ -1011,39 +1005,31 @@ namespace WaadRealmServer
             catch (Exception ex)
             {
                 sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_9, ex.Message);
-                Disconnect();
                 return;
             }
 
             // 7. Décompresser les données si nécessaire
+            // Le client envoie toujours un flux zlib (en-tête 0x78 inclus)
             byte[] decompressedData;
-            if (uiDecompressedSize > (uint)compressedData.Length)
+            try
             {
-                try
-                {
-                    decompressedData = new byte[uiDecompressedSize];
-                    using var compressedStream = new MemoryStream(compressedData);
-                    using var decompressedStream = new MemoryStream(decompressedData);
-                    using var zlibStream = new DeflateStream(compressedStream, CompressionMode.Decompress);
-                    zlibStream.CopyTo(decompressedStream);
-                }
-                catch (Exception ex)
-                {
-                    sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA, ex.Message);
-                    Disconnect();
-                    return;
-                }
+                decompressedData = new byte[uiDecompressedSize];
+                using var compressedStream = new MemoryStream(compressedData);
+                using var zlibStream = new ZLibStream(compressedStream, CompressionMode.Decompress);
+                zlibStream.ReadExactly(decompressedData, 0, decompressedData.Length);
             }
-            else
+            catch (Exception ex)
             {
-                decompressedData = compressedData;
+                sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA, ex.Message);
+                return;
             }
 
             // 8. Valider les données décompressées
-            if (!ValidateDecompressedData(decompressedData, uiDecompressedSize))
+            // Données de cache client : en cas de rejet, on ignore la mise à jour sans déconnecter.
+            string rejectReason = ValidateDecompressedData(decompressedData, uiDecompressedSize);
+            if (rejectReason != null)
             {
-                sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_10);
-                Disconnect();
+                sLog.OutError("UPDATE_ACCOUNT_DATA", R_E_CHARHAN_UA_10, uiID, GetAccountName(), rejectReason);
                 return;
             }
 
@@ -1060,40 +1046,54 @@ namespace WaadRealmServer
         }
 
         // Méthode utilitaire pour valider les données décompressées
-        private static bool ValidateDecompressedData(byte[] data, uint expectedSize)
+        // Les données de compte (macros, raccourcis, configuration) sont du texte UTF-8,
+        // éventuellement terminé par des octets nuls de remplissage.
+        private static readonly System.Text.UTF8Encoding StrictUtf8 = new(false, true);
+
+        // Retourne null si les données sont valides, sinon la raison du rejet.
+        private static string ValidateDecompressedData(byte[] data, uint expectedSize)
         {
             // 1. Vérifier que la taille des données correspond à celle attendue
             if (data == null || data.Length != expectedSize)
             {
-                return false;
+                return $"taille {data?.Length ?? 0} différente de la taille annoncée {expectedSize}";
             }
 
-            // 2. Vérifier les motifs binaires suspects
-            if (MaliciousPatternDetector.ContainsMaliciousPatterns(data))
+            // 2. Ignorer le remplissage nul en fin de données
+            int length = data.Length;
+            while (length > 0 && data[length - 1] == 0)
             {
-                return false;
+                length--;
             }
 
-            // 3. Vérifier les caractères non imprimables
-            for (int i = 0; i < data.Length; i++)
+            // 3. Exiger de l'UTF-8 valide (écarte aussi les signatures binaires/shellcode)
+            string text;
+            try
             {
-                byte b = data[i];
-                if (b >= 32 && b <= 126)
-                {
-                    continue;
-                }
-                if (b == 9 || b == 10 || b == 13)
-                {
-                    continue;
-                }
-                if (b == 0)
-                {
-                    continue;
-                }
-                return false;
+                text = StrictUtf8.GetString(data, 0, length);
+            }
+            catch (System.Text.DecoderFallbackException ex)
+            {
+                return $"UTF-8 invalide à l'index {ex.Index}";
             }
 
-            return true;
+            // 4. Refuser les caractères de contrôle, hormis tabulation et retours à la ligne
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsControl(c) && c != '\t' && c != '\n' && c != '\r')
+                {
+                    return $"caractère de contrôle U+{(int)c:X4} à la position {i}";
+                }
+            }
+
+            // 5. Vérifier les motifs d'injection
+            if (MaliciousPatternDetector.ContainsMaliciousTextPatterns(data))
+            {
+                return "motif d'injection détecté";
+            }
+
+            return null;
         }
         #endregion
 
@@ -1196,7 +1196,7 @@ namespace WaadRealmServer
             // 10. Envoyer le paquet de réponse au client
             try
             {
-                Wss.SendPacket(dataPacket);
+                SendPacket(dataPacket);
                 sLog.OutDebug("REQUEST_ACCOUNT_DATA", R_D_CHARHAN_RA, id, GetAccountName());
             }
             catch (Exception ex)

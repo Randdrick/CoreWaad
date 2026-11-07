@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -193,9 +193,10 @@ namespace WaadRealmServer
 
         public void Disconnect()
         {
+            CLog.Warning("[Session]", $"Disconnect() demandé pour le compte {m_accountName} (session {m_sessionId}){Environment.NewLine}{Environment.StackTrace}");
             if (m_socket != null && m_socket.IsConnected())
             {
-                m_socket.OnDisconnect();
+                m_socket.Disconnect();
             }
         }
 

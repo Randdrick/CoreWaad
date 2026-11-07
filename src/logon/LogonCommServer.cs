@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2021 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -349,6 +349,19 @@ public class LogonCommServerSocket : WaadShared.Network.Socket, IDisposable
         realm.Icon = recvData.ReadUInt32();
         realm.TimeZone = recvData.ReadUInt32();
         realm.Population = recvData.Read<float>();
+        uint realmRevision = recvData.ReadUInt32();
+
+        // La révision Git du realm doit être identique à celle du logon
+        if (realmRevision != (uint)LogonServer.REVISION)
+        {
+            sLog.OutError(L_E_LOGCOMSE_BUILD_MISMATCH, realm.Name, realmRevision, LogonServer.REVISION);
+            WorldPacket refusal = new((ushort)RSMSG_REALM_REGISTERED, 16);
+            refusal.WriteUInt32(1);
+            refusal.WriteUInt32(0);
+            refusal.WriteString(realm.Name);
+            SendPacket(refusal);
+            return;
+        }
 
         uint myId = sInfoCore.GenerateRealmID();
 

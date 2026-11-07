@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -59,19 +59,49 @@ public static class MaliciousPatternDetector
         [0x90, 0x90, 0x90, 0x90], // NOP slide
         [0x00, 0x00, 0x00, 0x00], // Zeros
         [0xFF, 0xFF, 0xFF, 0xFF], // 0xFFFFFFFF
+    ];
 
-        // Injections SQL/NoSQL (en ASCII)
+    /// <summary>
+    /// Motifs malveillants en ASCII, applicables aux données textuelles (macros, configuration...).
+    /// </summary>
+    private static readonly byte[][] MaliciousTextPatterns =
+    [
+        // Injections SQL/NoSQL
         [0x27, 0x20, 0x4F, 0x52, 0x20], // ' OR
         [0x3B, 0x20, 0x44, 0x52, 0x4F, 0x50], // ; DROP
 
-        // XSS (en ASCII)
+        // XSS
         [0x3C, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x3E], // <script>
         [0x6F, 0x6E, 0x65, 0x72, 0x72, 0x6F, 0x72, 0x3D], // onerror=
 
-        // Inclusion de fichiers (en ASCII)
+        // Inclusion de fichiers
         [0x2E, 0x2E, 0x2F], // ../
         [0x66, 0x69, 0x6C, 0x65, 0x3A, 0x2F, 0x2F], // file://
     ];
+
+    /// <summary>
+    /// Vérifie si des données censées être textuelles contiennent des motifs d'injection.
+    /// Les signatures binaires (shellcode, en-têtes exécutables...) ne sont pas testées ici :
+    /// elles sont écartées en amont par la validation UTF-8 stricte, et provoquent des
+    /// faux positifs sur du texte légitime (« MZ », « AAAA »...).
+    /// </summary>
+    public static bool ContainsMaliciousTextPatterns(byte[] data)
+    {
+        if (data == null || data.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var pattern in MaliciousTextPatterns)
+        {
+            if (ContainsSequence(data, pattern))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Vérifie si un tableau d'octets contient des motifs binaires malveillants.

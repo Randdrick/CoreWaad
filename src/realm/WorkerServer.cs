@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -66,6 +66,14 @@ namespace WaadRealmServer
             PHandlers[WorkerServerOpcodes.ICMSG_CHANNEL_ACTION]                   = (ws, p) => HandleChannelAction(p);
             PHandlers[WorkerServerOpcodes.ICMSG_CHANNEL_UPDATE]                   = (ws, p) => HandleChannelUpdate(p);
             PHandlers[WorkerServerOpcodes.ICMSG_CHANNEL_LFG_DUNGEON_STATUS_REPLY] = (ws, p) => HandleChannelLFGDungeonStatusReply(p);
+            PHandlers[WorkerServerOpcodes.ICMSG_REALM_PING_STATUS]                = (ws, p) => ws.HandlePong(p);
+        }
+
+        private void HandlePong(WorldPacket p)
+        {
+            uint sentTime = p.ReadUInt32();
+            Latency = (uint)Environment.TickCount - sentTime;
+            LastPong = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         }
 
         public int GetInstanceCount() => _instances.Count;

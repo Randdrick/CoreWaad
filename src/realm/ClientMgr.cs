@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -256,6 +256,9 @@ public class ClientMgr : IDisposable
     // Nettoyage des sessions à supprimer et update
     public void Update()
     {
+        List<Session> toDispose = [];
+        List<Session> toUpdate;
+
         _lock.EnterWriteLock();
         try
         {
@@ -264,7 +267,7 @@ public class ClientMgr : IDisposable
                 if (_sessions.TryGetValue(sessionId, out var session))
                 {
                     var player = session.GetPlayer();
-                    session.Dispose();
+                    toDispose.Add(session);
                     if (player != null && --player.References <= 0)
                     {
                         _sessionsByInfo.Remove(player);
@@ -277,57 +280,67 @@ public class ClientMgr : IDisposable
                 }
             }
             _pendingDeleteSessionIds.Clear();
-            foreach (var s in _sessions.Values)
-            {
-                if (!s.Deleted)
-                    s.Update();
-            }
+            toUpdate = [.. _sessions.Values];
         }
         finally { _lock.ExitWriteLock(); }
+
+        // Disposal and updates run outside the lock: packet handlers call back into
+        // ClientMgr (GetRPlayer, CreateRPlayer...), which would cause a LockRecursionException.
+        foreach (var session in toDispose)
+            session.Dispose();
+
+        foreach (var s in toUpdate)
+        {
+            if (!s.Deleted)
+                s.Update();
+        }
     }
 
     public void SendPackedClientInfo(WorkerServerSocket server)
     {
-        lock (_lock)
+        ByteBuffer uncompressed;
+        _lock.EnterReadLock();
+        try
         {
             if (_clients.Count == 0)
                 return;
 
-            var uncompressed = new ByteBuffer(40000 * 19 + 8);
+            uncompressed = new ByteBuffer(40000 * 19 + 8);
             _ = uncompressed.WriteUInt32((uint)_clients.Count);
             foreach (var player in _clients.Values)
             {
                 player.Pack(uncompressed);
             }
-
-            int destSize = uncompressed.Size + uncompressed.Size / 10 + 16;
-            var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_PACKED_PLAYER_INFO, destSize + 4);
-            data.Resize(destSize + 4);
-
-            // .NET compression, faithful to C++ logic
-            byte[] compressed;
-            int compressedSize;
-            using (var ms = new System.IO.MemoryStream(destSize + 4))
-            {
-                ms.Write(new byte[4], 0, 4); // Reserve 4 bytes for size
-                using (var deflate = new DeflateStream(ms, CompressionLevel.Fastest, true))
-                {
-                    deflate.Write(uncompressed.Contents, 0, uncompressed.Size);
-                }
-                compressedSize = (int)ms.Position;
-                compressed = ms.GetBuffer(); // This may be larger than compressedSize, so we must copy
-            }
-            // Copy only the real compressed data
-            byte[] finalPacket = new byte[compressedSize];
-            Array.Copy(compressed, 0, finalPacket, 0, compressedSize);
-            // Write the uncompressed size in the first 4 bytes
-            Array.Copy(BitConverter.GetBytes(uncompressed.Size), 0, finalPacket, 0, 4);
-            
-            // Clear the packet and populate it with the compressed data
-            data.Clear();
-            data.Append(finalPacket, finalPacket.Length);
-
-            server.SendPacket(data);
         }
+        finally { _lock.ExitReadLock(); }
+
+        int destSize = uncompressed.Size + uncompressed.Size / 10 + 16;
+        var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_PACKED_PLAYER_INFO, destSize + 4);
+        data.Resize(destSize + 4);
+
+        // .NET compression, faithful to C++ logic
+        byte[] compressed;
+        int compressedSize;
+        using (var ms = new System.IO.MemoryStream(destSize + 4))
+        {
+            ms.Write(new byte[4], 0, 4); // Reserve 4 bytes for size
+            using (var deflate = new DeflateStream(ms, CompressionLevel.Fastest, true))
+            {
+                deflate.Write(uncompressed.Contents, 0, uncompressed.Size);
+            }
+            compressedSize = (int)ms.Position;
+            compressed = ms.GetBuffer(); // This may be larger than compressedSize, so we must copy
+        }
+        // Copy only the real compressed data
+        byte[] finalPacket = new byte[compressedSize];
+        Array.Copy(compressed, 0, finalPacket, 0, compressedSize);
+        // Write the uncompressed size in the first 4 bytes
+        Array.Copy(BitConverter.GetBytes(uncompressed.Size), 0, finalPacket, 0, 4);
+        
+        // Clear the packet and populate it with the compressed data
+        data.Clear();
+        data.Append(finalPacket, finalPacket.Length);
+
+        server.SendPacket(data);
     }
 }

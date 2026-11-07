@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -80,7 +80,7 @@ public class WowCrypt : IDisposable
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        if (!m_initialized)
+        if (!m_initialized || _disposed)
         {
             throw new InvalidOperationException("WowCrypt is not initialized.");
         }
@@ -94,7 +94,7 @@ public class WowCrypt : IDisposable
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        if (!m_initialized)
+        if (!m_initialized || _disposed)
         {
             throw new InvalidOperationException("WowCrypt is not initialized.");
         }

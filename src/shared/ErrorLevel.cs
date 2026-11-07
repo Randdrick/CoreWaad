@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -102,6 +102,7 @@ public static class LogonCommServer
     public const string L_E_LOGCOMSE_L_1 = "Demande de modification de la base de données {0} refusée pour {1} !\n";
     public const string L_E_LOGCOMSE = "La taille du paquet dépasse la taille maximum autorisée. Déconnexion.";
     public const string L_E_LOGCOMSE_R = "[RemoteConsole] Player {0} Flag: {1} , Connection non permise !\n";
+    public const string L_E_LOGCOMSE_BUILD_MISMATCH = "Realm '{0}' refusé : révision incorrecte (realm r{1} / logon r{2}).";
 }
 
 public static class Main
@@ -255,17 +256,17 @@ public static class CharacterHandler
     public const string R_W_CHARHAN_UA_1 = "ATTENTION: Échec de la décompression des données du compte {0} pour {1}.";
     public const string R_W_CHARHAN_UA_2 = "ATTENTION: La décompression a généré une erreur inconnue: {0:X}, des données du compte {1} pour {2}. ÉCHEC.";
     public const string R_N_CHARHAN_UA = "WORLD: Décompression réussie des données du compte {0} pour {1} et mise à jour de la matrice de stockage.";
-    public const string R_E_CHARHAN_UA = "Erreur lors de la décompression des données : {0}. Déconnexion.";
-    public const string R_E_CHARHAN_UA_1 = "Erreur lors de la lecture de l'ID du paquet : {0}. Déconnexion.";
-    public const string R_E_CHARHAN_UA_2 = "ID de slot invalide : {0}. Déconnexion.";
-    public const string R_E_CHARHAN_UA_3 = "Erreur lors de la lecture du timestamp : {0}. Déconnexion.";
-    public const string R_E_CHARHAN_UA_4 = "Erreur lors de la lecture de la taille des données : {0}. Déconnexion.";
+    public const string R_E_CHARHAN_UA = "Erreur lors de la décompression des données : {0}. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_1 = "Erreur lors de la lecture de l'ID du paquet : {0}. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_2 = "ID de slot invalide : {0}. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_3 = "Erreur lors de la lecture du timestamp : {0}. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_4 = "Erreur lors de la lecture de la taille des données : {0}. Paquet ignoré.";
     public const string R_E_CHARHAN_UA_5 = "Effacement des données du slot {0} pour le compte {1}.";
-    public const string R_E_CHARHAN_UA_6 = "Taille des données trop grande : {0} octets. Déconnexion.";
-    public const string R_E_CHARHAN_UA_7 = "Taille des données trop grande pour le champ BLOB : {0} octets. Déconnexion.";
-    public const string R_E_CHARHAN_UA_8 = "Aucune donnée compressée trouvée dans le paquet. Déconnexion.";
-    public const string R_E_CHARHAN_UA_9 = "Erreur lors de la lecture des données compressées : {0}. Déconnexion.";
-    public const string R_E_CHARHAN_UA_10 = "Données décompressées invalides ou potentiellement malveillantes. Déconnexion.";
+    public const string R_E_CHARHAN_UA_6 = "Taille des données trop grande : {0} octets. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_7 = "Taille des données trop grande pour le champ BLOB : {0} octets. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_8 = "Aucune donnée compressée trouvée dans le paquet. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_9 = "Erreur lors de la lecture des données compressées : {0}. Paquet ignoré.";
+    public const string R_E_CHARHAN_UA_10 = "Données de compte rejetées (slot {0}, compte {1}) : {2}. Paquet ignoré.";
     public const string R_E_CHARHAN_UA_11 = "Erreur lors de la sauvegarde des données : {0}.";
     public const string R_D_CHARHAN_UA = "Mise à jour des données du slot {0} pour le compte {1} (taille : {2} octets).";
     public const string R_E_CHARHAN_RA = "Erreur lors de la lecture de l'ID du slot : {0}. Déconnexion.";
@@ -535,7 +536,7 @@ public static class WorkerServer
 public static class WorkerServerSocket
 {
     public const string R_N_WORKSRVSOC = "Réponse à l'authentification. Le serveur est {0} ; build {1}";
-    public const string R_E_WORKSRVSOC_BUILD_MISMATCH = "Supression du serveur pour cause de build incorrecte({0}/{1})";
+    public const string R_E_WORKSRVSOC_BUILD_MISMATCH = "Supression du serveur pour cause de révision incorrecte (worker r{0} / realm r{1})";
 }
 
 public static class Master
@@ -660,18 +661,23 @@ public static class ClusterInterface
 
 public static class ObjectMgrMessages
 {
-    public const string W_E_OBJMGR_PLAYERCREATEINFO_LOAD_FAILED = "[ObjectMgr] Impossible de charger playercreateinfo.";
-    public const string W_E_OBJMGR_PLAYERCREATEINFO_TOO_FEW_COLUMNS = "[ObjectMgr] playercreateinfo contient moins de 24 colonnes.";
-    public const string W_E_OBJMGR_PLAYERCREATEINFO_INVALID_OR_DUPLICATE = "[ObjectMgr] Fiche playercreateinfo invalide ou dupliquée pour race {0}, classe {1}.";
-    public const string W_E_OBJMGR_PLAYERCREATEINFO_LOAD_ERROR = "[ObjectMgr] Erreur de chargement de playercreateinfo: {0}";
-    public const string W_E_OBJMGR_PLAYERCREATEINFO_NONE_LOADED = "[ObjectMgr] Aucune fiche playercreateinfo n'a été chargée.";
-    public const string W_N_OBJMGR_PLAYERCREATEINFO_LOADED = "[ObjectMgr] {0} fiches playercreateinfo chargées.";
-    public const string W_E_OBJMGR_CHARACTER_CREATE_FAILED = "[ObjectMgr] Echec de création de personnage pour le compte {0}: {1}";
-    public const string W_E_OBJMGR_ITEMS_LOAD_FAILED = "[ObjectMgr] Impossible de charger la table items.";
-    public const string W_W_OBJMGR_ITEM_PROTOTYPE_INVALID_OR_DUPLICATE = "[ObjectMgr] Prototype d'objet invalide ou dupliqué: {0}.";
-    public const string W_E_OBJMGR_ITEM_PROTOTYPES_LOAD_ERROR = "[ObjectMgr] Erreur de chargement des prototypes d'objets: {0}";
-    public const string W_E_OBJMGR_ITEM_PROTOTYPES_NONE_LOADED = "[ObjectMgr] Aucun prototype d'objet n'a été chargé.";
-    public const string W_N_OBJMGR_ITEM_PROTOTYPES_LOADED = "[ObjectMgr] {0} prototypes d'objets chargés.";
+            public const string W_E_OBJMGR_PLAYERCREATEINFO_LOAD_FAILED = "Impossible de charger playercreateinfo.";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_TOO_FEW_COLUMNS = "La table playercreateinfo contient moins de 24 colonnes.";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_INVALID_OR_DUPLICATE = "Entrée dans la table playercreateinfo invalide ou dupliquée pour race {0}, classe {1}.";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_LOAD_ERROR = "Erreur de chargement de la table playercreateinfo: {0}";
+    public const string W_E_OBJMGR_PLAYERCREATEINFO_NONE_LOADED = "Aucune entrée dans la table playercreateinfo n'a été chargée.";
+    public const string W_N_OBJMGR_PLAYERCREATEINFO_LOADED = "{0} entrées dans la table playercreateinfo chargées.";
+    public const string W_E_OBJMGR_CHARACTER_CREATE_FAILED = "Echec de création de personnage pour le compte {0}: {1}";
+    public const string W_E_OBJMGR_ITEMS_LOAD_FAILED = "Impossible de charger la table items.";
+    public const string W_W_OBJMGR_ITEM_PROTOTYPE_INVALID = "Prototype d'objet ignoré: identifiant invalide (0), nom \"{0}\".";
+    public const string W_W_OBJMGR_ITEM_PROTOTYPE_DUPLICATE = "Prototype d'objet dupliqué ignoré: {0}.";
+    public const string W_E_OBJMGR_ITEM_PROTOTYPES_LOAD_ERROR = "Erreur de chargement des prototypes d'objets: {0}";
+    public const string W_E_OBJMGR_ITEM_PROTOTYPES_NONE_LOADED = "Aucun prototype d'objet n'a été chargé.";
+    public const string W_N_OBJMGR_ITEM_PROTOTYPES_LOADED = "{0} prototypes d'objets chargés.";
+    public const string W_D_OBJMGR_CLEANUP = "Nettoyage des objets...";
+    public const string W_E_OBJMGR_DBC_LOAD_SKILL_FACTION_FAILED = "Impossible de charger les DBC de compétences et de factions.";
+    public const string W_E_OBJMGR_DBC_NOT_LOADED_VALIDATE_RACE = "Les DBCs ne sont pas chargés, impossibilité de valider la race.";
+    public const string W_E_OBJMGR_DBC_NOT_LOADED_VALIDATE_CLASS = "Les DBCs ne sont pas chargés, impossibilité de valider la classe.";
 }
 
 public static class ItemPrototype

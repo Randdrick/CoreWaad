@@ -200,7 +200,18 @@ internal static class ItemPrototypeReader
     private static uint UInt(QueryResult result, IReadOnlyDictionary<string, int> columns, params string[] names)
     {
         int index = Find(columns, names);
-        return index < 0 ? 0 : Convert.ToUInt32(result.GetValue(index), CultureInfo.InvariantCulture);
+        if (index < 0)
+            return 0;
+
+        object value = result.GetValue(index);
+        if (value is null or DBNull)
+            return 0;
+
+        // Les colonnes signées (ex. -1 pour allowableclass) sont reinterprétées en 32 bits.
+        decimal number = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+        if (number < 0)
+            return unchecked((uint)(int)Math.Max(number, int.MinValue));
+        return number > uint.MaxValue ? uint.MaxValue : (uint)number;
     }
 
     private static int Int(QueryResult result, IReadOnlyDictionary<string, int> columns, params string[] names)

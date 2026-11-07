@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -203,6 +203,7 @@ public sealed class ClusterInterface : IDisposable
         [WorkerServerOpcodes.ISMSG_PLAYER_INFO] = (ci, p) => HandlePlayerInfo(p),
         [WorkerServerOpcodes.ISMSG_CHANNEL_ACTION] = (ci, p) => HandleChannelAction(p),
         [WorkerServerOpcodes.ISMSG_CHANNEL_LFG_DUNGEON_STATUS_REQUEST] = (ci, p) => ci.HandleChannelLFGDungeonStatusRequest(p),
+        [WorkerServerOpcodes.ICMSG_REALM_PING_STATUS] = (ci, p) => ci.HandleRealmPing(p),
     };
 
     private readonly ConcurrentQueue<WorldPacket> _packets = new();
@@ -345,6 +346,15 @@ public sealed class ClusterInterface : IDisposable
         {
             packet.Dispose();
         }
+    }
+
+    // Le RealmServer envoie un ping horodaté ; on renvoie la même valeur pour qu'il mesure la latence.
+    private void HandleRealmPing(WorldPacket packet)
+    {
+        uint pingTime = packet.ReadUInt32();
+        using var pong = new WorldPacket((ushort)WorkerServerOpcodes.ICMSG_REALM_PING_STATUS, 4);
+        pong.WriteUInt32(pingTime);
+        SendPacket(pong);
     }
 
     private void HandleAuthResult(WorldPacket packet)

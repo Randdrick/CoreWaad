@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -199,7 +199,7 @@ public class SocketWorkerThread
             }
             catch (Exception ex)
             {
-                CLog.Error("[SOCKETMGR]", $"Read handler exception on {socket.GetRemoteIP()}:{socket.GetRemotePort()}: {ex.Message}");
+                CLog.Error("[SOCKETMGR]", $"Read handler exception on {socket.GetRemoteIP()}:{socket.GetRemotePort()}: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
                 socket.Disconnect();
                 return;
             }

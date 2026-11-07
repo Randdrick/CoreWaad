@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -42,7 +42,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
 
     public void Dispose()
     {
-        sLog.OutDebug("[ObjectMgr] Nettoyage des objets...");
+        CLog.Debug("[ObjectMgr]", W_D_OBJMGR_CLEANUP);
     }
 
     public static DBCStorage<SkillLineLookupEntry> DbcSkillLineEntry { get; } = new DBCStorage<SkillLineLookupEntry>();
@@ -64,7 +64,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
             && DbcFactionEntry.Load(Path.Combine(dbcPath, "Faction.dbc"), FactionDBCFormat, true, true);
         if (!loaded)
         {
-            sLog.OutError("[ObjectMgr] Impossible de charger les DBC de compétences et de factions.");
+            sLog.OutError(W_E_OBJMGR_DBC_LOAD_SKILL_FACTION_FAILED);
             return false;
         }
 
@@ -78,7 +78,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         QueryResult result = database?.Query("SELECT * FROM playercreateinfo");
         if (result == null)
         {
-            sLog.OutError(W_E_OBJMGR_PLAYERCREATEINFO_LOAD_FAILED);
+            CLog.Error("[ObjectMgr]", W_E_OBJMGR_PLAYERCREATEINFO_LOAD_FAILED);
             return false;
         }
 
@@ -90,7 +90,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
             {
                 if (result.FieldCount < 24)
                 {
-                    sLog.OutError(W_E_OBJMGR_PLAYERCREATEINFO_TOO_FEW_COLUMNS);
+                    CLog.Error("[ObjectMgr]", W_E_OBJMGR_PLAYERCREATEINFO_TOO_FEW_COLUMNS);
                     return false;
                 }
 
@@ -125,7 +125,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
 
                 if (info.Race == 0 || info.Class == 0 || !createInfos.TryAdd((info.Race, info.Class), info))
                 {
-                    sLog.OutError(W_E_OBJMGR_PLAYERCREATEINFO_INVALID_OR_DUPLICATE, info.Race, info.Class);
+                    CLog.Error("[ObjectMgr]", W_E_OBJMGR_PLAYERCREATEINFO_INVALID_OR_DUPLICATE, info.Race, info.Class);
                     return false;
                 }
 
@@ -154,13 +154,13 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         }
         catch (Exception ex)
         {
-            sLog.OutError(W_E_OBJMGR_PLAYERCREATEINFO_LOAD_ERROR, ex.Message);
+            CLog.Error("[ObjectMgr]", W_E_OBJMGR_PLAYERCREATEINFO_LOAD_ERROR, ex.Message);
             return false;
         }
 
         if (createInfos.Count == 0)
         {
-            sLog.OutError(W_E_OBJMGR_PLAYERCREATEINFO_NONE_LOADED);
+            CLog.Error("[ObjectMgr]", W_E_OBJMGR_PLAYERCREATEINFO_NONE_LOADED);
             return false;
         }
 
@@ -168,7 +168,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         foreach (var entry in createInfos)
             _playerCreateInfos.Add(entry.Key, entry.Value);
 
-        sLog.OutString(W_N_OBJMGR_PLAYERCREATEINFO_LOADED, _playerCreateInfos.Count);
+        CLog.Notice("[ObjectMgr]",W_N_OBJMGR_PLAYERCREATEINFO_LOADED, _playerCreateInfos.Count);
         return true;
     }
 
@@ -178,7 +178,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         QueryResult result = database?.Query("SELECT * FROM items");
         if (result == null)
         {
-            sLog.OutError(W_E_OBJMGR_ITEMS_LOAD_FAILED);
+            CLog.Error("[ObjectMgr]", W_E_OBJMGR_ITEMS_LOAD_FAILED);
             return false;
         }
 
@@ -192,29 +192,35 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
             while (result.NextRow())
             {
                 ItemPrototype prototype = ItemPrototypeReader.Read(result, columns);
-                if (prototype.ItemId == 0 || !prototypes.TryAdd(prototype.ItemId, prototype))
+                if (prototype.ItemId == 0)
                 {
-                    sLog.OutWarning(W_W_OBJMGR_ITEM_PROTOTYPE_INVALID_OR_DUPLICATE, prototype.ItemId);
+                    CLog.Warning("[ObjectMgr]", W_W_OBJMGR_ITEM_PROTOTYPE_INVALID, prototype.Name);
+                    continue;
+                }
+
+                if (!prototypes.TryAdd(prototype.ItemId, prototype))
+                {
+                    CLog.Warning("[ObjectMgr]", W_W_OBJMGR_ITEM_PROTOTYPE_DUPLICATE, prototype.ItemId);
                     continue;
                 }
             }
         }
         catch (Exception ex)
         {
-            sLog.OutError(W_E_OBJMGR_ITEM_PROTOTYPES_LOAD_ERROR, ex.Message);
+            CLog.Error("[ObjectMgr]", W_E_OBJMGR_ITEM_PROTOTYPES_LOAD_ERROR, ex.Message);
             return false;
         }
 
         if (prototypes.Count == 0)
         {
-            sLog.OutError(W_E_OBJMGR_ITEM_PROTOTYPES_NONE_LOADED);
+            CLog.Error("[ObjectMgr]", W_E_OBJMGR_ITEM_PROTOTYPES_NONE_LOADED);
             return false;
         }
 
         _itemPrototypes.Clear();
         foreach (var entry in prototypes)
             _itemPrototypes.Add(entry.Key, entry.Value);
-        sLog.OutString(W_N_OBJMGR_ITEM_PROTOTYPES_LOADED, _itemPrototypes.Count);
+        CLog.Notice("[ObjectMgr]", W_N_OBJMGR_ITEM_PROTOTYPES_LOADED, _itemPrototypes.Count);
         return true;
     }
 
@@ -392,7 +398,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         // Vérifier que les DBCs sont chargés
         if (!IsDbcLoaded)
         {
-            sLog.OutError("[ObjectMgr] Les DBCs ne sont pas chargés, impossibilité de valider la race.");
+            sLog.OutError(W_E_OBJMGR_DBC_NOT_LOADED_VALIDATE_RACE);
             return false;
         }
 
@@ -411,7 +417,7 @@ public sealed class ObjectMgr : Singleton<ObjectMgr>
         // Vérifier que les DBCs sont chargés
         if (!IsDbcLoaded)
         {
-            sLog.OutError("[ObjectMgr] Les DBCs ne sont pas chargés, impossibilité de valider la classe.");
+            sLog.OutError(W_E_OBJMGR_DBC_NOT_LOADED_VALIDATE_CLASS);
             return false;
         }
 

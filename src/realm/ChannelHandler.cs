@@ -1,6 +1,6 @@
-/*
+﻿/*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -219,7 +219,7 @@ public partial class Session
             packet.WriteString(channelname);
             packet.WriteByte(chn.Flags);
             packet.WriteUInt32((uint)chn.GetNumMembers());
-            Wss.SendPacket(packet);
+            SendPacket(packet);
         }
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -418,8 +418,7 @@ public class HashMapStorageContainer<T> : IStorageContainer<T> where T : new()
 
     public T LookupEntry(uint entry)
     {
-        T ret = LookupEntry(entry) ?? AllocateEntry(entry);
-        return ret;
+        return LookupEntry((int)entry);
     }
 }
 

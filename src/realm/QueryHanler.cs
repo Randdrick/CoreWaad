@@ -1,6 +1,6 @@
-/*
+﻿/*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -103,7 +103,7 @@ public partial class Session
 
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("CREATURE_QUERY", $"Réponse envoyée pour la créature (Entry: {entry}).");
         }
         catch (Exception ex)
@@ -163,7 +163,7 @@ public partial class Session
 
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("GAMEOBJECT_QUERY", $"Réponse envoyée pour l'objet (Entry: {entryID}).");
         }
         catch (Exception ex)
@@ -351,7 +351,7 @@ public partial class Session
 
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("ITEM_QUERY_SINGLE", $"Réponse envoyée pour l'item (ID: {itemId}).");
         }
         catch (Exception ex)
@@ -393,7 +393,7 @@ public partial class Session
 
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("ITEM_NAME_QUERY", $"Réponse envoyée pour le nom de l'item (ID: {itemId}).");
         }
         catch (Exception ex)
@@ -438,7 +438,7 @@ public partial class Session
 
             try
             {
-                Wss.SendPacket(data);
+                SendPacket(data);
                 sLog.OutDebug("PAGE_TEXT_QUERY", $"Réponse envoyée pour la page (ID: {pageId}).");
             }
             catch (Exception ex)
@@ -493,7 +493,7 @@ public partial class Session
         
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("NAME_QUERY", $"Réponse envoyée pour le personnage {playerInfo.Name} (GUID: {playerInfo.Guid}).");
         }
         catch (Exception ex)
@@ -525,7 +525,7 @@ public partial class Session
         
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("REALM_SPLIT", $"Réponse envoyée pour la requête de division de royaume.");
         }
         catch (Exception ex)
@@ -543,7 +543,7 @@ public partial class Session
         
         try
         {
-            Wss.SendPacket(data);
+            SendPacket(data);
             sLog.OutDebug("QUERY_TIME", $"Réponse de temps envoyée : {Utils.UNIXTIME}.");
         }
         catch (Exception ex)

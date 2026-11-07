@@ -1,6 +1,6 @@
 /*
  * Wow Arbonne Ascent Development MMORPG Server
- * Copyright (C) 2007-2025 WAAD Team <https://arbonne.games-rpg.net/>
+ * Copyright (C) 2007-2027 WAAD Team <https://arbonne.games-rpg.net/>
  *
  * From original Ascent MMORPG Server, 2005-2008, which doesn't exist anymore.
  *
@@ -90,9 +90,9 @@ namespace WaadRealmServer
                 }
                 var pck = new WorldPacket(_cmd, _remaining);
                 _cmd = 0;
-                pck.Resize(_remaining);
                 byte[] tempBytes = GetReadBuffer().ReadBytes((uint)_remaining);
-                Array.Copy(tempBytes, 0, pck.Contents, 0, _remaining);
+                // Contents renvoie une copie : il faut remplir le paquet via Append
+                pck.Append(tempBytes, _remaining);
 
                 if (_authenticated)
                 {
@@ -120,9 +120,10 @@ namespace WaadRealmServer
 
         public void HandleRegisterWorker(WorldPacket pck)
         {
-            uint build = pck.ReadUInt32();
+            uint workerRevision = pck.ReadUInt32();
             var data = new WorldPacket((ushort)WorkerServerOpcodes.ISMSG_REGISTER_RESULT, 10);
-                if (build == REVISION)
+            // La révision Git du worker doit être identique à celle du realm
+            if (workerRevision == REVISION)
             {
                 var newServer = ClusterMgr.Instance.CreateWorkerServer(this);
                 if (newServer == null)
@@ -140,7 +141,7 @@ namespace WaadRealmServer
             }
             else
             {
-                CLog.Error("ClusterMgr", string.Format(R_E_WORKSRVSOC_BUILD_MISMATCH, build, Master.REVISION));
+                CLog.Error("ClusterMgr", string.Format(R_E_WORKSRVSOC_BUILD_MISMATCH, workerRevision, REVISION));
                 data.WriteUInt32(0);
                 SendPacket(data);
                 return;
